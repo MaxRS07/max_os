@@ -22,7 +22,7 @@ use log::{error, info};
 
 use crate::{
     drivers::{
-        gpu::virtio::{GpuCtrlHdr, VirtioGpuCtrlHdr, VirtqAvail, VirtqDesc, VirtqUsed},
+        gpu::virtio::{VirtioGpuCtrlHdr, VirtioGpuDisplayInfo, VirtqAvail, VirtqDesc, VirtqUsed},
         mmio::{mmio_read, mmio_write},
     },
     mm::error::MemoryError,
@@ -84,52 +84,70 @@ fn setup_queue(mmio: usize, queue_idx: u32, desc: usize, avail: usize, used: usi
     mmio_write::<u32>(mmio, 0x44, 1);
 }
 
-fn init_virtqueue(mmio_addr: usize) {
-    let desc = Box::new([VirtqDesc::default(); QUEUE_SIZE]);
-    let avail = Box::new(VirtqAvail::default());
-    let used = Box::new(VirtqUsed::default());
-
-    let request = GpuCtrlHdr {
-        hdr_type: GET_DISPLAY_INFO,
-        ..Default::default()
-    };
-    let mut response = GpuCtrlHdr::default();
-
+fn send_command<Req, Resp>(
+    mmio_addr: usize,
+    desc: &Box<[VirtqDesc; QUEUE_SIZE]>,
+    avail: &Box<VirtqAvail>,
+    used: &Box<VirtqUsed>,
+    request: &Req,
+    response: &mut Resp,
+) {
     unsafe {
         let desc_mut = desc.get_mut();
-        desc_mut[0].addr = &request as *const _ as u64;
-        desc_mut[0].len = size_of::<GpuCtrlHdr>() as u32; // was size_of::<VirtqDesc>() — wrong
+        desc_mut[0].addr = request as *const Req as u64;
+        desc_mut[0].len = size_of::<Req>() as u32;
         desc_mut[0].flags = 0x1;
         desc_mut[0].next = 1;
 
-        desc_mut[1].addr = &mut response as *mut _ as u64;
-        desc_mut[1].len = size_of::<GpuCtrlHdr>() as u32; // same fix
+        desc_mut[1].addr = response as *mut Resp as u64;
+        desc_mut[1].len = size_of::<Resp>() as u32;
         desc_mut[1].flags = 0x2;
         desc_mut[1].next = 0;
 
-        // Put desc[0] into the available ring
         let avail_mut = avail.get_mut();
         let idx = avail_mut.idx as usize % QUEUE_SIZE;
         avail_mut.ring[idx] = 0;
         avail_mut.idx = avail_mut.idx.wrapping_add(1);
 
-        // Notify device: QueueNotify, queue index 0
         mmio_write::<u32>(mmio_addr, 0x50, 0);
 
-        // Spin until device consumes the descriptor
         let used_mut = used.get_mut();
-        let last_used_idx = used_mut.idx;
-        loop {
-            if used_mut.idx != last_used_idx {
-                break;
-            }
+        let last = used_mut.idx;
+        while core::ptr::read_volatile(core::ptr::addr_of!(used_mut.idx)) == last {
             core::hint::spin_loop();
         }
-
-        setup_queue(mmio_addr, 0, desc.addr(), avail.addr(), used.addr());
-
-        allocate_framebuffer();
     }
+}
+
+fn get_display_info(
+    mmio_addr: usize,
+    desc: &Box<[VirtqDesc; QUEUE_SIZE]>,
+    avail: &Box<VirtqAvail>,
+    used: &Box<VirtqUsed>,
+) -> (u32, u32) {
+    let request = VirtioGpuCtrlHdr {
+        hdr_type: GET_DISPLAY_INFO,
+        ..Default::default()
+    };
+    let mut response = VirtioGpuDisplayInfo::default();
+
+    send_command(mmio_addr, desc, avail, used, &request, &mut response);
+
+    let rect = response.pmodes[0].r;
+    info!("display: {}x{}", rect.width, rect.height);
+    (rect.width, rect.height)
+}
+
+fn init_virtqueue(mmio_addr: usize) {
+    let desc = Box::new([VirtqDesc::default(); QUEUE_SIZE]);
+    let avail = Box::new(VirtqAvail::default());
+    let used = Box::new(VirtqUsed::default());
+
+    setup_queue(mmio_addr, 0, desc.addr(), avail.addr(), used.addr());
+    info!("Queue initialized");
+
+    let (width, height) = get_display_info(mmio_addr, &desc, &avail, &used);
+    allocate_framebuffer();
 }
 
 fn allocate_framebuffer() -> Result<usize, MemoryError> {

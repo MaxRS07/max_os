@@ -23,7 +23,6 @@ pub fn probe_virtio_mmio_gpu(map: &MemoryMap) -> Option<MemoryRegion> {
             continue;
         }
         let device_id = unsafe { ((reg.base_address + 0x8) as *const u32).read_volatile() };
-        info!("IDs: {}", device_id);
         if device_id == VIRTIO_MMIO_DEVICE_ID {
             return Some(reg);
         }

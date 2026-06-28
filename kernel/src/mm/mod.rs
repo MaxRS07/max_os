@@ -17,7 +17,7 @@ pub fn init(fdt_ptr: *const u8) {
         map::MEMORY_MAP.init(|| mmap);
         heap::init(mmap.memory.size);
         fence(SeqCst);
-        info!("Memory map initialized: {:?}", mmap);
+        info!("Memory map initialized");
     } else {
         warn!("Failed to initialize memory map")
     }
