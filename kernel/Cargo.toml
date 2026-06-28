@@ -1,0 +1,14 @@
+[package]
+name = "max_os"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+log = { path = "../libs/log" }
+core_utils = { path = "../libs/core_utils" }
+sdt = { path = "../libs/sdt" }
+
+[[bin]]
+name = "maxos"
+path = "src/main.rs"
