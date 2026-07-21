@@ -1,4 +1,4 @@
-use crate::fdt::FdtHeader;
+use crate::fdt_header::FdtHeader;
 
 #[derive(Clone, Copy, Debug)]
 pub struct FdtStream {

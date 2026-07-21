@@ -1,4 +1,4 @@
-use crate::Level;
+use crate::Level::{self, Debug};
 use core::fmt::Arguments;
 
 static mut LOGGER: Option<fn(Level, Arguments)> = None;

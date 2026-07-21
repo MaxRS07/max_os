@@ -1,5 +1,9 @@
-pub mod mtvec;
+use crate::arch::riscv;
+
+pub mod csr;
+pub mod interrupt;
+pub mod mode;
 
 pub fn setup() {
-    mtvec::init_trap_handler();
+    interrupt::setup();
 }

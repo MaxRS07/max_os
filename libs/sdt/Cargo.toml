@@ -4,4 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-core_utils = { path = "../core_utils" }
+collections = { path = "../collections" }
+mem = { path = "../mem" }
+sync = { path = "../sync" }
+log = { path = "../log" }

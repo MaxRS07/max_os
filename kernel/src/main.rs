@@ -7,6 +7,6 @@ use max_os::println;
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
-    println!("Panic at: {}", _info);
+    println!("{}", _info);
     loop {}
 }

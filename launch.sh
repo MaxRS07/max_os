@@ -1,22 +1,18 @@
+[[ "$1" == "-d" ]] && DEBUG=1 || DEBUG=0
+
 if (cargo build --release) then
   cargo objcopy --release -- -O binary os.bin
-
-  # if ($1 = "-d") then
-  #   qemu-system-riscv32 \
-  #     -machine virt,dumpdtb=virt.dtb \
-  #     -bios none \
-  #     -kernel os.bin \
-  #     -device virtio-gpu-pci,xres=640,yres=480,hostmem=1G \
-  #     -display cocoa \
-  #     -serial stdio \
-  # else
-    qemu-system-riscv32 \
-      -machine virt \
-      -bios none \
-      -kernel os.bin \
-      -device virtio-gpu-device,xres=640,yres=480 \
-      -display cocoa \
-      -serial stdio
+  qemu-system-riscv32 \
+    -machine virt \
+    -bios none \
+    -kernel os.bin \
+    -global virtio-mmio.force-legacy=false \
+    -device virtio-gpu-device,xres=640,yres=480 \
+    -device virtio-keyboard-device \
+    -device virtio-tablet-device \
+    -display cocoa \
+    -serial stdio \
+    -append "${DEBUG}"
 else
   echo "Build failed"
   exit 1

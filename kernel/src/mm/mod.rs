@@ -3,23 +3,37 @@ use core::sync::atomic::fence;
 
 use log::{info, warn};
 
-use crate::mm::map::{MEMORY_MAP, init_static_map};
+use sdt::fdt::{FDT, GLOB_FDT};
+
+use crate::mm::heap::{page_table, setup_boot_mem};
 use crate::println;
 
 pub mod error;
 pub mod heap;
-pub mod map;
 pub mod pmm;
-pub mod vmm;
+
+// declare boot stack addresses
+unsafe extern "C" {
+    pub unsafe static _boot_stack_top: usize;
+    pub unsafe static _boot_stack_bottom: usize;
+}
 
 pub fn init(fdt_ptr: *const u8) {
-    if let Ok(mmap) = init_static_map(fdt_ptr) {
-        map::MEMORY_MAP.init(|| mmap);
-        heap::init(mmap.memory.size);
-        fence(SeqCst);
-        info!("Memory map initialized");
-    } else {
-        warn!("Failed to initialize memory map")
+    setup_boot_mem();
+    match FDT::from_ptr(fdt_ptr) {
+        Ok(mmap) => {
+            println!("Intialized FDT");
+            sdt::fdt::GLOB_FDT.init(|| mmap);
+            if let Some(fdt) = GLOB_FDT.get() {
+                heap::setup_system_mem(fdt.memory.size);
+                page_table::init_root_table();
+            } else {
+                warn!("Failed to set global device tree");
+            }
+            fence(SeqCst);
+            println!("Memory map initialized");
+        }
+        Err(msg) => warn!("Failed to initialize memory map: {}", msg),
     }
 }
 /// Writes a byte at an address

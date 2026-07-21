@@ -46,37 +46,3 @@ pub const PCI_BAR_ADDR_MASK: u32 = 0xFFFFFFF0;
 
 // Sentinel values
 pub const PCI_VENDOR_NONE: u16 = 0xFFFF; // empty slot
-
-// VirtIO Vendor + Device IDs
-pub const VIRTIO_VENDOR_ID: u16 = 0x1AF4;
-pub const VIRTIO_DEV_NETWORK: u16 = 0x1040;
-pub const VIRTIO_DEV_BLOCK: u16 = 0x1041;
-pub const VIRTIO_DEV_GPU: u16 = 0x1050;
-pub const VIRTIO_DEV_INPUT: u16 = 0x1052;
-pub const VIRTIO_DEV_SOUND: u16 = 0x1059;
-
-// VirtIO MMIO Device IDs (for non-PCI virtio)
-pub const VIRTIO_MMIO_DEV_BLOCK: u32 = 2;
-pub const VIRTIO_MMIO_DEV_GPU: u32 = 16;
-pub const VIRTIO_MMIO_DEV_INPUT: u32 = 18;
-pub const VIRTIO_MMIO_DEV_SOUND: u32 = 25;
-
-// VirtIO MMIO Register Offsets
-pub const VIRTIO_MMIO_MAGIC: usize = 0x000;
-pub const VIRTIO_MMIO_VERSION: usize = 0x004;
-pub const VIRTIO_MMIO_DEVICE_ID: u32 = 0x010;
-pub const VIRTIO_MMIO_VENDOR_ID: usize = 0x00C;
-pub const VIRTIO_MMIO_DEV_FEATURES: usize = 0x010;
-pub const VIRTIO_MMIO_DRV_FEATURES: usize = 0x020;
-pub const VIRTIO_MMIO_QUEUE_SEL: usize = 0x030;
-pub const VIRTIO_MMIO_QUEUE_MAX: usize = 0x034;
-pub const VIRTIO_MMIO_QUEUE_NUM: usize = 0x038;
-pub const VIRTIO_MMIO_QUEUE_READY: usize = 0x044;
-pub const VIRTIO_MMIO_QUEUE_NOTIFY: usize = 0x050;
-pub const VIRTIO_MMIO_INT_STATUS: usize = 0x060;
-pub const VIRTIO_MMIO_INT_ACK: usize = 0x064;
-pub const VIRTIO_MMIO_STATUS: usize = 0x070;
-pub const VIRTIO_MMIO_QUEUE_DESC: usize = 0x080;
-pub const VIRTIO_MMIO_QUEUE_DRIVER: usize = 0x090;
-pub const VIRTIO_MMIO_QUEUE_DEVICE: usize = 0x0A0;
-pub const VIRTIO_MMIO_MAGIC_VALUE: u32 = 0x74726976; // "virt"

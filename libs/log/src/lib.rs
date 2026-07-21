@@ -36,4 +36,14 @@ macro_rules! info {
 
 #[macro_export]
 macro_rules! warn {
-    ($($arg:tt)*
+    ($($arg:tt)*) => {
+        $crate::log($crate::Level::Warn, format_args!($($arg)*))
+    };
+}
+
+#[macro_export]
+macro_rules! error {
+    ($($arg:tt)*) => {
+        $crate::log($crate::Level::Error, format_args!($($arg)*))
+    };
+}

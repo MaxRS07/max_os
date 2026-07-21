@@ -1,80 +1,163 @@
-use crate::{error::SdtError, stream::FdtStream};
+use crate::{
+    fdt_header::FdtHeader,
+    region::FDTRegion,
+    stream::{FdtElement, FdtStream},
+};
+use alloc::{
+    borrow::ToOwned,
+    fmt::format,
+    format,
+    string::{String, ToString},
+};
+use collections::hashmap::{FnvBuildHasher, HashMap};
+use log::{info, warn};
+use sync::once::Once;
 
-/// representaion of a flattend device tree header
-#[derive(Clone, Copy, Debug)]
-pub struct FdtHeader {
-    pub addr: usize,
-    pub magic: u32,
-    pub totalsize: u32,
-    pub off_dt_struct: u32,
-    pub off_dt_strings: u32,
-    pub off_mem_rsvmap: u32,
-    pub version: u32,
-    pub last_comp_version: u32,
-    pub boot_cpuid_phys: u32,
-    pub size_dt_strings: u32,
-    pub size_dt_struct: u32,
+pub static GLOB_FDT: Once<FDT> = Once::new();
+
+#[derive(Clone, Default, Debug)]
+pub struct FDT<'a> {
+    pub debug_mode: bool,
+    // System RAM and Boot Flash
+    pub memory: FDTRegion<'a>,
+    pub flash: FDTRegion<'a>,
+
+    // Core Interruptors and Control
+    pub clint: FDTRegion<'a>,
+    pub plic: FDTRegion<'a>,
+    pub pmu: FDTRegion<'a>,
+
+    // System Peripherals (Platform Bus / SoC Components)
+    pub serial: FDTRegion<'a>,
+    pub rtc: FDTRegion<'a>,
+    pub fw_cfg: FDTRegion<'a>,
+    pub test: FDTRegion<'a>, // QEMU test device (poweroff/reboot handles)
+
+    // IO Virtualization Buses
+    pub virtio_mmio: [FDTRegion<'a>; 8],
+
+    // PCI Subsystem Address Spaces
+    pub pci_ecam: FDTRegion<'a>,          // Configuration space
+    pub pci_mmio_non_pref: FDTRegion<'a>, // 32-bit BARs
+    pub pci_mmio_pref: FDTRegion<'a>,     // 64-bit prefetchable BARs
+    element_map: HashMap<String, FdtElement>,
 }
-impl FdtHeader {
-    pub fn from_raw_ptr(fdt_ptr: *const u8) -> core::result::Result<Self, SdtError> {
-        let data = FdtHeader::read(fdt_ptr).unwrap();
-        if let [
-            magic,
-            totalsize,
-            off_dt_struct,
-            off_dt_strings,
-            off_mem_rsvmap,
-            version,
-            last_comp_version,
-            boot_cpuid_phys,
-            size_dt_strings,
-            size_dt_struct,
-            ..,
-        ] = data
-        {
-            let magic = magic.swap_bytes();
-            let totalsize = totalsize.swap_bytes();
-            let off_dt_struct = off_dt_struct.swap_bytes();
-            let off_dt_strings = off_dt_strings.swap_bytes();
-            let off_mem_rsvmap = off_mem_rsvmap.swap_bytes();
-            let version = version.swap_bytes();
-            let last_comp_version = last_comp_version.swap_bytes();
-            let boot_cpuid_phys = boot_cpuid_phys.swap_bytes();
-            let size_dt_strings = size_dt_strings.swap_bytes();
-            let size_dt_struct = size_dt_struct.swap_bytes();
-            Ok(FdtHeader {
-                addr: fdt_ptr as usize,
-                magic,
-                totalsize,
-                off_dt_struct,
-                off_dt_strings,
-                off_mem_rsvmap,
-                version,
-                last_comp_version,
-                boot_cpuid_phys,
-                size_dt_strings,
-                size_dt_struct,
-            })
+
+impl<'a> FDT<'a> {
+    pub fn from_ptr(fdt_ptr: *const u8) -> Result<FDT<'a>, &'static str> {
+        if let Ok(header) = FdtHeader::from_raw_ptr(fdt_ptr) {
+            let mut stream = header.get_stream();
+            unsafe { FDT::from_stream(&mut stream) }
         } else {
-            Err(SdtError::ParseError("One or more values are missing"))
+            Err("Couldn't resolve FDT from pointer")
         }
     }
-    fn read(fdt_ptr: *const u8) -> core::result::Result<&'static [u32], SdtError> {
-        unsafe {
-            let val = (fdt_ptr as *const u32).read_volatile();
-            let magic = val.swap_bytes();
-            match magic == 0xD00DFEED {
-                true => {
-                    let data_ptr = fdt_ptr as *const u32;
-                    let read_size = data_ptr.add(1).read_volatile().swap_bytes() as usize;
-                    let parts = core::slice::from_raw_parts(data_ptr, read_size / 4); // read_size / 4 for u32 chunking 
-                    Ok(parts)
+    /// # Safety
+    unsafe fn from_stream(mut_stream: &mut FdtStream) -> Result<Self, &'static str> {
+        let mut map = FDT::default();
+
+        let mut node_stack: [&str; 8] = [""; 8];
+        let mut depth = 0;
+        let mut virtio_idx: usize = 0;
+        let mut pci_reg_idx = 0;
+
+        while let Some(element) = unsafe { mut_stream.next_element() } {
+            match element {
+                FdtElement::BeginNode { name } => {
+                    let base_name = name.split('@').next().unwrap_or("");
+                    if depth < node_stack.len() {
+                        node_stack[depth] = base_name;
+                        depth += 1;
+                    }
+                    pci_reg_idx = 0;
                 }
-                false => Err(SdtError::ValidationError("Failed to validate FDT struct")),
+
+                FdtElement::Property {
+                    name, value_ptr, ..
+                } => {
+                    // info!("{}", name);
+                    let current_node = if depth > 0 { node_stack[depth - 1] } else { "" };
+                    if current_node == "chosen" && name == "bootargs" {
+                        map.debug_mode = unsafe { value_ptr.read() == 0x31 };
+                    }
+
+                    let path = Self::get_path(node_stack, depth, current_node, virtio_idx);
+
+                    map.element_map
+                        .insert(format!("{}/{}", path, name), element);
+                }
+                FdtElement::EndNode => {
+                    let current_node = if depth > 0 { node_stack[depth - 1] } else { "" };
+                    let path = Self::get_path(node_stack, depth, current_node, virtio_idx);
+                    let reg_path = format!("{}/reg", path);
+                    let region = map
+                        .element_map
+                        .get(reg_path)
+                        .map(|val| unsafe {
+                            FDTRegion::from_reg(current_node, val).unwrap_or(FDTRegion::new(
+                                current_node,
+                                0,
+                                0,
+                            ))
+                        })
+                        .unwrap_or(FDTRegion::new(current_node, 0, 0));
+                    match current_node {
+                        "flash" => map.flash = region,
+                        "memory" => map.memory = region,
+                        "clint" => map.clint = region,
+                        "plic" => map.plic = region,
+                        "pmu" => map.pmu = region,
+                        "serial" => map.serial = region,
+                        "rtc" => map.rtc = region,
+                        "fw-cfg" => map.fw_cfg = region,
+                        "test" => map.test = region,
+                        "virtio_mmio" => {
+                            if virtio_idx < map.virtio_mmio.len() {
+                                map.virtio_mmio[virtio_idx] = region;
+                                virtio_idx += 1;
+                            }
+                        }
+                        "pci" | "pcie" => {
+                            match pci_reg_idx {
+                                0 => map.pci_ecam = region,
+                                1 => map.pci_mmio_non_pref = region,
+                                2 => map.pci_mmio_pref = region,
+                                _ => {}
+                            }
+                            pci_reg_idx += 1;
+                        }
+                        _ => {}
+                    }
+                    if depth > 0 {
+                        depth -= 1;
+                        node_stack[depth] = ""; // Pop
+                    }
+                }
             }
         }
+        Ok(map)
     }
-    pub fn get_stream(&self) -> FdtStream {
-        FdtStream::new(self)
+    fn get_path(
+        node_stack: [&str; 8],
+        depth: usize,
+        current_node: &str,
+        virtio_idx: usize,
+    ) -> String {
+        let mut path = node_stack[..depth].join("/");
+
+        if current_node == "virtio_mmio" {
+            path = format!("{}/{}", path, virtio_idx);
+        }
+        path
+    }
+
+    pub fn get_element(&self, path: &str) -> Option<FdtElement> {
+        self.element_map.get(path.to_string())
+    }
+    pub fn get_element_string(&self, path: &String) -> Option<FdtElement> {
+        self.element_map.get(path.to_string())
     }
 }
+
+unsafe impl<'a> Send for FDT<'a> {}
+unsafe impl<'a> Sync for FDT<'a> {}

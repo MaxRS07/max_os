@@ -1,4 +1,4 @@
-use crate::mm::map::MemoryMap;
+use sdt::fdt::FDT;
 
 pub struct PciAllocator {
     non_pref_next: usize, // next free address
@@ -8,7 +8,7 @@ pub struct PciAllocator {
 }
 
 impl PciAllocator {
-    pub fn new(map: MemoryMap) -> Self {
+    pub fn new(map: FDT) -> Self {
         Self {
             non_pref_next: map.pci_mmio_non_pref.base_address,
             non_pref_end: map.pci_mmio_non_pref.base_address + map.pci_mmio_non_pref.size,

@@ -3,21 +3,47 @@
 version = 4
 
 [[package]]
-name = "core_utils"
+name = "collections"
+version = "0.1.0"
+dependencies = [
+ "log",
+]
+
+[[package]]
+name = "graphics"
+version = "0.1.0"
+
+[[package]]
+name = "input"
 version = "0.1.0"
 
 [[package]]
 name = "log"
 version = "0.1.0"
-dependencies = [
- "core_utils",
-]
 
 [[package]]
 name = "max_os"
 version = "0.1.0"
 dependencies = [
- "core_utils",
+ "collections",
+ "graphics",
+ "input",
+ "log",
+ "mem",
+ "mmio",
+ "sdt",
+ "sync",
+ "virtio",
+]
+
+[[package]]
+name = "mem"
+version = "0.1.0"
+
+[[package]]
+name = "mmio"
+version = "0.1.0"
+dependencies = [
  "log",
  "sdt",
 ]
@@ -26,5 +52,20 @@ dependencies = [
 name = "sdt"
 version = "0.1.0"
 dependencies = [
- "core_utils",
+ "collections",
+ "log",
+ "mem",
+ "sync",
+]
+
+[[package]]
+name = "sync"
+version = "0.1.0"
+
+[[package]]
+name = "virtio"
+version = "0.1.0"
+dependencies = [
+ "mem",
+ "mmio",
 ]

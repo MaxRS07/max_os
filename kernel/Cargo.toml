@@ -6,8 +6,14 @@ build = "build.rs"
 
 [dependencies]
 log = { path = "../libs/log" }
-core_utils = { path = "../libs/core_utils" }
 sdt = { path = "../libs/sdt" }
+graphics = { path = "../libs/graphics" }
+virtio = { path = "../libs/virtio" }
+mmio = { path = "../libs/mmio" }
+input = { path = "../libs/input" }
+sync = { path = "../libs/sync" }
+collections = { path = "../libs/collections" }
+mem = { path = "../libs/mem" }
 
 [[bin]]
 name = "maxos"

@@ -3,10 +3,13 @@ use core::sync::atomic::{
     fence,
 };
 
-use core_utils::sync::once::Once;
+use config::*;
+use core::panic;
 use log::info;
-
-use crate::mm::map::MemoryMap;
+use log::warn;
+use sdt::fdt::FDT;
+use sync::once::Once;
+use virtio::VIRTIO_DEV_GPU;
 
 pub mod config;
 pub mod pci_bump;
@@ -30,16 +33,12 @@ pub const PCI_CMD_BUS_MASTER: u16 = (1 << 2);
 
 static ALLOCATOR: Once<pci_bump::PciAllocator> = Once::new();
 
-pub fn init(map: MemoryMap) {
+pub fn init(map: FDT) {
     let pci_alloc = pci_bump::PciAllocator::new(map);
     ALLOCATOR.init(|| pci_alloc);
     fence(SeqCst);
     info!("PCI allocator initialized")
 }
-
-use config::*;
-use core::panic;
-use log::warn;
 
 pub fn probe_devices(ecam: usize) -> Option<(u8, u8)> {
     for bus in 0..=255u8 {
@@ -97,7 +96,7 @@ pub fn ping_virtio(ecam: usize, bus: u8, dev: u8, func: u8, offset: u16) {
         let size = (!(size_mask & PCI_BAR_ADDR_MASK)).wrapping_add(1) as usize;
 
         if size > 0
-            && let Some(alloc) = ALLOCATOR.get_mut()
+            && let Some(alloc) = ALLOCATOR.get_mut_ptr()
             && let Some(addr) = unsafe { (*alloc).alloc_non_pref(size) }
         {
             pci_write::<u32>(ecam, bus, dev, 0, offset, addr as u32);

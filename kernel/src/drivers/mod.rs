@@ -1,4 +1,6 @@
 pub mod gpu;
-pub mod mmio;
+pub mod input;
 pub mod pci;
+pub mod power;
+pub mod time;
 pub mod uart;

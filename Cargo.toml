@@ -1,3 +1,14 @@
 [workspace]
 resolver = "2"
-members = ["kernel", "libs/core_utils", "libs/log", "libs/sdt"]
+members = [
+    "kernel",
+    "libs/collections",
+    "libs/graphics",
+    "libs/input",
+    "libs/log",
+    "libs/mem",
+    "libs/mmio",
+    "libs/sdt",
+    "libs/sync",
+    "libs/virtio",
+]
