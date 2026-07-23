@@ -1,7 +1,7 @@
 use crate::{
     fdt_header::FdtHeader,
     region::FDTRegion,
-    stream::{FdtElement, FdtStream},
+    stream::{FDTElement, FdtStream},
 };
 use alloc::{
     borrow::ToOwned,
@@ -13,7 +13,7 @@ use collections::hashmap::{FnvBuildHasher, HashMap};
 use log::{info, warn};
 use sync::once::Once;
 
-pub static GLOB_FDT: Once<FDT> = Once::new();
+pub static GLOBAL_FDT: Once<FDT> = Once::new();
 
 #[derive(Clone, Default, Debug)]
 pub struct FDT<'a> {
@@ -40,7 +40,7 @@ pub struct FDT<'a> {
     pub pci_ecam: FDTRegion<'a>,          // Configuration space
     pub pci_mmio_non_pref: FDTRegion<'a>, // 32-bit BARs
     pub pci_mmio_pref: FDTRegion<'a>,     // 64-bit prefetchable BARs
-    element_map: HashMap<String, FdtElement>,
+    element_map: HashMap<String, FDTElement>,
 }
 
 impl<'a> FDT<'a> {
@@ -63,7 +63,7 @@ impl<'a> FDT<'a> {
 
         while let Some(element) = unsafe { mut_stream.next_element() } {
             match element {
-                FdtElement::BeginNode { name } => {
+                FDTElement::BeginNode { name } => {
                     let base_name = name.split('@').next().unwrap_or("");
                     if depth < node_stack.len() {
                         node_stack[depth] = base_name;
@@ -72,7 +72,7 @@ impl<'a> FDT<'a> {
                     pci_reg_idx = 0;
                 }
 
-                FdtElement::Property {
+                FDTElement::Property {
                     name, value_ptr, ..
                 } => {
                     // info!("{}", name);
@@ -86,7 +86,7 @@ impl<'a> FDT<'a> {
                     map.element_map
                         .insert(format!("{}/{}", path, name), element);
                 }
-                FdtElement::EndNode => {
+                FDTElement::EndNode => {
                     let current_node = if depth > 0 { node_stack[depth - 1] } else { "" };
                     let path = Self::get_path(node_stack, depth, current_node, virtio_idx);
                     let reg_path = format!("{}/reg", path);
@@ -101,6 +101,10 @@ impl<'a> FDT<'a> {
                             ))
                         })
                         .unwrap_or(FDTRegion::new(current_node, 0, 0));
+                    let format = format!("{:?}\n", region);
+                    for char in format.bytes() {
+                        unsafe { (0x1000_0000 as *mut u8).write_volatile(char) };
+                    }
                     match current_node {
                         "flash" => map.flash = region,
                         "memory" => map.memory = region,
@@ -151,10 +155,10 @@ impl<'a> FDT<'a> {
         path
     }
 
-    pub fn get_element(&self, path: &str) -> Option<FdtElement> {
+    pub fn get_element(&self, path: &str) -> Option<FDTElement> {
         self.element_map.get(path.to_string())
     }
-    pub fn get_element_string(&self, path: &String) -> Option<FdtElement> {
+    pub fn get_element_string(&self, path: &String) -> Option<FDTElement> {
         self.element_map.get(path.to_string())
     }
 }

@@ -17,8 +17,6 @@ use crate::{
 /// Give thread 10k cycles (10ms) runtime before swapping
 pub static THREAD_INTERVAL: usize = 10_000;
 
-pub static THREAD_QUEUE: Once<RunQueue> = Once::new();
-
 pub struct RunQueue {
     head: *mut Thread,
     tail: *mut Thread,
@@ -28,7 +26,7 @@ pub struct RunQueue {
 
 impl RunQueue {
     /// creates an empty `RunQueue`
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         RunQueue {
             head: null_mut(),
             tail: null_mut(),

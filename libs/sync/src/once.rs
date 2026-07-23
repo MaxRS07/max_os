@@ -1,6 +1,10 @@
 use core::{
     cell::UnsafeCell,
-    sync::atomic::{AtomicU8, Ordering},
+    fmt::Debug,
+    sync::atomic::{
+        self, AtomicUsize,
+        Ordering::{Acquire, Release},
+    },
 };
 
 /// Calls a method that can only run once. Thread safe
@@ -12,8 +16,8 @@ pub enum OnceState {
     EXECUTED,
     POISONED,
 }
-impl From<u8> for OnceState {
-    fn from(value: u8) -> Self {
+impl From<usize> for OnceState {
+    fn from(value: usize) -> Self {
         match value {
             0 => OnceState::WAITING,
             1 => OnceState::RUNNING,
@@ -23,13 +27,13 @@ impl From<u8> for OnceState {
     }
 }
 
-const WAITING: u8 = 0x0;
-const RUNNING: u8 = 0x1;
-const EXECUTED: u8 = 0x2;
-const POISONED: u8 = 0x3;
+const WAITING: usize = 0x0;
+const RUNNING: usize = 0x1;
+const EXECUTED: usize = 0x2;
+const POISONED: usize = 0x3;
 
 pub struct Once<T> {
-    state: AtomicU8,
+    state: AtomicUsize,
     value: UnsafeCell<Option<T>>,
 }
 
@@ -38,7 +42,7 @@ unsafe impl<T: Send + Sync> Sync for Once<T> {}
 impl<T> Once<T> {
     pub const fn new() -> Self {
         Once {
-            state: AtomicU8::new(WAITING),
+            state: AtomicUsize::new(WAITING),
             value: UnsafeCell::new(None),
         }
     }
@@ -47,29 +51,23 @@ impl<T> Once<T> {
     where
         F: FnOnce() -> T,
     {
-        match self
+        if self
             .state
-            .compare_exchange(WAITING, RUNNING, Ordering::Acquire, Ordering::Acquire)
+            .compare_exchange(WAITING, RUNNING, Acquire, Acquire)
+            .is_ok()
         {
-            Ok(WAITING) => {
-                unsafe {
-                    *self.value.get() = Some(func());
-                }
-                self.state.store(EXECUTED, Ordering::Release);
+            unsafe {
+                *self.value.get() = Some(func());
             }
-            Err(RUNNING) => {
-                while self.state.load(Ordering::Acquire) == RUNNING {
-                    core::hint::spin_loop();
-                }
+            self.state.store(EXECUTED, Release);
+        } else {
+            while self.state.load(Acquire) == RUNNING {
+                core::hint::spin_loop();
             }
-            Err(EXECUTED) | Err(POISONED) => {
-                // !("Attempted to call init twice on Once object");
-            }
-            _ => unreachable!(),
         }
     }
     pub fn get(&self) -> Option<&T> {
-        if self.state.load(Ordering::Acquire) == EXECUTED {
+        if self.state.load(Acquire) == EXECUTED {
             // Safe because state is EXECUTED and will never change again
             unsafe { (*self.value.get()).as_ref() }
         } else {
@@ -77,7 +75,7 @@ impl<T> Once<T> {
         }
     }
     pub fn get_mut_ptr(&self) -> Option<*mut T> {
-        if self.state.load(Ordering::Acquire) == EXECUTED {
+        if self.state.load(Acquire) == EXECUTED {
             unsafe { (*self.value.get()).as_mut().map(|v| v as *mut T) }
         } else {
             None
@@ -89,24 +87,41 @@ impl<T> Once<T> {
         unsafe { self.get_mut_ptr().map(|ptr| &mut *ptr) }
     }
     pub fn is_waiting(&self) -> bool {
-        self.state.load(Ordering::Acquire) == WAITING
+        self.state.load(Acquire) == WAITING
     }
     pub fn is_executed(&self) -> bool {
-        self.state.load(Ordering::Acquire) == EXECUTED
+        self.state.load(Acquire) == EXECUTED
     }
     pub fn is_poisoned(&self) -> bool {
-        self.state.load(Ordering::Acquire) == POISONED
+        self.state.load(Acquire) == POISONED
     }
     pub fn is_running(&self) -> bool {
-        self.state.load(Ordering::Acquire) == RUNNING
+        self.state.load(Acquire) == RUNNING
     }
     pub fn state(&self) -> OnceState {
-        OnceState::from(self.state.load(Ordering::Acquire))
+        OnceState::from(self.state.load(Acquire))
     }
 }
 
 impl<T> Default for Once<T> {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl<T> Debug for Once<T>
+where
+    T: Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("Once { ");
+        if let Some(value) = self.get() {
+            f.write_fmt(format_args!("value: {:?} ", value));
+        }
+        f.write_fmt(format_args!(
+            "state: {:?} ",
+            OnceState::from(self.state.load(Acquire))
+        ));
+        f.write_str("}")
     }
 }

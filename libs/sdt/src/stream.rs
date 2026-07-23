@@ -19,17 +19,17 @@ impl FdtStream {
     /// `Some(*const u8)` if a matching name is found, else `None`
     /// ## Safety
     ///
-    pub unsafe fn seek_named_property(&mut self, name: &'static str) -> Option<FdtElement> {
+    pub unsafe fn seek_named_property(&mut self, name: &'static str) -> Option<FDTElement> {
         loop {
             let element = unsafe { self.next_element() };
             match element {
-                Some(FdtElement::Property {
+                Some(FDTElement::Property {
                     name: prop_name,
                     value_ptr,
                     len,
                 }) => {
                     if name == prop_name {
-                        return Some(FdtElement::Property {
+                        return Some(FDTElement::Property {
                             name,
                             value_ptr,
                             len,
@@ -46,7 +46,7 @@ impl FdtStream {
     /// Goes to the next structural element in the device tree
     /// # Safety
     ///
-    pub unsafe fn next_element(&mut self) -> Option<FdtElement> {
+    pub unsafe fn next_element(&mut self) -> Option<FDTElement> {
         loop {
             let token = unsafe { self.ptr.read_volatile().swap_bytes() };
             match token {
@@ -73,7 +73,7 @@ impl FdtStream {
                         let aligned_bytes = (len + 3) & !3;
                         self.ptr = (self.ptr as *const u8).add(aligned_bytes) as *const u32;
 
-                        return Some(FdtElement::BeginNode { name });
+                        return Some(FDTElement::BeginNode { name });
                     }
                 }
                 // FDT_PROP
@@ -95,7 +95,7 @@ impl FdtStream {
                     // FIX: Advance past token (1), data_len (1), name_offset (1), and value data length
                     self.ptr = self.ptr.add(3).add(aligned_data_len / 4);
 
-                    return Some(FdtElement::Property {
+                    return Some(FDTElement::Property {
                         name,
                         value_ptr,
                         len: data_len as usize,
@@ -108,7 +108,7 @@ impl FdtStream {
 
                     // Map the token types properly if your FdtElement supports distinct variants
                     if token == 0x0000_0002 {
-                        return Some(FdtElement::EndNode);
+                        return Some(FDTElement::EndNode);
                     }
                     // If it's a NOP (0x4), don't return! Let the loop continue to read the next token.
                 },
@@ -126,7 +126,7 @@ impl FdtStream {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub enum FdtElement {
+pub enum FDTElement {
     BeginNode {
         name: &'static str,
     },

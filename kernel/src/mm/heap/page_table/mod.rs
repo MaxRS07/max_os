@@ -6,18 +6,18 @@ use core::{
 };
 
 use alloc::boxed::Box;
-use sdt::fdt::GLOB_FDT;
+use sdt::{fdt::GLOBAL_FDT, stream::FDTElement};
 use sync::once::Once;
 
 use crate::{
     arch::riscv::csr::Csr::SATP,
     console::writer::println,
-    mm::heap::page_table::map::{Table, TableEntry},
+    mm::heap::page_table::table::{Table, TableEntry},
     println,
 };
 
-pub mod map;
 pub mod pdpt;
+pub mod table;
 
 static mut ROOT_TABLE: Table = Table::new();
 
@@ -26,37 +26,50 @@ pub fn init_root_table() {
     unsafe {
         let root_ptr = addr_of_mut!(ROOT_TABLE);
         let root_addr = root_ptr.addr();
-        println!("Created root table at 0x{:0x}", root_addr);
+        println!("Created root table at 0x{:x}", root_addr);
         match map_boot_pages(root_ptr) {
-            Ok(()) => {
-                println("packing satp");
-                pack_satp(root_addr);
-            }
+            Ok(()) => pack_satp(root_addr),
             Err(error) => panic!("{}", error),
         }
     }
 }
 
+// read + write
+const RW: u32 = 0b111;
+
+// read + execute
+const RX: u32 = 0b1011;
+
+// read + write + execute
+const RWX: u32 = 0b1111;
+
 fn map_boot_pages(root_ptr: *mut Table) -> Result<(), &'static str> {
     unsafe {
-        let _ = (*root_ptr).map(
-            0x8000_0000,
-            0x8000_0000,
-            0b1011 | Table::MEGAPAGE, // 4MiB boot megatable on 0x8000_0000, RE on
-        );
         // identity mappings
-        if let Some(fdt) = GLOB_FDT.get() {
-            // UART0
-            let uart0 = 0x1000_0000u32;
-            let _ = (*root_ptr).map(uart0, uart0, 0b101);
+        if let Some(fdt) = GLOBAL_FDT.get() {
+            // RAM
+            let _ = (*root_ptr).map_region_identity(&fdt.memory, RWX);
 
             // CLINT
-            let clint = fdt.clint.base_address as u32;
-            let _ = (*root_ptr).map(clint, clint, 0b111);
+            let _ = (*root_ptr).map_region_identity(&fdt.clint, RW);
 
             // PLIC
-            let plic = fdt.plic.base_address as u32;
-            let _ = (*root_ptr).map(plic, plic, 0b111);
+            let _ = (*root_ptr).map_region_identity(&fdt.plic, RW);
+
+            // MMIO
+            let _ = (*root_ptr).map_mmio_identity(&fdt.virtio_mmio, RW);
+
+            // Test
+            let _ = (*root_ptr).map_region_identity(&fdt.test, RW);
+
+            // RTC
+            let _ = (*root_ptr).map_region_identity(&fdt.rtc, RW);
+
+            // serial (uart)
+            let _ = (*root_ptr).map_region_identity(&fdt.serial, RW);
+
+            // fw-cfg
+            let _ = (*root_ptr).map_region_identity(&fdt.fw_cfg, RW);
         }
         Ok(())
     }
@@ -70,8 +83,15 @@ unsafe fn pack_satp(root_addr: usize) {
     let addr = (root_addr >> 12) as u32;
     satp_value |= addr_mask & addr;
 
+    println!("packing");
     unsafe {
         SATP.write(satp_value as usize);
-        asm!("sfence.vma");
+        asm!(
+            "sfence.vma zero, zero",
+            "fence rw, rw",
+            "fence.i",
+            options(nostack)
+        );
     }
+    println!("packed")
 }

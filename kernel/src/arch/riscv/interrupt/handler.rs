@@ -1,18 +1,19 @@
 use core::arch::naked_asm;
 
 use log::{debug, info, warn};
-use sdt::fdt::{self, FDT, GLOB_FDT};
+use sdt::fdt::{self, FDT, GLOBAL_FDT};
 
 use crate::{
     arch::riscv::{
         csr::Csr::{MIE, MSTATUS, MTVEC, SIE, SSTATUS, STVEC},
         interrupt::{
             notifier::{INTERRUPT_NOTIFIER, InterruptNotifier},
-            route::{InterruptCode, Trap, parse_scause},
+            route::{ExceptionCode, InterruptCode, Trap, parse_scause},
         },
     },
     drivers::{power::sys_poweroff, time},
-    sched::queue::THREAD_QUEUE,
+    sched::THREAD_QUEUE,
+    syscall::handle_ecall,
 };
 
 const QTICK: u64 = 100_000_000;
@@ -25,7 +26,7 @@ pub fn init_trap_handler() {
 
     schedule_interrupt_timer(u64::MAX); // max out timer to prevent timer irq before handler
 
-    let trap_target = (trap_entry as usize) & !0x3;
+    let trap_target = (trap_entry as *const () as usize) & !0x3;
 
     unsafe {
         STVEC.write(trap_target);
@@ -121,11 +122,7 @@ pub extern "C" fn rust_trap_handler() {
                     match int {
                         InterruptCode::MachineExternal => handle_plic_interrupt(notifier),
                         InterruptCode::MachineTimer => {
-                            if let Some(thread_queue) = THREAD_QUEUE.get_mut() {
-                                thread_queue.handle_interrupt();
-                            } else {
-                                warn!("Thread queue not initialized")
-                            }
+                            THREAD_QUEUE.get_mut().unwrap().handle_interrupt();
                             schedule_interrupt_timer(QTICK);
                         }
                         // match int {
@@ -133,9 +130,13 @@ pub extern "C" fn rust_trap_handler() {
                         _ => (),
                     };
                 }
-                Trap::Exception(_exception) => {
-                    warn!("exception: {:?}", _exception);
-                    sys_poweroff();
+                Trap::Exception(exception) => {
+                    match exception {
+                        ExceptionCode::EnvCallFromUMode => handle_ecall(exception),
+                        _ => warn!("exception: {:?}", exception),
+                    }
+
+                    // sys_poweroff();
                 }
             }
         } else {
@@ -155,7 +156,7 @@ fn set_plic(fdt: &FDT, irq_id: u32) {
 }
 
 fn handle_plic_interrupt(notifier: &mut InterruptNotifier) {
-    if let Some(fdt) = GLOB_FDT.get() {
+    if let Some(fdt) = GLOBAL_FDT.get() {
         let irq_id = claim_plic(fdt);
         if irq_id == 0 {
             return;
@@ -171,7 +172,7 @@ const MTIME_CMP_OFFSET: usize = 0x4000;
 
 /// sets an interrupt to occur `time` cpu cycles from now
 pub fn schedule_interrupt_timer(interval: u64) {
-    if let Some(fdt) = GLOB_FDT.get() {
+    if let Some(fdt) = GLOBAL_FDT.get() {
         let addr = fdt.clint.base_address + MTIME_CMP_OFFSET;
         let cur = time::mtime_raw(fdt.clint.base_address);
         let irq_time = interval + cur;

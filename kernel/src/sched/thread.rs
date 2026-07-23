@@ -1,9 +1,12 @@
 use alloc::{boxed::Box, str::from_boxed_utf8_unchecked};
-use log::{info, warn};
+use log::{debug, info, warn};
 use sdt::fdt::FDT;
 use sync::once::Once;
 
-use crate::sched::{queue::THREAD_QUEUE, thread};
+use crate::{
+    console::writer::println,
+    sched::{THREAD_QUEUE, thread},
+};
 use core::{
     alloc::Layout,
     arch::naked_asm,
@@ -11,7 +14,7 @@ use core::{
     fmt::Display,
     iter::Map,
     mem,
-    ptr::{self, null_mut},
+    ptr::{self, null, null_mut},
     sync::atomic::{AtomicU32, Ordering},
 };
 
@@ -61,14 +64,17 @@ const THREAD_STACK_SIZE: usize = 0x3000;
 pub struct Thread {
     /// information about the stack goes here. Contains both the stack pointer and thread pointer
     pub context: Context,
+
     /// Unique id of the thread
     id: u32,
     /// Thread name for debugging
     name: [u8; 16],
+
     /// Execution stage of the thread
     pub state: State,
     /// Relative execution priority of the thread, 0 is the highest priority
     pub priority: Priority,
+
     /// How long the thread has been alive in cpu cycles
     lifetime: u64,
 
@@ -89,7 +95,7 @@ pub struct Thread {
     /// Pointer to previous thread in priority queue
     pub prev: *mut Thread,
 }
-/// records the last used thread id. IDs are assigned incrementally, every id after last is unused
+/// records the last used thread id. IDs are assigned incrementally, every id greater than `LAST_ID` is unused
 static LAST_ID: AtomicU32 = AtomicU32::new(0);
 
 impl Thread {
@@ -101,36 +107,42 @@ impl Thread {
             state: State::Running, // The main thread creates itself, hence it is running
             stack_top,
             stack_bottom,
-            ..Self::default()
+            context: Context::empty(),
+            priority: Priority::Normal,
+            lifetime: 0,
+            tls_start: null(),
+            tls_len: 0,
+            total_size: 0,
+            next: null_mut(),
+            prev: null_mut(),
         };
         let main_box = Box::new(main);
         let main_ptr = Box::into_raw(main_box);
-
         unsafe {
-            if let Some(thread_queue) = THREAD_QUEUE.get_mut() {
-                // Main is the currently executing context, not a ready thread.
-                // Register it as `running` so the first switch can save the
-                // boot registers into it; enqueuing it would leave `running`
-                // null forever and prevent any context switch.
-                thread_queue.set_running(main_ptr);
-                return Ok(());
-            }
+            THREAD_QUEUE.get_mut().unwrap().set_running(main_ptr);
+            return Ok(());
         }
+
         Err("Failed to queue main thread")
     }
     /// Creates and enques a thread. Returns the unique ID of the thread or None if queing failed.
     pub fn spawn(name: &str, priority: Priority, entry: usize) -> Option<u32> {
         let name = Self::name_from_str(name);
         let last_id = LAST_ID.load(Ordering::Acquire);
-        let context = Context::empty();
         let mut new = Self {
-            context,
+            context: Context::empty(),
             id: last_id + 1,
             name,
             state: State::Waiting,
             priority,
             lifetime: 0,
-            ..Self::default()
+            tls_start: null(),
+            tls_len: 0,
+            total_size: 0,
+            next: null_mut(),
+            prev: null_mut(),
+            stack_bottom: null(),
+            stack_top: null(),
         };
         if let Err(error) = new.alloc() {
             warn!("Failed to construct thread: {}", error);
@@ -147,17 +159,16 @@ impl Thread {
         let box_ptr = Box::into_raw(boxed);
 
         LAST_ID.store(last_id + 1, Ordering::Release);
-        if let Some(thread_q) = unsafe { THREAD_QUEUE.get_mut() } {
-            if thread_q.enque(box_ptr).is_err() {
-                warn!(
-                    "Failed to queue thread: '{}'",
-                    str::from_utf8(&name).unwrap_or("")
-                );
-                let _ = unsafe { Box::from_raw(box_ptr) };
-                return None;
-            }
-            return Some(last_id + 1);
+        if unsafe { THREAD_QUEUE.get_mut().unwrap().enque(box_ptr).is_err() } {
+            warn!(
+                "Failed to queue thread: '{}'",
+                str::from_utf8(&name).unwrap_or("")
+            );
+            let _ = unsafe { Box::from_raw(box_ptr) };
+            return None;
         }
+        return Some(last_id + 1);
+
         let _ = unsafe { Box::from_raw(box_ptr) };
         None
     }
@@ -231,7 +242,7 @@ unsafe impl Sync for Thread {}
 impl Display for Thread {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!(
-            "{}@{:0x}",
+            "{}@{:x}",
             self.get_name_str(),
             self.tls_start.addr(),
         ))

@@ -1,6 +1,6 @@
 use core::arch::{asm, global_asm};
 
-use sdt::fdt::GLOB_FDT;
+use sdt::fdt::GLOBAL_FDT;
 
 global_asm!(include_str!("time.s"));
 
@@ -25,7 +25,7 @@ pub fn mtime_raw(base_clint: usize) -> u64 {
 
 /// return the kernel uptime in milliseconds
 pub fn mtime_ms() -> u64 {
-    if let Some(fdt) = GLOB_FDT.get() {
+    if let Some(fdt) = GLOBAL_FDT.get() {
         let raw_time = mtime_raw(fdt.clint.base_address);
         return raw_time * 1000 / TIMER_FREQUENCY;
     }

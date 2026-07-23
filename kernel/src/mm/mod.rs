@@ -3,7 +3,7 @@ use core::sync::atomic::fence;
 
 use log::{info, warn};
 
-use sdt::fdt::{FDT, GLOB_FDT};
+use sdt::fdt::{FDT, GLOBAL_FDT};
 
 use crate::mm::heap::{page_table, setup_boot_mem};
 use crate::println;
@@ -23,8 +23,8 @@ pub fn init(fdt_ptr: *const u8) {
     match FDT::from_ptr(fdt_ptr) {
         Ok(mmap) => {
             println!("Intialized FDT");
-            sdt::fdt::GLOB_FDT.init(|| mmap);
-            if let Some(fdt) = GLOB_FDT.get() {
+            sdt::fdt::GLOBAL_FDT.init(|| mmap);
+            if let Some(fdt) = GLOBAL_FDT.get() {
                 heap::setup_system_mem(fdt.memory.size);
                 page_table::init_root_table();
             } else {

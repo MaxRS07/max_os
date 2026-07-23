@@ -4,7 +4,7 @@ use sdt::region::{self, FDTRegion};
 use crate::{arch::riscv::csr::Csr::FFLAGS, console::writer::println, println};
 
 const TABLE_LEN: usize = 1024;
-const TABLE_SIZE: usize = 0x1000;
+const PAGE_SIZE: usize = 0x1000;
 
 #[repr(align(4096))]
 pub struct Table {
@@ -32,8 +32,7 @@ impl Table {
         if (flags & Self::MEGAPAGE) != 0 {
             if vpn_leaf == 0 && phys_addr.is_multiple_of(align) {
                 root_entry.set_addr(phys_addr);
-                root_entry.set_flags(flags);
-                root_entry.set_accessed(true);
+                root_entry.init(flags);
                 return Ok(());
             } else {
                 return Err("Specified megatable, but address not aligned");
@@ -45,27 +44,53 @@ impl Table {
             let boxed = Box::new(table);
             let addr = Box::into_raw(boxed).addr();
             root_entry.set_addr(addr as u32);
-            root_entry.set_flags(flags);
             root_entry.set_valid(true);
-            return Ok(());
         }
         let ptr = root_entry.addr() as *mut Table;
         unsafe {
             let table = &mut *ptr;
-            let leaf = table.entry_mut(vpn_root);
+            let leaf = table.entry_mut(vpn_leaf);
 
             leaf.set_addr(phys_addr);
-            leaf.set_flags(flags);
-            leaf.set_valid(true);
+            leaf.init(flags);
             Ok(())
         }
     }
-    pub fn map_region(&mut self, virt_addr: u32, region: FDTRegion, flags: u32) {
-        for i in 0..region.size / 0x1000 + 1 {
-            let _ = self.map(virt_addr, (region.base_address + i * 0x1000) as u32, flags);
+    pub fn map_region(
+        &mut self,
+        virt_addr: u32,
+        region: &FDTRegion,
+        flags: u32,
+    ) -> Result<(), &'static str> {
+        let page_count = region.size.div_ceil(PAGE_SIZE);
+
+        for i in 0..page_count {
+            let offset = i * PAGE_SIZE;
+            let vaddr = virt_addr + offset as u32;
+            let paddr = (region.base_address + offset) as u32;
+
+            self.map(vaddr, paddr, flags)?;
+        }
+
+        Ok(())
+    }
+
+    /// Maps an FDT region to itself
+    pub fn map_region_identity(
+        &mut self,
+        region: &FDTRegion,
+        flags: u32,
+    ) -> Result<(), &'static str> {
+        self.map_region(region.base_address as u32, region, flags)
+    }
+
+    pub fn map_mmio_identity(&mut self, mmio_slots: &[FDTRegion], flags: u32) {
+        for slot in mmio_slots {
+            let _ = self.map_region_identity(slot, flags);
         }
     }
-    pub fn map_mmio(pa: usize, size: usize, flags: u32) -> u32 {}
+
+    pub fn map_mmio(pa: usize, size: usize, flags: u32) {}
     /// Returns the physical address asscosiated with `virt_addr`, or 0 if `virt_addr` is invalid
     pub fn translate(&self, virt_addr: u32) -> u32 {
         let vpn_root = (virt_addr >> 22) & 0x3FF;
@@ -77,6 +102,7 @@ impl Table {
             return 0;
         }
         if root.is_executable() || root.is_writable() || root.is_readable() {
+            // root is a leaf, return its address
             return root.addr();
         }
 
@@ -131,6 +157,17 @@ impl TableEntry {
 
     pub fn set_flags(&mut self, flags: u32) {
         self.0 = (self.0 & !Self::FLAG_MASK) | (flags & Self::FLAG_MASK);
+    }
+    /// initializes an entry. Sets flags to `flags` and sets `accessed`, `dirty`, and `valid` to `true`
+    pub fn init(&mut self, flags: u32) {
+        self.set_flags(flags);
+        self.set_ready();
+    }
+
+    pub fn set_ready(&mut self) {
+        self.set_valid(true);
+        self.set_accessed(true);
+        self.set_dirty(true);
     }
 
     pub fn set_addr(&mut self, phys_addr: u32) {

@@ -2,7 +2,7 @@ use core::fmt::Debug;
 
 use mem::pointerator::Pointerator;
 
-use crate::stream::FdtElement;
+use crate::stream::FDTElement;
 
 #[derive(Clone, Default)]
 #[repr(C)]
@@ -36,10 +36,10 @@ impl<'a> FDTRegion<'a> {
     ///
     /// ## Safety
     ///
-    pub unsafe fn from_reg(name: &'a str, el: FdtElement) -> Option<Self> {
+    pub unsafe fn from_reg(name: &'a str, el: FDTElement) -> Option<Self> {
         match el {
-            FdtElement::BeginNode { name: _ } | FdtElement::EndNode => None,
-            FdtElement::Property {
+            FDTElement::BeginNode { name: _ } | FDTElement::EndNode => None,
+            FDTElement::Property {
                 name: _,
                 value_ptr,
                 len,
@@ -84,7 +84,7 @@ impl<'a> Debug for FDTRegion<'a> {
         f.debug_struct("FDTRegion")
             .field("name", &self.name)
             .field("base_address", &format_args!("0x{:x}", self.base_address))
-            .field("size", &self.size)
+            .field("size", &format_args!("0x{:x}", self.size))
             .finish()
     }
 }

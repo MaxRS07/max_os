@@ -16,7 +16,7 @@ pub fn enable_user_mode(hart_id: usize, fdt_ptr: *const u8) {
         status |= MPP_BIT;
         MSTATUS.write(status);
 
-        MEPC.write(kernel_main as usize);
+        MEPC.write(kernel_main as *const () as usize);
 
         let pmpaddr0: usize = !0;
         let pmpcfg0: usize = 0x1F;

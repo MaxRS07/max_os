@@ -3,11 +3,12 @@ use core::{cell::UnsafeCell, fmt::Debug, ptr::null_mut};
 use alloc::alloc::{GlobalAlloc, Layout};
 use log::{info, warn};
 
-use crate::mm::heap::{boot::BootAllocator, linked_list::LinkedListAllocator};
+use crate::mm::heap::{boot::BootAllocator, kalloc::LinkedListAllocator};
 
 pub mod boot;
-pub mod linked_list;
+pub mod kalloc;
 pub mod page_table;
+pub mod palloc;
 
 unsafe extern "C" {
     // end of linker memory
@@ -105,7 +106,7 @@ pub fn setup_system_mem(total_size: usize) {
         let link_start = core::ptr::addr_of!(_end) as usize + BOOT_HEAP_SIZE;
         // `total_size` is the whole RAM region
         let available = (RAM_BASE + total_size).saturating_sub(link_start);
-        linked_list::init(link_start as *const u8, available);
+        kalloc::init(link_start as *const u8);
     }
     // hand the global allocator over to the linked-list heap now that RAM is mapped
     ALLOCATOR.change_state(AllocatorState::LinkedList);
