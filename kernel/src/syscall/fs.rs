@@ -1,4 +1,7 @@
-use core::str;
+use core::str::{self, FromStr};
+
+use alloc::{borrow::ToOwned, string::String};
+use log::warn;
 
 use crate::syscall::SyscallArgs;
 
@@ -12,20 +15,24 @@ pub enum FsOp {
 }
 
 impl FsOp {
-    fn call(args: SyscallArgs) {
-        match Self {
+    fn call(&self, args: SyscallArgs) {
+        match self {
             Self::Open => {
                 let path = Self::get_path(args.0, args.1);
-                open(path);
             }
             Self::Close => {
-                let path = Self::get_path(addr, len)
+                let path = Self::get_path(args.0, args.1);
             }
             _ => (),
         }
     }
-    fn get_path(addr: usize, len: usize) -> &str {
-        unsafe { str::from_raw_parts(args.0 as *const u8, args.1) }
+    fn get_path(addr: usize, len: usize) -> String {
+        unsafe {
+            let str_ptr = addr as *const u8;
+            let bytes = core::slice::from_raw_parts(str_ptr, len);
+            let str = str::from_utf8(bytes).unwrap(); // TODO: Actually handle this 
+            String::from_str(str).unwrap()
+        }
     }
 }
 
@@ -37,6 +44,7 @@ impl From<usize> for FsOp {
             2 => Self::Write,
             3 => Self::Close,
             4 => Self::Seek,
+            _ => panic!("Unsupported file system operation"),
         }
     }
 }

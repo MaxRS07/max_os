@@ -1,3 +1,4 @@
+pub mod block;
 pub mod gpu;
 pub mod input;
 pub mod pci;

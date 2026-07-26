@@ -83,7 +83,6 @@ impl VirtioGpu {
         }
         // signal DRIVER_OK
         mmio_write::<u32>(mmio_addr, 0x70, 15);
-
         let info = virtio_gpu.get_display_info();
         let rect = info.pmodes[0].r;
 
@@ -240,7 +239,6 @@ impl VirtioGpu {
             let framebuffer: Box<[Brga]> = core::iter::repeat_with(Brga::default)
                 .take(size)
                 .collect::<Box<[Brga]>>();
-
             self.framebuffer = framebuffer;
 
             let response = self.attach_backing(id);

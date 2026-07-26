@@ -29,3 +29,13 @@ macro_rules! terminate {
         }
     };
 }
+
+/// Manually pauses the
+#[macro_export]
+macro_rules! yield_thread {
+    () => {
+        unsafe {
+            THREAD_QUEUE.get_mut().unwrap().terminate_running();
+        }
+    };
+}

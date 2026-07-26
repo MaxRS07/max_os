@@ -35,41 +35,43 @@ pub fn init_root_table() {
 }
 
 // read + write
-const RW: u32 = 0b111;
+const RW: usize = 0b111;
 
 // read + execute
-const RX: u32 = 0b1011;
+const RX: usize = 0b1011;
 
 // read + write + execute
-const RWX: u32 = 0b1111;
+const RWX: usize = 0b1111;
 
 fn map_boot_pages(root_ptr: *mut Table) -> Result<(), &'static str> {
     unsafe {
+        println!("Mapping regions");
         // identity mappings
         if let Some(fdt) = GLOBAL_FDT.get() {
             // RAM
-            let _ = (*root_ptr).map_region_identity(&fdt.memory, RWX);
-
+            let _ = (*root_ptr).map_region_identity(&fdt.memory, RWX | Table::MEGAPAGE);
+            println!("Mapped RAM");
             // CLINT
             let _ = (*root_ptr).map_region_identity(&fdt.clint, RW);
-
+            println!("Mapped CLINT");
             // PLIC
             let _ = (*root_ptr).map_region_identity(&fdt.plic, RW);
-
+            println!("Mapped PLIC");
             // MMIO
             let _ = (*root_ptr).map_mmio_identity(&fdt.virtio_mmio, RW);
-
+            println!("Mapped MMIO");
             // Test
             let _ = (*root_ptr).map_region_identity(&fdt.test, RW);
-
+            println!("Mapped Test");
             // RTC
             let _ = (*root_ptr).map_region_identity(&fdt.rtc, RW);
-
+            println!("Mapped RTC");
             // serial (uart)
             let _ = (*root_ptr).map_region_identity(&fdt.serial, RW);
-
+            println!("Mapped Serial");
             // fw-cfg
             let _ = (*root_ptr).map_region_identity(&fdt.fw_cfg, RW);
+            println!("Mapped FW-CFG");
         }
         Ok(())
     }
@@ -83,7 +85,6 @@ unsafe fn pack_satp(root_addr: usize) {
     let addr = (root_addr >> 12) as u32;
     satp_value |= addr_mask & addr;
 
-    println!("packing");
     unsafe {
         SATP.write(satp_value as usize);
         asm!(
@@ -93,5 +94,4 @@ unsafe fn pack_satp(root_addr: usize) {
             options(nostack)
         );
     }
-    println!("packed")
 }

@@ -132,7 +132,7 @@ pub extern "C" fn rust_trap_handler() {
                 }
                 Trap::Exception(exception) => {
                     match exception {
-                        ExceptionCode::EnvCallFromUMode => handle_ecall(exception),
+                        ExceptionCode::EnvCallFromUMode => handle_ecall(),
                         _ => warn!("exception: {:?}", exception),
                     }
 

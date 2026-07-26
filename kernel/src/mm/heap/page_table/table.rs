@@ -1,10 +1,11 @@
+use core::fmt::Display;
+
 use alloc::boxed::Box;
 use sdt::region::{self, FDTRegion};
 
-use crate::{arch::riscv::csr::Csr::FFLAGS, console::writer::println, println};
-
 const TABLE_LEN: usize = 1024;
-const PAGE_SIZE: usize = 0x1000;
+const LEAF_SIZE: usize = 0x1000;
+const MEGATABLE_SIZE: usize = 0x400000;
 
 #[repr(align(4096))]
 pub struct Table {
@@ -18,9 +19,14 @@ impl Table {
             pages: [TableEntry(0); TABLE_LEN],
         }
     }
-    pub const MEGAPAGE: u32 = 1 << 8;
-    pub fn map(&mut self, virt_addr: u32, phys_addr: u32, flags: u32) -> Result<(), &'static str> {
-        let align = 0x400000; // 4MiB
+    pub const MEGAPAGE: usize = 1 << 8;
+    pub fn map(
+        &mut self,
+        virt_addr: usize,
+        phys_addr: usize,
+        flags: usize,
+    ) -> Result<(), &'static str> {
+        let align = MEGATABLE_SIZE; // 4MiB
         let flags = flags & TableEntry::FLAG_MASK;
 
         let vpn_root = (virt_addr >> 22) & 0x3FF;
@@ -43,7 +49,7 @@ impl Table {
             let table = Self::new();
             let boxed = Box::new(table);
             let addr = Box::into_raw(boxed).addr();
-            root_entry.set_addr(addr as u32);
+            root_entry.set_addr(addr as usize);
             root_entry.set_valid(true);
         }
         let ptr = root_entry.addr() as *mut Table;
@@ -58,16 +64,19 @@ impl Table {
     }
     pub fn map_region(
         &mut self,
-        virt_addr: u32,
+        virt_addr: usize,
         region: &FDTRegion,
-        flags: u32,
+        flags: usize,
     ) -> Result<(), &'static str> {
-        let page_count = region.size.div_ceil(PAGE_SIZE);
-
+        let mut offset_size = LEAF_SIZE;
+        if flags & Table::MEGAPAGE != 0 {
+            offset_size = MEGATABLE_SIZE;
+        }
+        let page_count = region.size.div_ceil(offset_size);
         for i in 0..page_count {
-            let offset = i * PAGE_SIZE;
-            let vaddr = virt_addr + offset as u32;
-            let paddr = (region.base_address + offset) as u32;
+            let offset = i * offset_size;
+            let vaddr = virt_addr + offset as usize;
+            let paddr = (region.base_address + offset) as usize;
 
             self.map(vaddr, paddr, flags)?;
         }
@@ -79,20 +88,20 @@ impl Table {
     pub fn map_region_identity(
         &mut self,
         region: &FDTRegion,
-        flags: u32,
+        flags: usize,
     ) -> Result<(), &'static str> {
-        self.map_region(region.base_address as u32, region, flags)
+        self.map_region(region.base_address as usize, region, flags)
     }
 
-    pub fn map_mmio_identity(&mut self, mmio_slots: &[FDTRegion], flags: u32) {
+    pub fn map_mmio_identity(&mut self, mmio_slots: &[FDTRegion], flags: usize) {
         for slot in mmio_slots {
             let _ = self.map_region_identity(slot, flags);
         }
     }
 
-    pub fn map_mmio(pa: usize, size: usize, flags: u32) {}
+    pub fn map_mmio(pa: usize, size: usize, flags: usize) {}
     /// Returns the physical address asscosiated with `virt_addr`, or 0 if `virt_addr` is invalid
-    pub fn translate(&self, virt_addr: u32) -> u32 {
+    pub fn translate(&self, virt_addr: usize) -> usize {
         let vpn_root = (virt_addr >> 22) & 0x3FF;
         let vpn_leaf = (virt_addr >> 12) & 0x3FF;
 
@@ -117,7 +126,7 @@ impl Table {
         0
     }
     /// Gets a mutable ref of a table entry at index `idx`. Panics if `idx` is larger than 1023.
-    pub fn entry_mut(&mut self, idx: u32) -> &mut TableEntry {
+    pub fn entry_mut(&mut self, idx: usize) -> &mut TableEntry {
         &mut self.pages[idx as usize]
     }
 }
@@ -130,36 +139,36 @@ impl Default for Table {
 
 #[derive(Clone, Copy, Debug)]
 #[repr(transparent)]
-pub struct TableEntry(pub u32);
+pub struct TableEntry(pub usize);
 
 impl TableEntry {
     // Sv32 Page Table Entry Flag Bits (Bits 0-7)
-    pub const VALID: u32 = 1 << 0;
-    pub const READ: u32 = 1 << 1;
-    pub const WRITE: u32 = 1 << 2;
-    pub const EXECUTE: u32 = 1 << 3;
-    pub const USER: u32 = 1 << 4;
-    pub const GLOBAL: u32 = 1 << 5;
-    pub const ACCESSED: u32 = 1 << 6;
-    pub const DIRTY: u32 = 1 << 7;
+    pub const VALID: usize = 1 << 0;
+    pub const READ: usize = 1 << 1;
+    pub const WRITE: usize = 1 << 2;
+    pub const EXECUTE: usize = 1 << 3;
+    pub const USER: usize = 1 << 4;
+    pub const GLOBAL: usize = 1 << 5;
+    pub const ACCESSED: usize = 1 << 6;
+    pub const DIRTY: usize = 1 << 7;
 
     /// Flag mask (bits 0-9 reserved)
-    const FLAG_MASK: u32 = 0x3FF;
+    const FLAG_MASK: usize = 0x3FF;
     /// PNN 1 mask (20-31)
-    const PNN1_MASK: u32 = 0xFFF0_0000;
+    const PNN1_MASK: usize = 0xFFF0_0000;
     /// PNN 0 mask (10-19)
-    const PNN0_MASK: u32 = 0x000F_FC00;
+    const PNN0_MASK: usize = 0x000F_FC00;
 
     // Raw Flag Getters and Setters
-    pub fn get_flags(&self) -> u32 {
+    pub fn get_flags(&self) -> usize {
         self.0 & Self::FLAG_MASK
     }
 
-    pub fn set_flags(&mut self, flags: u32) {
+    pub fn set_flags(&mut self, flags: usize) {
         self.0 = (self.0 & !Self::FLAG_MASK) | (flags & Self::FLAG_MASK);
     }
     /// initializes an entry. Sets flags to `flags` and sets `accessed`, `dirty`, and `valid` to `true`
-    pub fn init(&mut self, flags: u32) {
+    pub fn init(&mut self, flags: usize) {
         self.set_flags(flags);
         self.set_ready();
     }
@@ -170,30 +179,30 @@ impl TableEntry {
         self.set_dirty(true);
     }
 
-    pub fn set_addr(&mut self, phys_addr: u32) {
+    pub fn set_addr(&mut self, phys_addr: usize) {
         let ppn = phys_addr >> 12;
         self.set_ppn0(ppn & 0x3FF); // low 10 bits
         self.set_ppn1((ppn >> 10) & 0xFFF); // high 12 bits
     }
 
-    pub fn addr(&self) -> u32 {
+    pub fn addr(&self) -> usize {
         let ppn = self.ppn0() | (self.ppn1() << 10);
         ppn << 12
     }
 
-    pub fn set_ppn0(&mut self, ppn0: u32) {
+    pub fn set_ppn0(&mut self, ppn0: usize) {
         self.0 &= !Self::PNN0_MASK;
         self.0 |= (ppn0 << 10) & Self::PNN0_MASK;
     }
-    pub fn ppn0(&self) -> u32 {
+    pub fn ppn0(&self) -> usize {
         (self.0 & Self::PNN0_MASK) >> 10
     }
 
-    pub fn set_ppn1(&mut self, ppn1: u32) {
+    pub fn set_ppn1(&mut self, ppn1: usize) {
         self.0 &= !Self::PNN1_MASK;
         self.0 |= (ppn1 << 20) & Self::PNN1_MASK;
     }
-    pub fn ppn1(&self) -> u32 {
+    pub fn ppn1(&self) -> usize {
         (self.0 & Self::PNN1_MASK) >> 20
     }
 
@@ -302,14 +311,29 @@ impl TableEntry {
     }
 
     // static
-    pub fn ppn0_from_u32(virt_addr: u32) -> u32 {
+    pub fn ppn0_from_usize(virt_addr: usize) -> usize {
         let mut te = Self(0);
         te.set_addr(virt_addr);
         te.ppn0()
     }
-    pub fn ppn1_from_u32(virt_addr: u32) -> u32 {
+    pub fn ppn1_from_usize(virt_addr: usize) -> usize {
         let mut te = Self(0);
         te.set_addr(virt_addr);
         te.ppn1()
+    }
+}
+
+impl Display for TableEntry {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_fmt(format_args!(
+            "addr: 0x{:x}, ppn1: {}, ppn0: {}, R: {}, W: {}, X: {}, V: {}",
+            self.addr(),
+            self.ppn1(),
+            self.ppn0(),
+            self.is_readable(),
+            self.is_writable(),
+            self.is_executable(),
+            self.is_valid()
+        ))
     }
 }

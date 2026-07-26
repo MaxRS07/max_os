@@ -152,6 +152,8 @@ impl RunQueue {
         self.len -= 1;
         unsafe { Ok(&mut *thread) }
     }
+    /// Manually pauses the running thread
+    pub fn yield_thread() {}
     /// Adopts `thread` as the currently running thread without placing it in
     /// the ready queue. Used to bootstrap the initial (main) context so the
     /// first context switch has somewhere to save the boot registers.

@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use crate::syscall::fs::FsOp;
+use crate::syscall::{com::ComOp, fs::FsOp};
 
 mod com;
 mod ctrl;
@@ -11,14 +11,14 @@ mod mem;
 /// top 8 bits for identifing the call type
 const SYSCALL_MASK: usize = 0xFF << (usize::BITS - 8);
 /// lower 24 for function routing
-const FN_MASK: usize = !EXCEPTION_MASK;
+const FN_MASK: usize = !SYSCALL_MASK;
 
 /// arguments 1-6. these come from the a0-5 registers.
 type SyscallArgs = (usize, usize, usize, usize, usize, usize);
 
 enum Syscall {
     /// network
-    Communication(),
+    Communication(ComOp),
     /// threadig
     Control,
     Device,
@@ -26,32 +26,31 @@ enum Syscall {
     FileSystem(FsOp),
     /// allocation
     Memory,
-    None,
 }
 
-fn route_call(value: SyscallArgs) -> Self {
-    let call_type = value.0 & SYSCALL_MASK >> (usize::BITS - 8);
-    let fn_type = 
+fn route_call(value: usize) -> Syscall {
+    let call_type = value & SYSCALL_MASK >> (usize::BITS - 8);
+    let fn_type = value & FN_MASK;
     match call_type {
-        1 => Self::Communication(com::Communication::),
-        2 => Self::Control,
-        3 => Self::Device,
-        4 => Self::FileSystem,
-        5 => Self::Memory(),
-        _ => Self::None,
-    } 
+        1 => Syscall::Communication(ComOp::from(fn_type)),
+        2 => Syscall::Control,
+        3 => Syscall::Device,
+        4 => Syscall::FileSystem(FsOp::from(fn_type)),
+        5 => Syscall::Memory,
+        _ => panic!("Unsupported syscall"),
+    }
 }
 
-pub fn handle_ecall(call: u32) {
-    let mut id: usize;
+pub fn handle_ecall() {
+    let mut id = 0usize;
     let (arg1, ag2, arg3, arg4, arg5, arg6) = load_args(&mut id);
-    match Syscall::from() {
+    match route_call(id) {
         _ => {}
     }
 }
 /// Loads the syscall registers and returns them
 pub fn load_args(id: &mut usize) -> SyscallArgs {
-    let mut a7: usize; // syscall id + route
+    let mut _id: usize; // syscall id + route
     let mut a0: usize; // arg 1
     let mut a1: usize; // arg 2
     let mut a2: usize; // arg 3
@@ -68,7 +67,7 @@ pub fn load_args(id: &mut usize) -> SyscallArgs {
             "mv {}, a3",
             "mv {}, a4",
             "mv {}, a5",
-            out(reg) a7,
+            out(reg) _id,
             out(reg) a0,
             out(reg) a1,
             out(reg) a2,
@@ -77,5 +76,6 @@ pub fn load_args(id: &mut usize) -> SyscallArgs {
             out(reg) a5,
         )
     }
-    (a7, a0, a1, a2, a3, a4, a5)
+    *id = _id;
+    (a0, a1, a2, a3, a4, a5)
 }

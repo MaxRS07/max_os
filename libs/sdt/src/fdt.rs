@@ -101,10 +101,6 @@ impl<'a> FDT<'a> {
                             ))
                         })
                         .unwrap_or(FDTRegion::new(current_node, 0, 0));
-                    let format = format!("{:?}\n", region);
-                    for char in format.bytes() {
-                        unsafe { (0x1000_0000 as *mut u8).write_volatile(char) };
-                    }
                     match current_node {
                         "flash" => map.flash = region,
                         "memory" => map.memory = region,

@@ -1,11 +1,12 @@
 use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::{null, null_mut},
+    sync::atomic::Ordering,
 };
 
-use log::debug;
+use log::{debug, error, info};
 
-use crate::mm::heap::palloc;
+use crate::mm::heap::palloc::{self, FREE_PAGES};
 
 // TODO: stop using public mutable statics
 pub static mut BLOCK_HEAD: *mut BlockHeader = core::ptr::null_mut();
@@ -50,77 +51,69 @@ impl LinkedListAllocator {
 
         let mut cur = unsafe { BLOCK_HEAD };
         while !cur.is_null() {
-            let block = unsafe { &mut *cur };
-            // check if block can fit header and can fit payload
-            if !block.free {
-                cur = block.next;
-                continue;
-            }
-            // start address of current block
-            let base = cur.addr();
+            if let Some((block, payload, base, block_end)) = Self::block_fits(cur, size, align) {
+                let alloc_hdr = payload - HEADER_SIZE;
 
-            // end address of current block
-            let block_end = base + block.size + HEADER_SIZE;
-
-            // next aligned address
-            let mut payload = (base + HEADER_SIZE + align - 1) & !(align - 1);
-
-            // make sure payload doesnt collide with the current header, if it does, push forward by align (at least HEADER_SIZE) preventing collision
-            if payload - HEADER_SIZE != base && (payload - HEADER_SIZE) - base < HEADER_SIZE {
-                payload += align;
-            }
-
-            let alloc_hdr = payload - HEADER_SIZE;
-
-            if payload + size <= block_end {
-                unsafe {
-                    if alloc_hdr != base {
-                        block.size = alloc_hdr - (base + HEADER_SIZE);
-                        let ah = alloc_hdr as *mut BlockHeader;
-                        (*ah).prev = cur;
-                        (*ah).next = block.next;
-                        if !block.next.is_null() {
-                            (*block.next).prev = ah;
+                if payload + size <= block_end {
+                    unsafe {
+                        if alloc_hdr != base {
+                            block.size = alloc_hdr - (base + HEADER_SIZE);
+                            let ah = alloc_hdr as *mut BlockHeader;
+                            (*ah).prev = cur;
+                            (*ah).next = block.next;
+                            if !block.next.is_null() {
+                                (*block.next).prev = ah;
+                            }
+                            block.next = ah;
                         }
-                        block.next = ah;
+
+                        let ab = &mut *(alloc_hdr as *mut BlockHeader);
+
+                        let end = payload + size;
+                        if block_end - end > HEADER_SIZE {
+                            let th = end as *mut BlockHeader;
+                            (*th).free = true;
+                            (*th).size = block_end - end - HEADER_SIZE;
+                            (*th).next = ab.next;
+                            (*th).prev = alloc_hdr as *mut BlockHeader;
+
+                            if BLOCK_TAIL == cur || BLOCK_TAIL == alloc_hdr as *mut BlockHeader {
+                                BLOCK_TAIL = th
+                            }
+
+                            if !ab.next.is_null() {
+                                (*ab.next).prev = th;
+                            }
+                            ab.next = th;
+                            ab.size = size;
+                        } else {
+                            ab.size = block_end - payload;
+                        }
+
+                        ab.free = false;
+                        return payload as *mut u8;
                     }
-
-                    let ab = &mut *(alloc_hdr as *mut BlockHeader);
-
-                    let end = payload + size;
-                    if block_end - end > HEADER_SIZE {
-                        let th = end as *mut BlockHeader;
-                        (*th).free = true;
-                        (*th).size = block_end - end - HEADER_SIZE;
-                        (*th).next = ab.next;
-                        (*th).prev = alloc_hdr as *mut BlockHeader;
-
-                        if BLOCK_TAIL == cur || BLOCK_TAIL == alloc_hdr as *mut BlockHeader {
-                            BLOCK_TAIL = th
-                        }
-
-                        if !ab.next.is_null() {
-                            (*ab.next).prev = th;
-                        }
-                        ab.next = th;
-                        ab.size = size;
-                    } else {
-                        ab.size = block_end - payload;
-                    }
-
-                    ab.free = false;
-                    return payload as *mut u8;
                 }
             }
-            cur = block.next;
+            cur = (unsafe { *cur }).next;
         }
-        // Out of space. Allocate a new page.
+        // Out of space. Allocate new pages.
 
+        let pages_needed = (size + HEADER_SIZE).div_ceil(0x1000);
+        info!("{}", pages_needed);
+        if pages_needed > FREE_PAGES.load(Ordering::Acquire) {
+            error!("Out of pages");
+            return null_mut();
+        }
         let new_page = palloc::alloc();
+        for page in 0..pages_needed - 1 {
+            palloc::alloc();
+        }
+
         if !new_page.is_null() {
             let new_block = new_page as *mut BlockHeader;
             unsafe {
-                (*new_block).size = 0x1000 - HEADER_SIZE;
+                (*new_block).size = pages_needed * 0x1000 - HEADER_SIZE;
                 (*new_block).free = true;
                 (*new_block).prev = null_mut();
                 (*new_block).next = null_mut();
@@ -137,6 +130,30 @@ impl LinkedListAllocator {
             return Self::alloc(layout);
         }
         null_mut()
+    }
+
+    fn block_fits(
+        cur: *mut BlockHeader,
+        size: usize,
+        align: usize,
+    ) -> Option<(&'static mut BlockHeader, usize, usize, usize)> {
+        let block = unsafe { &mut *cur };
+        if !block.free {
+            return None;
+        }
+        let base = cur.addr();
+        let block_end = base + block.size + HEADER_SIZE;
+
+        let mut payload = (base + HEADER_SIZE + align - 1) & !(align - 1);
+        if payload - HEADER_SIZE != base && (payload - HEADER_SIZE) - base < HEADER_SIZE {
+            payload += align;
+        }
+
+        if payload + size <= block_end {
+            Some((block, payload, base, block_end))
+        } else {
+            None
+        }
     }
 
     /// Frees your memory

@@ -53,27 +53,15 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
     unsafe {
         let stack_top = _boot_stack_top as *const u8;
         let stack_bottom = _boot_stack_bottom as *const u8;
-
         info!("Loaded stack");
-
         sched::init_run_queue(stack_top, stack_bottom);
-
         info!("Run queue initialized");
-
-        Thread::spawn(
-            "thread a",
-            Priority::Normal,
-            thread_entry as *const () as usize,
-        );
     }
+    let called = false;
     // enable hardware timer
     loop {
         unsafe {
             core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
         }
     }
-}
-
-fn thread_entry() {
-    info!("Hello from Thread A");
 }

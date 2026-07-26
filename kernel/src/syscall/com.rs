@@ -8,24 +8,25 @@ pub enum ComOp {
     Msgget,
 }
 
-impl Communication {
+impl ComOp {
     pub fn call(&self, args: SyscallArgs) {
         match self {
-            Self::pipe => 
+            _ => todo!(),
         }
     }
 }
 
-impl From<usize> for Communication {
+impl From<usize> for ComOp {
     fn from(value: usize) -> Self {
         match value {
-            0 => Self::pipe,
-            1 => Self::socket,
-            2 => Self::msgget,
-            4 => Self::semget,
-            5 => Self::msgget
+            0 => Self::Pipe,
+            1 => Self::Socket,
+            2 => Self::Msgget,
+            4 => Self::Semget,
+            5 => Self::Msgget,
+            _ => panic!("Unsupported communication operation"),
         }
     }
 }
 
-fn pipe(arg) {}
+fn pipe(arg: usize) {}

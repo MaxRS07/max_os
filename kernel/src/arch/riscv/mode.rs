@@ -1,7 +1,11 @@
-use core::arch::asm;
+use core::{
+    arch::asm,
+    sync::atomic::{Ordering, fence},
+};
 
 use crate::{
     arch::riscv::csr::Csr::{MEDELEG, MEPC, MIDELEG, MSTATUS, PMPADDR0, PMPCFG0, SATP},
+    console::writer::println,
     drivers::uart::write_char,
     kernel_main,
 };
@@ -32,6 +36,7 @@ pub fn enable_user_mode(hart_id: usize, fdt_ptr: *const u8) {
         let medeleg = 0xB000;
         MEDELEG.write(medeleg);
 
+        fence(Ordering::SeqCst);
         // bind args to kernel entry
         asm!(
             "mret",

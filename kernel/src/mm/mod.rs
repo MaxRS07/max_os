@@ -1,4 +1,4 @@
-use core::sync::atomic::Ordering::{Acquire, SeqCst};
+use core::sync::atomic::Ordering::{self, Acquire, SeqCst};
 use core::sync::atomic::fence;
 
 use log::{info, warn};
@@ -25,8 +25,9 @@ pub fn init(fdt_ptr: *const u8) {
             println!("Intialized FDT");
             sdt::fdt::GLOBAL_FDT.init(|| mmap);
             if let Some(fdt) = GLOBAL_FDT.get() {
-                heap::setup_system_mem(fdt.memory.size);
+                println!("{:?}", fdt);
                 page_table::init_root_table();
+                heap::setup_system_mem(fdt.memory.size);
             } else {
                 warn!("Failed to set global device tree");
             }

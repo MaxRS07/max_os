@@ -1,9 +1,16 @@
-use core::{cell::UnsafeCell, fmt::Debug, ptr::null_mut};
+use core::{
+    cell::UnsafeCell,
+    fmt::Debug,
+    ptr::{addr_of, null_mut},
+};
 
 use alloc::alloc::{GlobalAlloc, Layout};
 use log::{info, warn};
 
-use crate::mm::heap::{boot::BootAllocator, kalloc::LinkedListAllocator};
+use crate::{
+    mm::heap::{boot::BootAllocator, kalloc::LinkedListAllocator},
+    println,
+};
 
 pub mod boot;
 pub mod kalloc;
@@ -103,10 +110,13 @@ const RAM_BASE: usize = 0x8000_0000;
 
 pub fn setup_system_mem(total_size: usize) {
     unsafe {
-        let link_start = core::ptr::addr_of!(_end) as usize + BOOT_HEAP_SIZE;
+        let kmem_start = addr_of!(_end).add(BOOT_HEAP_SIZE) as *const u8;
+        let kmem_end = (RAM_BASE + total_size) as *const u8;
         // `total_size` is the whole RAM region
-        let available = (RAM_BASE + total_size).saturating_sub(link_start);
-        kalloc::init(link_start as *const u8);
+        palloc::init_page_allocator(kmem_start, kmem_end);
+        println!("Intialized page allocator");
+        kalloc::init(kmem_start);
+        println!("Intialized kernel allocator")
     }
     // hand the global allocator over to the linked-list heap now that RAM is mapped
     ALLOCATOR.change_state(AllocatorState::LinkedList);
