@@ -1,7 +1,4 @@
-use log::{Level::Info, info};
 use sdt::fdt::FDT;
-
-use crate::println;
 
 pub mod handler;
 pub mod notifier;

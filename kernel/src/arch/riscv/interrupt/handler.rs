@@ -5,7 +5,7 @@ use sdt::fdt::{self, FDT, GLOBAL_FDT};
 
 use crate::{
     arch::riscv::{
-        csr::Csr::{MIE, MSTATUS, MTVEC, SIE, SSTATUS, STVEC},
+        csr::Csr::{MIE, MSTATUS, MTVEC, SEPC, SIE, SSTATUS, STVAL, STVEC},
         interrupt::{
             notifier::{INTERRUPT_NOTIFIER, InterruptNotifier},
             route::{ExceptionCode, InterruptCode, Trap, parse_scause},
@@ -130,14 +130,21 @@ pub extern "C" fn rust_trap_handler() {
                         _ => (),
                     };
                 }
-                Trap::Exception(exception) => {
-                    match exception {
-                        ExceptionCode::EnvCallFromUMode => handle_ecall(),
-                        _ => warn!("exception: {:?}", exception),
+                Trap::Exception(exception) => match exception {
+                    ExceptionCode::EnvCallFromUMode => handle_ecall(),
+                    _ => {
+                        // There's no fixup/demand-paging path for any other
+                        // exception, so resuming at the same sepc can never
+                        // make progress - sret would just re-trap on the same
+                        // instruction forever. Fail loudly instead.
+                        let sepc = SEPC.read();
+                        let stval = STVAL.read();
+                        panic!(
+                            "unhandled exception {:?} at sepc={:#x} stval={:#x}",
+                            exception, sepc, stval
+                        );
                     }
-
-                    // sys_poweroff();
-                }
+                },
             }
         } else {
             warn!("Notifier unset")

@@ -1,5 +1,6 @@
 use core::fmt::Write;
 use core::sync::atomic::{AtomicBool, Ordering};
+use core::write;
 
 use alloc::fmt;
 use log::Level;

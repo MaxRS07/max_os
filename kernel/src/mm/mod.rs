@@ -1,12 +1,13 @@
+use core::hint::spin_loop;
 use core::sync::atomic::Ordering::{self, Acquire, SeqCst};
-use core::sync::atomic::fence;
+use core::sync::atomic::{compiler_fence, fence};
 
-use log::{info, warn};
+use log::{debug, info, warn};
 
 use sdt::fdt::{FDT, GLOBAL_FDT};
 
 use crate::mm::heap::{page_table, setup_boot_mem};
-use crate::println;
+use crate::{console, println};
 
 pub mod error;
 pub mod heap;
@@ -22,17 +23,18 @@ pub fn init(fdt_ptr: *const u8) {
     setup_boot_mem();
     match FDT::from_ptr(fdt_ptr) {
         Ok(mmap) => {
-            println!("Intialized FDT");
+            console::init(mmap.debug_mode);
+            debug!("Intialized FDT");
             sdt::fdt::GLOBAL_FDT.init(|| mmap);
             if let Some(fdt) = GLOBAL_FDT.get() {
-                println!("{:?}", fdt);
                 page_table::init_root_table();
+                info!("{:?}", fdt);
                 heap::setup_system_mem(fdt.memory.size);
             } else {
                 warn!("Failed to set global device tree");
             }
             fence(SeqCst);
-            println!("Memory map initialized");
+            debug!("Memory map initialized");
         }
         Err(msg) => warn!("Failed to initialize memory map: {}", msg),
     }

@@ -5,12 +5,9 @@ use core::{
 };
 
 use alloc::alloc::{GlobalAlloc, Layout};
-use log::{info, warn};
+use log::{debug, info, warn};
 
-use crate::{
-    mm::heap::{boot::BootAllocator, kalloc::LinkedListAllocator},
-    println,
-};
+use crate::mm::heap::{boot::BootAllocator, kalloc::LinkedListAllocator};
 
 pub mod boot;
 pub mod kalloc;
@@ -114,9 +111,9 @@ pub fn setup_system_mem(total_size: usize) {
         let kmem_end = (RAM_BASE + total_size) as *const u8;
         // `total_size` is the whole RAM region
         palloc::init_page_allocator(kmem_start, kmem_end);
-        println!("Intialized page allocator");
+        debug!("Intialized page allocator");
         kalloc::init(kmem_start);
-        println!("Intialized kernel allocator")
+        debug!("Intialized kernel allocator")
     }
     // hand the global allocator over to the linked-list heap now that RAM is mapped
     ALLOCATOR.change_state(AllocatorState::LinkedList);

@@ -5,21 +5,18 @@ use alloc::{
     vec::{self, Vec},
 };
 use graphics::{gpu::GpuDevice, types::Brga};
-use log::{error, info, warn};
-use mmio::{mmio_read, mmio_write};
+use log::{debug, error, warn};
 use sdt::fdt::FDT;
 use virtio::{
-    QUEUE_SIZE, VIRTIO_MMIO_MAGIC, VIRTIO_MMIO_MAGIC_VALUE, VIRTIO_MMIO_QUEUE_DESC,
-    VIRTIO_MMIO_QUEUE_DEVICE, VIRTIO_MMIO_QUEUE_DRIVER, VIRTIO_MMIO_QUEUE_MAX,
-    VIRTIO_MMIO_QUEUE_NUM, VIRTIO_MMIO_QUEUE_SEL,
-    init::init_state,
+    ALL_FEATURES,
+    init::{init_state, signal_driver_ok},
     queue::init_virtqueue,
-    send::{DescBuf, send_command, send_command_raw},
     types::{
         VirtioGpuCtrlHdr, VirtioGpuDisplayInfo, VirtioGpuMemEntry, VirtioGpuRect,
         VirtioGpuResourceAttachBacking, VirtioGpuResourceCreate2d, VirtioGpuResourceFlush,
         VirtioGpuSetScanout, VirtioGpuTransferToHost2d,
-        queue::{VirtQueue, VirtqAvail, VirtqDesc, VirtqUsed},
+        device::verify_virtio_magic,
+        queue::{DescBuf, VirtQueue},
     },
 };
 
@@ -51,48 +48,53 @@ pub struct VirtioGpu {
     width: u32,
     height: u32,
     resource_id: u32,
-    queue: VirtQueue,
+    controlq: VirtQueue,
+    cursorq: VirtQueue,
 }
 
 impl VirtioGpu {
     pub fn from_mmio(fdt: &FDT, mmio_idx: usize) -> Option<Self> {
         let mmio_addr = fdt.virtio_mmio[mmio_idx].base_address;
-        let magic = mmio::mmio_read::<u32>(mmio_addr, VIRTIO_MMIO_MAGIC);
-        if magic != VIRTIO_MMIO_MAGIC_VALUE {
+        if let Err(error) = verify_virtio_magic(mmio_addr) {
+            warn!("{}", error);
             return None;
         }
-        if let Err(error) = init_state(mmio_addr) {
+        if let Err(error) = init_state(mmio_addr, ALL_FEATURES) {
             warn!("Failed to initialize GPU state: {}", error);
             return None;
         }
 
-        let queue = VirtQueue::default();
+        let controlq = VirtQueue::default();
+        let cursorq = VirtQueue::default();
 
         let mut virtio_gpu = VirtioGpu {
             mmio_addr,
-            queue,
+            controlq,
+            cursorq,
             framebuffer: Box::new([]), // placeholder, replaced in initialize_framebuffer
             width: 0,
             height: 0,
             resource_id: 0,
         };
 
-        if let Err(error) = init_virtqueue(&mut virtio_gpu.queue, mmio_addr, 0) {
+        if let Err(error) = init_virtqueue(&mut virtio_gpu.controlq, mmio_addr, 0) {
             error!("Failed to initialize virtqueue: {}", error);
             return None;
         }
-        // signal DRIVER_OK
-        mmio_write::<u32>(mmio_addr, 0x70, 15);
+        debug!("initialized virtqueue");
+        signal_driver_ok(mmio_addr);
         let info = virtio_gpu.get_display_info();
         let rect = info.pmodes[0].r;
 
         if let Err(error) = virtio_gpu.initialize_framebuffer(rect.width, rect.height) {
             error!("Failed to initialize framebuffer for VirtIO GPU: {}", error);
         }
+        debug!("initialized framebuffer");
         virtio_gpu.scanout(1, rect);
         if let Err(error) = virtio_gpu.flush_resources() {
             error!("Failed to flush VirtIO GPU: {}", error)
         }
+        debug!("flushed resources");
 
         Some(virtio_gpu)
     }
@@ -104,7 +106,8 @@ impl VirtioGpu {
         };
         let mut response = VirtioGpuDisplayInfo::default();
 
-        send_command(self.mmio_addr, &mut self.queue, &request, &mut response);
+        self.controlq
+            .send_command(self.mmio_addr, &request, &mut response);
 
         response
     }
@@ -119,7 +122,8 @@ impl VirtioGpu {
 
         let mut response = VirtioGpuCtrlHdr::default();
 
-        send_command(self.mmio_addr, &mut self.queue, &request, &mut response);
+        self.controlq
+            .send_command(self.mmio_addr, &request, &mut response);
 
         response
     }
@@ -146,9 +150,8 @@ impl VirtioGpu {
         let entry_addr = &mut *entry as *mut VirtioGpuMemEntry as usize;
         let address = &mut *response as *mut VirtioGpuCtrlHdr as usize;
 
-        send_command_raw(
+        let last = self.controlq.send_command_raw(
             self.mmio_addr,
-            &mut self.queue,
             &[
                 DescBuf {
                     addr: req_addr as u64,
@@ -166,9 +169,11 @@ impl VirtioGpu {
                     flags: 0x2,
                 },
             ],
+            0,
         );
+        self.controlq.wait_used(last);
 
-        response.as_ref().clone()
+        *response
     }
 
     fn scanout(&mut self, resource_id: u32, rect: VirtioGpuRect) {
@@ -182,7 +187,8 @@ impl VirtioGpu {
             resource_id,
         };
         let mut response = VirtioGpuCtrlHdr::default();
-        send_command(self.mmio_addr, &mut self.queue, &request, &mut response);
+        self.controlq
+            .send_command(self.mmio_addr, &request, &mut response);
     }
 
     fn flush_resources(&mut self) -> Result<(), GpuError> {
@@ -204,12 +210,8 @@ impl VirtioGpu {
         };
 
         let mut response = VirtioGpuCtrlHdr::default();
-        send_command(
-            self.mmio_addr,
-            &mut self.queue,
-            &transfer_req,
-            &mut response,
-        );
+        self.controlq
+            .send_command(self.mmio_addr, &transfer_req, &mut response);
 
         // flush to scanout
         let flush_req = VirtioGpuResourceFlush {
@@ -226,13 +228,15 @@ impl VirtioGpu {
             resource_id: 1,
             padding: 0,
         };
-        send_command(self.mmio_addr, &mut self.queue, &flush_req, &mut response);
+        self.controlq
+            .send_command(self.mmio_addr, &flush_req, &mut response);
         Ok(())
     }
 
     fn initialize_framebuffer(&mut self, width: u32, height: u32) -> Result<(), MemoryError> {
         let id = 1;
         if self.create_resource(id, width, height).is_ok_nodata() {
+            debug!("Created resource");
             let size = (width * height) as usize;
 
             // FIX: Allocates directly on the heap without cloning on the stack

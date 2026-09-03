@@ -76,12 +76,12 @@ where
         }
     }
     /// gets a value from the map, returning it's value or `None` if the key is not present
-    pub fn get(&self, key: K) -> Option<V> {
-        let idx = (self.hasher.hash_one(&key) % BUCKET_COUNT as u64) as usize;
+    pub fn get(&self, key: &K) -> Option<V> {
+        let idx = (self.hasher.hash_one(key) % BUCKET_COUNT as u64) as usize;
         let mut current_ptr = self.buckets[idx];
         while !current_ptr.is_null() {
             unsafe {
-                if (*current_ptr).key.eq(&key) {
+                if (*current_ptr).key.eq(key) {
                     return Some((*current_ptr).value.clone());
                 }
                 current_ptr = (*current_ptr).next
@@ -146,7 +146,7 @@ where
         None
     }
     /// Removes a entry from the map. Returns `Some(value)` asscosiated with `key` if `key` is present, otherwise `None`
-    pub fn remove(&mut self, key: K) -> Option<V> {
+    pub fn remove(&mut self, key: &K) -> Option<V> {
         let idx = self.hasher.hash_one(&key) as usize % BUCKET_COUNT;
         let mut current_ptr = self.buckets[idx];
         unsafe {
@@ -216,7 +216,6 @@ impl<K: Debug + Hash + Eq + Clone, V: Debug + Clone> Debug for HashMap<K, V> {
         Ok(())
     }
 }
-
 impl<K: Hash + Eq + Clone, V: Clone> Iterator for HashMap<K, V> {
     type Item = (K, V);
 
@@ -231,14 +230,10 @@ impl<K: Hash + Eq + Clone, V: Clone> Iterator for HashMap<K, V> {
         }
 
         unsafe {
-            // 1. Capture the current node pointer
             let node_ptr = self.current_node;
 
-            // 2. Advance our iterator pointer to the next item in the collision chain
             self.current_node = (*node_ptr).next;
 
-            // 3. Move the data out of the node by reading it directly from raw memory
-            // This transfers ownership of K and V out of the bucket
             let key = core::ptr::read(&(*node_ptr).key);
             let value = core::ptr::read(&(*node_ptr).value);
 
@@ -318,5 +313,52 @@ impl BuildHasher for FnvBuildHasher {
     #[inline]
     fn build_hasher(&self) -> Self::Hasher {
         FnvHasher(0xcbf29ce484222325) // FNV offset basis
+    }
+}
+
+struct ValuesIter<'a, K: Hash + Eq + Clone, V: Clone, S: BuildHasher> {
+    map: &'a HashMap<K, V, S>,
+    bucket: usize,
+    current: *mut HashNode<K, V>,
+}
+
+impl<'a, K, V, S> Iterator for ValuesIter<'a, K, V, S>
+where
+    K: Hash + Eq + Clone,
+    V: Clone,
+    S: BuildHasher,
+{
+    type Item = &'a V;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.current.is_null() {
+            if self.bucket >= BUCKET_COUNT {
+                return None;
+            }
+
+            self.current = self.map.buckets[self.bucket];
+            self.bucket += 1;
+        }
+
+        unsafe {
+            let node = &*self.current;
+            self.current = node.next;
+            Some(&node.value)
+        }
+    }
+}
+
+impl<K, V, S> HashMap<K, V, S>
+where
+    K: Hash + Eq + Clone,
+    V: Clone,
+    S: BuildHasher,
+{
+    pub fn values(&self) -> impl Iterator<Item = &V> + '_ {
+        ValuesIter {
+            map: self,
+            bucket: 0,
+            current: null_mut(),
+        }
     }
 }

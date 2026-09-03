@@ -14,6 +14,8 @@ input = { path = "../libs/input" }
 sync = { path = "../libs/sync" }
 collections = { path = "../libs/collections" }
 mem = { path = "../libs/mem" }
+fs = { path = "../libs/fs" }
+block = { path = "../libs/block" }
 
 [[bin]]
 name = "maxos"

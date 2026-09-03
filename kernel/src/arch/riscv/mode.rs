@@ -5,8 +5,6 @@ use core::{
 
 use crate::{
     arch::riscv::csr::Csr::{MEDELEG, MEPC, MIDELEG, MSTATUS, PMPADDR0, PMPCFG0, SATP},
-    console::writer::println,
-    drivers::uart::write_char,
     kernel_main,
 };
 

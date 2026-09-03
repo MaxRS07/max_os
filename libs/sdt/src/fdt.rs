@@ -8,6 +8,7 @@ use alloc::{
     fmt::format,
     format,
     string::{String, ToString},
+    vec::Vec,
 };
 use collections::hashmap::{FnvBuildHasher, HashMap};
 use log::{info, warn};
@@ -41,6 +42,8 @@ pub struct FDT<'a> {
     pub pci_mmio_non_pref: FDTRegion<'a>, // 32-bit BARs
     pub pci_mmio_pref: FDTRegion<'a>,     // 64-bit prefetchable BARs
     element_map: HashMap<String, FDTElement>,
+
+    args: Vec<String>,
 }
 
 impl<'a> FDT<'a> {
@@ -73,12 +76,19 @@ impl<'a> FDT<'a> {
                 }
 
                 FDTElement::Property {
-                    name, value_ptr, ..
+                    name,
+                    value_ptr,
+                    len,
                 } => {
-                    // info!("{}", name);
                     let current_node = if depth > 0 { node_stack[depth - 1] } else { "" };
+
                     if current_node == "chosen" && name == "bootargs" {
-                        map.debug_mode = unsafe { value_ptr.read() == 0x31 };
+                        unsafe {
+                            let bytes = core::slice::from_raw_parts(value_ptr, len);
+                            let str = str::from_utf8_unchecked(bytes);
+                            map.args.push(str.to_owned());
+                            map.debug_mode = value_ptr.read() == 0x31
+                        };
                     }
 
                     let path = Self::get_path(node_stack, depth, current_node, virtio_idx);
@@ -92,7 +102,7 @@ impl<'a> FDT<'a> {
                     let reg_path = format!("{}/reg", path);
                     let region = map
                         .element_map
-                        .get(reg_path)
+                        .get(&reg_path)
                         .map(|val| unsafe {
                             FDTRegion::from_reg(current_node, val).unwrap_or(FDTRegion::new(
                                 current_node,
@@ -152,10 +162,10 @@ impl<'a> FDT<'a> {
     }
 
     pub fn get_element(&self, path: &str) -> Option<FDTElement> {
-        self.element_map.get(path.to_string())
+        self.element_map.get(&path.to_owned())
     }
     pub fn get_element_string(&self, path: &String) -> Option<FDTElement> {
-        self.element_map.get(path.to_string())
+        self.element_map.get(path)
     }
 }
 

@@ -6,7 +6,7 @@ use crate::{
 };
 
 /// Gets the GPU device ready for rw
-pub fn init_state(mmio_addr: usize) -> Result<(), &'static str> {
+pub fn init_state(mmio_addr: usize, select: u64) -> Result<(), &'static str> {
     // Reset
     mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_STATUS, 0); // Status = 0
 
@@ -21,13 +21,20 @@ pub fn init_state(mmio_addr: usize) -> Result<(), &'static str> {
     let features_high = mmio_read::<u32>(mmio_addr, VIRTIO_MMIO_DEV_FEATURES);
 
     let features = ((features_high as u64) << 32) | features_low as u64;
+    let selected_features = features & select;
 
-    // Acknowledge VIRTIO_F_VERSION_1 (bit 32) — required by a modern
-    // (version 2) device or it will never service the virtqueue.
+    let selected_features_high = (selected_features >> 32) as u32;
+    let selected_features_low = selected_features as u32;
+
+    // Acknowledge VIRTIO_F_VERSION_1 (bit 32)
     mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_DRV_FEATURES_SEL, 0); // DriverFeaturesSel = 0 (low 32)
-    mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_DRV_FEATURES, 0);
+    mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_DRV_FEATURES, selected_features_low);
     mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_DRV_FEATURES_SEL, 1); // DriverFeaturesSel = 1 (high 32)
-    mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_DRV_FEATURES, 1); // bit 32 = VIRTIO_F_VERSION_1
+    mmio_write::<u32>(
+        mmio_addr,
+        VIRTIO_MMIO_DRV_FEATURES,
+        selected_features_high | 1, // force VERSION 1
+    ); // bit 32 = VIRTIO_F_VERSION_1
 
     // FEATURES_OK
     mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_STATUS, 11);
@@ -39,4 +46,11 @@ pub fn init_state(mmio_addr: usize) -> Result<(), &'static str> {
         return Err("Device rejected features");
     }
     Ok(())
+}
+
+/// Signals DRIVER_OK, telling the device the driver is ready to use the queues it just set up.
+/// Must be called after all virtqueues for the device are initialized.
+pub fn signal_driver_ok(mmio_addr: usize) {
+    // ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK
+    mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_STATUS, 1 | 2 | 8 | 4);
 }

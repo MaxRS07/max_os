@@ -1,14 +1,6 @@
-use core::fmt::Write;
-
-use crate::{
-    arch::riscv::mode::enable_user_mode,
-    console::writer::{Terminal, println},
-    drivers::uart::{self, write_byte},
-    kernel_main, println,
-};
+use crate::{arch::riscv::mode::enable_user_mode, println};
 
 #[unsafe(no_mangle)]
-#[unsafe(link_section = ".text._start")]
 /// Pre kernel entry. Prepares M mode prologue, switches to S mode and calls `kernel_main`
 pub extern "C" fn boot_entry(hart_id: usize, fdt_ptr: *const u8) {
     // boot init & sawp to s mode

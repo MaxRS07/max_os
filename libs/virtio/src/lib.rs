@@ -2,12 +2,13 @@
 
 pub mod init;
 pub mod queue;
-pub mod send;
 pub mod types;
 
 // TODO: Revamp for complex gpu operations
 pub const QUEUE_SIZE: usize = 0x10;
 
+//
+pub const ALL_FEATURES: u64 = u64::MAX;
 // VirtIO Vendor + Device IDs
 pub const VIRTIO_VENDOR_ID: u16 = 0x1AF4;
 pub const VIRTIO_DEV_NETWORK: u16 = 0x1040;

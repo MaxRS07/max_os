@@ -1,7 +1,6 @@
 use alloc::boxed::Box;
-use core::default;
 
-use crate::QUEUE_SIZE;
+use crate::{QUEUE_SIZE, VIRTIO_MMIO_QUEUE_NOTIFY};
 
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Default, Debug)]
@@ -41,6 +40,134 @@ pub struct VirtQueue {
     pub desc: Box<[VirtqDesc; QUEUE_SIZE]>,
     pub avail: Box<VirtqAvail>,
     pub used: Box<VirtqUsed>,
+    /// queue index within the device, set by `init_virtqueue`; needed so `notify` can
+    /// tell the device which queue changed
+    pub queue_idx: u32,
+    /// `used.idx` value already consumed by `pop_used`
+    pub last_used_idx: u16,
+}
+pub struct DescBuf {
+    pub addr: u64,
+    pub len: u32,
+    pub flags: u16,
+}
+impl VirtQueue {
+    // keep the original as a convenience wrapper
+    pub fn send_command<Req, Resp>(
+        &mut self,
+        mmio_addr: usize,
+        request: &Req,
+        response: &mut Resp,
+    ) {
+        let last = self.send_command_raw(
+            mmio_addr,
+            &[
+                DescBuf {
+                    addr: request as *const Req as u64,
+                    len: size_of::<Req>() as u32,
+                    flags: 0x0,
+                },
+                DescBuf {
+                    addr: response as *mut Resp as u64,
+                    len: size_of::<Resp>() as u32,
+                    flags: 0x2,
+                },
+            ],
+            0,
+        );
+        self.wait_used(last);
+    }
+    /// Submits the descriptor chain but doesnt wait on the write, you must call wait_used manually
+    pub fn send_command_raw(&mut self, mmio_addr: usize, bufs: &[DescBuf], desc_start: u16) -> u16 {
+        assert!(
+            bufs.len() <= QUEUE_SIZE,
+            "buf queue longer than max queue size size, rejecting command"
+        );
+        unsafe {
+            let d = self.desc.as_mut();
+            let used = self.used.as_mut();
+
+            for (i, buf) in bufs.iter().enumerate() {
+                let is_last = i == bufs.len() - 1;
+
+                let curr_slot = (desc_start as usize + i) % QUEUE_SIZE;
+                let next_slot = (desc_start as usize + i + 1) % QUEUE_SIZE;
+
+                core::ptr::write_volatile(&mut d[curr_slot].addr, buf.addr);
+                core::ptr::write_volatile(&mut d[curr_slot].len, buf.len);
+                core::ptr::write_volatile(
+                    &mut d[curr_slot].flags,
+                    if is_last { buf.flags } else { buf.flags | 0x1 }, // 0x1 = VIRTIO_DESC_F_NEXT
+                );
+                core::ptr::write_volatile(
+                    &mut d[curr_slot].next,
+                    if is_last { 0 } else { next_slot as u16 }, // Map to the next physical slot
+                );
+            }
+            let last = core::ptr::read_volatile(&used.idx);
+
+            self.avail_push(desc_start);
+
+            self.notify(mmio_addr);
+
+            last
+        }
+    }
+
+    /// spins until the device has processed the descriptor chain and changes `used.idx`
+    pub fn wait_used(&self, last: u16) {
+        unsafe {
+            while core::ptr::read_volatile(&self.used.idx) == last {
+                core::hint::spin_loop();
+            }
+            core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
+        }
+    }
+
+    /// Pushes a descriptor chain head onto the avail ring, making it visible to the device.
+    /// Used both to submit new requests and to recycle a descriptor after consuming its
+    /// used-ring entry (e.g. standing receive buffers).
+    pub fn avail_push(&mut self, desc_idx: u16) {
+        unsafe {
+            let avail = self.avail.as_mut();
+            let slot = avail.idx as usize % QUEUE_SIZE;
+            core::ptr::write_volatile(&mut avail.ring[slot], desc_idx);
+
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+            core::ptr::write_volatile(&mut avail.idx, avail.idx.wrapping_add(1));
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// Tells the device that this queue has new avail entries.
+    pub fn notify(&self, mmio_addr: usize) {
+        mmio::mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_QUEUE_NOTIFY, self.queue_idx);
+    }
+
+    /// Reads the `len` (total bytes written into the writable descriptors of the chain)
+    /// recorded in the used-ring entry at `idx`. `idx` is the value returned by
+    /// `send_command_raw`, used after `wait_used` confirms the device processed it.
+    pub fn used_len_for(&self, idx: u16) -> u32 {
+        unsafe {
+            core::ptr::read_volatile(&self.used.ring[idx as usize % QUEUE_SIZE]).len
+        }
+    }
+
+    /// Pops the next unconsumed used-ring entry, if any, advancing `last_used_idx`.
+    /// Returns `(descriptor_head_id, bytes_written)`. Used for queues with standing
+    /// receive buffers where completions arrive asynchronously (e.g. input events).
+    pub fn pop_used(&mut self) -> Option<(u16, u32)> {
+        unsafe {
+            let used = self.used.as_ref();
+            if self.last_used_idx == core::ptr::read_volatile(&used.idx) {
+                return None;
+            }
+            let slot = self.last_used_idx as usize % QUEUE_SIZE;
+            let elem = core::ptr::read_volatile(&used.ring[slot]);
+            self.last_used_idx = self.last_used_idx.wrapping_add(1);
+            Some((elem.id as u16, elem.len))
+        }
+    }
 }
 
 impl Default for VirtQueue {
@@ -49,6 +176,8 @@ impl Default for VirtQueue {
             desc: Box::new([VirtqDesc::default(); QUEUE_SIZE]),
             avail: Box::new(VirtqAvail::default()),
             used: Box::new(VirtqUsed::default()),
+            queue_idx: 0,
+            last_used_idx: 0,
         }
     }
 }

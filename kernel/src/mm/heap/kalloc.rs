@@ -100,13 +100,12 @@ impl LinkedListAllocator {
         // Out of space. Allocate new pages.
 
         let pages_needed = (size + HEADER_SIZE).div_ceil(0x1000);
-        info!("{}", pages_needed);
         if pages_needed > FREE_PAGES.load(Ordering::Acquire) {
             error!("Out of pages");
             return null_mut();
         }
         let new_page = palloc::alloc();
-        for page in 0..pages_needed - 1 {
+        for _ in 0..pages_needed - 1 {
             palloc::alloc();
         }
 

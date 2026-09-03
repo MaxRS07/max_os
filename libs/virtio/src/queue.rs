@@ -43,6 +43,8 @@ pub fn init_virtqueue(
     queue.desc = Box::new([VirtqDesc::default(); QUEUE_SIZE]);
     queue.avail = Box::new(VirtqAvail::default());
     queue.used = Box::new(VirtqUsed::default());
+    queue.queue_idx = queue_idx;
+    queue.last_used_idx = 0;
 
     // select queue and set addresses
     setup_queue(mmio_addr, queue, queue_idx)?;

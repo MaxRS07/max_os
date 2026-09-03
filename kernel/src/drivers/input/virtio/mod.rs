@@ -1,4 +1,4 @@
-use core::mem;
+use core::{mem, ptr::addr_of};
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
@@ -6,12 +6,17 @@ use input::{
     device::DeviceType,
     event_codes::{ABS_X, ABS_Y, KEY_A, REL_X, REL_Y},
 };
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use mmio::{mmio_read, mmio_write};
 use sdt::fdt::FDT;
 use virtio::{
-    QUEUE_SIZE, VIRTIO_MMIO_MAGIC_VALUE, init::init_state, queue::init_virtqueue,
-    types::queue::VirtQueue,
+    ALL_FEATURES, QUEUE_SIZE,
+    init::{init_state, signal_driver_ok},
+    queue::init_virtqueue,
+    types::{
+        device::verify_virtio_magic,
+        queue::{DescBuf, VirtQueue},
+    },
 };
 
 use input::config::{
@@ -19,7 +24,7 @@ use input::config::{
     VIRTIO_INPUT_QUEUE_STATUS, VirtioInputConfig, VirtioInputEvent,
 };
 
-use sync::{once::Once, shared_cell::SharedCell};
+use sync::shared_cell::SharedCell;
 
 use crate::{
     arch::riscv::interrupt::{
@@ -43,15 +48,16 @@ pub struct VirtioInput {
     event_queue: VirtQueue,
     /// actual events in memory
     event_buffer: Box<[VirtioInputEvent; QUEUE_SIZE]>,
-    last_idx: u16,
 }
 
 impl VirtioInput {
     pub fn from_mmio(fdt: &FDT, mmio_idx: usize) -> Option<DeviceType> {
         let mmio_addr = fdt.virtio_mmio[mmio_idx].base_address;
+        if verify_virtio_magic(mmio_addr).is_err() {
+            return None;
+        }
         let version = mmio_read::<u32>(mmio_addr, 0x04);
-        let magic = mmio_read::<u32>(mmio_addr, 0x00);
-        if magic != VIRTIO_MMIO_MAGIC_VALUE || version != 2 {
+        if version != 2 {
             return None;
         }
         info!("VirtIO input device detected");
@@ -63,9 +69,8 @@ impl VirtioInput {
             status_queue: VirtQueue::default(),
             event_queue: VirtQueue::default(),
             event_buffer: Box::new(empty_buffer),
-            last_idx: 0,
         };
-        if let Err(error) = init_state(mmio_addr) {
+        if let Err(error) = init_state(mmio_addr, ALL_FEATURES) {
             error!("{}", error);
             return None;
         }
@@ -87,8 +92,7 @@ impl VirtioInput {
         ) {
             error!("Failed to initialize status queue: {}", error)
         }
-        // signal DRIVER_OK
-        mmio_write::<u32>(mmio_addr, 0x70, 15);
+        signal_driver_ok(mmio_addr);
 
         let device_type = input.device_type;
 
@@ -190,51 +194,33 @@ impl VirtioInput {
     }
     /// populate event queue with empty input structs
     fn populate_event_queue(&mut self) {
-        for i in 0..QUEUE_SIZE {
-            let evt_ptr = &self.event_buffer[i] as *const VirtioInputEvent;
-
-            let desc_queue = self.event_queue.desc.as_mut();
-            desc_queue[i].addr = evt_ptr.addr() as u64;
-            desc_queue[i].len = mem::size_of::<VirtioInputEvent>() as u32;
-            // allow virtio to write to this block
-            desc_queue[i].flags = 2;
-
-            let avail_queue = self.event_queue.avail.as_mut();
-            avail_queue.ring[i] = i as u16;
+        for i in 0..self.event_buffer.len() {
+            let evt_ptr = addr_of!(self.event_buffer[i]);
+            let buf = [DescBuf {
+                addr: evt_ptr.addr() as u64,
+                len: mem::size_of::<VirtioInputEvent>() as u32,
+                flags: 2,
+            }];
+            // Fire-and-forget: these are standing receive buffers that only
+            // complete once a real input event arrives, which may never
+            // happen, so we must not wait on the used ring here.
+            self.event_queue
+                .send_command_raw(self.mmio_addr, &buf, i as u16);
         }
-        core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
-
-        let avail_queue = self.event_queue.avail.as_mut();
-        avail_queue.idx = avail_queue.idx.wrapping_add(QUEUE_SIZE as u16);
-
-        // Notify device
-        mmio_write(self.mmio_addr, 0x50, 0);
     }
     /// returns a Vec of all input events and resets the buffer
     pub fn poll_events(&mut self) -> Vec<VirtioInputEvent> {
         let mut events = Vec::new();
-        let used = self.event_queue.used.as_mut();
 
-        while self.last_idx != used.idx {
-            let used_slot = (self.last_idx as usize) % QUEUE_SIZE;
-            let desc_idx = used.ring.get(used_slot).unwrap().id;
-
+        while let Some((desc_idx, _len)) = self.event_queue.pop_used() {
             let event = self.event_buffer[desc_idx as usize];
             events.push(event);
 
             self.event_buffer[desc_idx as usize] = VirtioInputEvent::default();
-
-            let avail = self.event_queue.avail.as_mut();
-            let avail_slot = avail.idx as usize % QUEUE_SIZE;
-            avail.ring[avail_slot] = desc_idx as u16;
-
-            core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
-
-            avail.idx = avail.idx.wrapping_add(1);
-            self.last_idx = self.last_idx.wrapping_add(1);
+            self.event_queue.avail_push(desc_idx);
         }
         if !events.is_empty() {
-            mmio_write(self.mmio_addr, 0x50, 0);
+            self.event_queue.notify(self.mmio_addr);
         }
         events
     }

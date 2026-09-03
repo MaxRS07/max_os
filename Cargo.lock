@@ -3,10 +3,22 @@
 version = 4
 
 [[package]]
+name = "block"
+version = "0.1.0"
+
+[[package]]
 name = "collections"
 version = "0.1.0"
 dependencies = [
  "log",
+]
+
+[[package]]
+name = "fs"
+version = "0.1.0"
+dependencies = [
+ "block",
+ "collections",
 ]
 
 [[package]]
@@ -25,7 +37,9 @@ version = "0.1.0"
 name = "max_os"
 version = "0.1.0"
 dependencies = [
+ "block",
  "collections",
+ "fs",
  "graphics",
  "input",
  "log",

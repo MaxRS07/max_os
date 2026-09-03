@@ -1,20 +1,10 @@
-use core::{
-    arch::asm,
-    panic,
-    ptr::{addr_of, addr_of_mut},
-    sync::atomic::{AtomicU32, AtomicUsize, Ordering},
-};
+use core::{arch::asm, panic, ptr::addr_of_mut};
 
-use alloc::boxed::Box;
-use sdt::{fdt::GLOBAL_FDT, stream::FDTElement};
-use sync::once::Once;
+use log::debug;
 
-use crate::{
-    arch::riscv::csr::Csr::SATP,
-    console::writer::println,
-    mm::heap::page_table::table::{Table, TableEntry},
-    println,
-};
+use sdt::fdt::GLOBAL_FDT;
+
+use crate::{arch::riscv::csr::Csr::SATP, mm::heap::page_table::table::Table};
 
 pub mod pdpt;
 pub mod table;
@@ -26,7 +16,7 @@ pub fn init_root_table() {
     unsafe {
         let root_ptr = addr_of_mut!(ROOT_TABLE);
         let root_addr = root_ptr.addr();
-        println!("Created root table at 0x{:x}", root_addr);
+        debug!("Created root table at 0x{:x}", root_addr);
         match map_boot_pages(root_ptr) {
             Ok(()) => pack_satp(root_addr),
             Err(error) => panic!("{}", error),
@@ -45,33 +35,33 @@ const RWX: usize = 0b1111;
 
 fn map_boot_pages(root_ptr: *mut Table) -> Result<(), &'static str> {
     unsafe {
-        println!("Mapping regions");
+        debug!("Mapping regions");
         // identity mappings
         if let Some(fdt) = GLOBAL_FDT.get() {
             // RAM
             let _ = (*root_ptr).map_region_identity(&fdt.memory, RWX | Table::MEGAPAGE);
-            println!("Mapped RAM");
+            debug!("Mapped RAM");
             // CLINT
             let _ = (*root_ptr).map_region_identity(&fdt.clint, RW);
-            println!("Mapped CLINT");
+            debug!("Mapped CLINT");
             // PLIC
             let _ = (*root_ptr).map_region_identity(&fdt.plic, RW);
-            println!("Mapped PLIC");
+            debug!("Mapped PLIC");
             // MMIO
             let _ = (*root_ptr).map_mmio_identity(&fdt.virtio_mmio, RW);
-            println!("Mapped MMIO");
+            debug!("Mapped MMIO");
             // Test
             let _ = (*root_ptr).map_region_identity(&fdt.test, RW);
-            println!("Mapped Test");
+            debug!("Mapped Test");
             // RTC
             let _ = (*root_ptr).map_region_identity(&fdt.rtc, RW);
-            println!("Mapped RTC");
+            debug!("Mapped RTC");
             // serial (uart)
             let _ = (*root_ptr).map_region_identity(&fdt.serial, RW);
-            println!("Mapped Serial");
+            debug!("Mapped Serial");
             // fw-cfg
             let _ = (*root_ptr).map_region_identity(&fdt.fw_cfg, RW);
-            println!("Mapped FW-CFG");
+            debug!("Mapped FW-CFG");
         }
         Ok(())
     }

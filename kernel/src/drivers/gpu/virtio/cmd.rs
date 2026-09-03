@@ -54,3 +54,4 @@ pub const VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM: u32 = 1;
 
 pub const QUEUE_SIZE: usize = 16;
 pub const CONTROLQ: u32 = 0;
+pub const CURSORQ: u32 = 1;
