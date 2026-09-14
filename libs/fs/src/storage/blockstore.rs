@@ -125,6 +125,43 @@ impl<'a> FSBlockStore<'a> {
             Ok(byte_ptr.read_unaligned())
         }
     }
+    /// Reads `dst.len()` bytes starting `offset` bytes into `sector`.
+    ///
+    /// The span is allowed to continue into the sectors that follow `sector`, so callers must
+    /// keep it inside a single 4KiB block, where sectors are contiguous by construction.
+    /// Issues one device request covering the minimum whole number of sectors.
+    pub fn read_at(&mut self, sector: u64, offset: u64, dst: &mut [u8]) -> Result<(), FSError> {
+        if dst.is_empty() {
+            return Ok(());
+        }
+        let sector_size = self.blk_dev.sector_size() as u64;
+        if offset >= sector_size {
+            return Err(FSError::OutOfBounds(format!(
+                "Read failed: offset {offset} is not inside a {sector_size} byte sector"
+            )));
+        }
+        let span = offset + dst.len() as u64;
+        let mut buffer = alloc::vec![0u8; span.next_multiple_of(sector_size) as usize];
+        self.blk_dev.read_buffer(sector, &mut buffer)?;
+        dst.copy_from_slice(&buffer[offset as usize..span as usize]);
+        Ok(())
+    }
+
+    /// Writes `src` starting `offset` bytes into `sector`, under the same contiguity rule as
+    /// [`Self::read_at`].
+    pub fn write_at(&mut self, sector: u64, offset: u64, src: &[u8]) -> Result<(), FSError> {
+        if src.is_empty() {
+            return Ok(());
+        }
+        let sector_size = self.blk_dev.sector_size() as u64;
+        if offset >= sector_size {
+            return Err(FSError::OutOfBounds(format!(
+                "Write failed: offset {offset} is not inside a {sector_size} byte sector"
+            )));
+        }
+        self.write_buffer(sector, offset, src)
+    }
+
     /// Attempts to fill `buffer` starting at index `start`. Returns the len of bytes written on success.
     pub fn read_to_buffer(
         &mut self,

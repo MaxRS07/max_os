@@ -12,7 +12,7 @@ use crate::{
     core::{mutpath::FSMutPath, path::FSPath},
     meta::{
         header::FSHeader,
-        inode::{BLOCK_SIZE, FSInode, SECTOR_SIZE, block_to_sector},
+        inode::{BLOCK_SIZE, BlockPos, FSInode},
         lockstate::LockState,
     },
     storage::{
@@ -111,17 +111,20 @@ impl<'v, 'a> FileObject<'v, 'a> {
 
     /* Read methods */
 
-    /// Tries to read `buf.len()` bytes into the file buffer starting from the current cursor position. Returns the length of the read data advancing the cursor by `buffer.len()` bytes, `FSError` if the read failed
+    /// Fills `buf` from the cursor, advancing the cursor by the number of bytes read.
+    ///
+    /// Stops short once the cursor reaches the end of the inode's allocated data, so the
+    /// return value is the number of bytes actually read, which may be less than `buf.len()`.
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, FSError> {
+        let limit = self.max_cursor();
         let mut idx = 0;
-        while idx < buf.len() {
-            let Ok(addr) = self.get_physical_sector() else {
-                break;
-            };
-            let len = self.blk_store.read_to_buffer(addr, buf, idx)?;
-            if len == 0 {
-                break;
-            }
+        while idx < buf.len() && self.cursor < limit {
+            let pos = self.position()?;
+            let len = self.transfer_len(&pos, buf.len() - idx, limit);
+
+            self.blk_store
+                .read_at(pos.sector, pos.sector_offset, &mut buf[idx..idx + len])?;
+
             idx += len;
             self.cursor += len as u64;
         }
@@ -149,8 +152,8 @@ impl<'v, 'a> FileObject<'v, 'a> {
         self.lock_state.lock_shared();
         let align = align_of::<T>() as u64;
         let val = self.align_to(align).and_then(|_| {
-            let sector = self.get_physical_sector()?;
-            self.blk_store.read(sector, self.get_offset())
+            let pos = self.position()?;
+            self.blk_store.read(pos.sector, pos.sector_offset)
         });
         self.lock_state.release_shared();
         val
@@ -188,23 +191,41 @@ impl<'v, 'a> FileObject<'v, 'a> {
             .check_size(size_of::<T>() as u64)
             .and(self.align_to(align))
             .and_then(|_| {
-                let sector = self.get_physical_sector()?;
-                self.blk_store.write(sector, self.get_offset(), value)
+                let pos = self.position()?;
+                self.blk_store.write(pos.sector, pos.sector_offset, value)
             });
         self.lock_state.release_exclusive();
         res
     }
-    /// Writes a buffer at the cursor without alignment
+    /// Writes a buffer at the cursor without alignment, advancing the cursor past it.
     fn cwrite_buffer(&mut self, buffer: &[u8]) -> Result<(), FSError> {
         self.lock_state.lock_exclusive();
-        self.check_size(buffer.len() as u64)?;
-
-        let sector = self.get_physical_sector()?;
-        let offset = self.get_offset();
-        self.blk_store.write_buffer(sector, offset, buffer)?;
-
-        self.cursor += buffer.len() as u64;
+        let res = self.write_buffer_positioned(buffer);
         self.lock_state.release_exclusive();
+        res
+    }
+    /// Body of [`Self::cwrite_buffer`], split out so `?` cannot return while the exclusive
+    /// lock is held: leaking it would leave the inode locked forever.
+    fn write_buffer_positioned(&mut self, buffer: &[u8]) -> Result<(), FSError> {
+        self.check_size(buffer.len() as u64)?;
+        let limit = self.max_cursor();
+
+        let mut idx = 0;
+        while idx < buffer.len() {
+            let pos = self.position()?;
+            let len = self.transfer_len(&pos, buffer.len() - idx, limit);
+            if len == 0 {
+                return Err(FSError::OutOfBounds(
+                    "Write exceeds the blocks allocated to this file".to_owned(),
+                ));
+            }
+
+            self.blk_store
+                .write_at(pos.sector, pos.sector_offset, &buffer[idx..idx + len])?;
+
+            idx += len;
+            self.cursor += len as u64;
+        }
         Ok(())
     }
 
@@ -285,25 +306,31 @@ impl<'v, 'a> FileObject<'v, 'a> {
             ))?;
         for block in first_new_block..self.inode.size() {
             let physical = self.inode.map_logical(block, self.blk_store)?;
-            // self.blk_store.zero_block(physical)?;
+            self.blk_store.zero_block(physical)?;
         }
-        // self.sync_inode()?;
+        self.sync_inode()?;
 
         Ok(())
     }
-    fn get_physical_sector(&mut self) -> Result<u64, FSError> {
-        let block = self.cursor / BLOCK_SIZE;
-        let physical_block = self.inode.map_logical(block, self.blk_store)?;
-        Ok(block_to_sector(physical_block) + (self.cursor % BLOCK_SIZE) / SECTOR_SIZE)
+    /// Resolves the cursor against the inode's block map. Every read and write positions
+    /// itself through here, so sector and in-sector offset always come from one computation.
+    fn position(&mut self) -> Result<BlockPos, FSError> {
+        self.inode.map_byte(self.cursor, self.blk_store)
     }
-    /// returns the cursor's position within its current sector. Returned value will be smaller than the byte size of a sector
-    fn get_offset(&self) -> u64 {
-        self.cursor % SECTOR_SIZE
+    /// Largest transfer that may start at `pos`: capped by `wanted`, by the end of `pos`'s
+    /// 4KiB block (the next logical block can live anywhere on the device, so the mapping has
+    /// to be redone there), and by `limit`, the end of the file's allocated data.
+    fn transfer_len(&self, pos: &BlockPos, wanted: usize, limit: u64) -> usize {
+        (wanted as u64)
+            .min(pos.block_remaining)
+            .min(limit.saturating_sub(self.cursor)) as usize
     }
     fn get_header_sector(&mut self) -> Result<FSHeaderSector, FSError> {
-        let sector = self.get_physical_sector()?;
-        let offset = self.get_offset();
-        Ok(FSHeaderSector::from_sector_offset(sector, offset))
+        let pos = self.position()?;
+        Ok(FSHeaderSector::from_sector_offset(
+            pos.sector,
+            pos.sector_offset,
+        ))
     }
     fn max_cursor(&self) -> u64 {
         self.inode.size() * BLOCK_SIZE

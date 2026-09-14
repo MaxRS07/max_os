@@ -36,6 +36,27 @@ pub(crate) const fn block_to_sector(block: u64) -> u64 {
     block * SECTORS_PER_BLOCK
 }
 
+// Every byte -> sector translation in the filesystem assumes a block is an exact run of
+// `SECTORS_PER_BLOCK` sectors, so pin the relationship down at compile time.
+const _: () = assert!(BLOCK_SIZE == SECTORS_PER_BLOCK * SECTOR_SIZE);
+const _: () = assert!(SECTORS_PER_BLOCK == 8);
+
+/// A byte position inside an inode's data, resolved against its block map.
+///
+/// A block is `SECTORS_PER_BLOCK` *contiguous* sectors, so a transfer may run from
+/// `sector`/`sector_offset` for up to `block_remaining` bytes without consulting the map
+/// again. Past that boundary the next logical block can sit anywhere on the device, and the
+/// mapping has to be redone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BlockPos {
+    /// Raw device sector holding the byte.
+    pub sector: u64,
+    /// Byte offset of the position within `sector`. Always less than [`SECTOR_SIZE`].
+    pub sector_offset: u64,
+    /// Bytes from the position to the end of its enclosing 4KiB block.
+    pub block_remaining: u64,
+}
+
 /// Unix-type inode for describing files contigously or fragmened blocks of memory. Data blocks are stored in 8-sector chunks, 4096 bytes each.
 #[repr(C, u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -64,7 +85,8 @@ pub enum FSInode {
         extents: [Extent; 3],
         size: u64,
         extent_count: u16,
-        inode_store: u64,
+        /// additional extents are stored at this sector address
+        extent_block: u64,
         reserved: [u8; 8],
     },
 }
@@ -80,7 +102,7 @@ impl FSInode {
     pub fn new_sized(
         kind: StorageType,
         id: u64,
-        size: u32,
+        size: u64,
         map: &mut dyn SectorAllocator,
         blk_dev: &mut dyn BlockDevice,
     ) -> Option<Self> {
@@ -89,11 +111,14 @@ impl FSInode {
                 id,
                 size,
                 len_bytes: 0,
-                extents: [Extent::empty(); 4],
+                extents: [Extent::empty(); 3],
                 extent_count: 0,
+                extent_block: 0,
+                reserved: [0; 8],
             },
             StorageType::Indirect => Self::Indirect {
                 id,
+                len_bytes: 0,
                 size,
                 direct: [0; 6],
                 primary: 0,
@@ -127,6 +152,7 @@ impl FSInode {
         FSInode::Indirect {
             id: 0,
             size: 0,
+            len_bytes: 0,
             direct: [0; DIRECT_LEN],
             primary: 0,
             secondary: 0,
@@ -137,8 +163,11 @@ impl FSInode {
         FSInode::Extents {
             id: 0,
             size: 0,
+            len_bytes: 0,
             extent_count: 0,
             extents: [Extent::empty(); 3],
+            extent_block: 0,
+            reserved: [0; 8],
         }
     }
     pub fn id(&self) -> u64 {
@@ -262,7 +291,6 @@ impl FSInode {
                         logical_block: logical,
                         physical_block: start,
                         block_count: len,
-                        flags: 0,
                     };
                     taken[taken_len] = (start, len);
                     taken_len += 1;
@@ -536,7 +564,10 @@ impl FSInode {
             }
         }
     }
-    /// Maps a logical sector within an inode to a physical sector address
+    /// Maps a logical 4KiB block index within this inode to the physical block backing it.
+    ///
+    /// Both values are *block* numbers, not sector addresses. Use [`Self::map_byte`] to turn
+    /// a byte position into a sector.
     pub fn map_logical(
         &self,
         logical: u64,
@@ -605,6 +636,27 @@ impl FSInode {
                 read_block_entry(blk_store, prim_block, prim_local)
             }
         }
+    }
+
+    /// Resolves a byte position within this inode's data to a physical [`BlockPos`].
+    ///
+    /// This is the single place byte positions become sector addresses: the byte is split
+    /// into a logical 4KiB block plus an in-block offset, the block is mapped through
+    /// [`Self::map_logical`], and the result is expanded into the block's run of
+    /// `SECTORS_PER_BLOCK` sectors.
+    pub fn map_byte(
+        &self,
+        byte: u64,
+        blk_store: &mut FSBlockStore<'_>,
+    ) -> Result<BlockPos, FSError> {
+        let block = byte / BLOCK_SIZE;
+        let block_offset = byte % BLOCK_SIZE;
+        let physical_block = self.map_logical(block, blk_store)?;
+        Ok(BlockPos {
+            sector: block_to_sector(physical_block) + block_offset / SECTOR_SIZE,
+            sector_offset: block_offset % SECTOR_SIZE,
+            block_remaining: BLOCK_SIZE - block_offset,
+        })
     }
 
     pub fn into_iter<'a>(self, blk_store: &'a mut FSBlockStore<'a>) -> InodeIter<'a> {
@@ -710,7 +762,6 @@ impl Extent {
             logical_block,
             physical_block,
             block_count,
-            flags,
         }
     }
     pub const fn empty() -> Self {
@@ -718,12 +769,10 @@ impl Extent {
             logical_block: 0,
             physical_block: 0,
             block_count: 0,
-            flags: 0,
         }
     }
     pub fn clear(&mut self) {
         self.block_count = 0;
-        self.flags = 0;
         self.logical_block = 0;
         self.physical_block = 0;
     }

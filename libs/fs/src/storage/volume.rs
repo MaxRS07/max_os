@@ -278,7 +278,6 @@ where
             logical_block: 0,
             physical_block: data_start,
             block_count: 1,
-            flags: 0,
         }]);
         if let FSInode::Extents { id, size, .. } = &mut root_node {
             *id = root_inode_addr.get();
