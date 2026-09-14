@@ -1,5 +1,25 @@
-[[ "$1" == "-d" ]] && DEBUG=1 || DEBUG=0
-[[ "$2" == "-mt" ]] && REMOUNT=1 || REMOUNT=0 # Forces the disk to remount all drives, overwriting current metadata. This is useful if you have changed the partition table or filesystem on the disk and want to ensure that the changes are reflected in the virtual machine.
+ARGS=()
+
+# Loop through all arguments
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -d|--debug)
+      ARGS+=("debug=1")
+      shift
+      ;;
+    # Forces the disk to remount all drives, overwriting current metadata.
+    -mt|--remount)
+      ARGS+=("remount=1")
+      shift
+      ;;
+    *)
+      # Handle unknown arguments or positional parameters if needed
+      shift
+      ;;
+  esac
+done
+
+JOIN_ARGS=$(IFS=,; echo "${ARGS[*]}")
 
 if (RUSTFLAGS="-Awarnings" cargo build --release) then
   cargo objcopy --release -- -O binary os.bin
@@ -16,8 +36,7 @@ if (RUSTFLAGS="-Awarnings" cargo build --release) then
     -device virtio-blk-device,drive=usb_backend \
     -display cocoa \
     -serial stdio \
-    -append "$debug={DEBUG}" \
-    -append "$remount={REMOUNT}"
+    -append "${JOIN_ARGS}"
 else
   echo "Build failed"
   exit 1

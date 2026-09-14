@@ -1,9 +1,10 @@
 use core::{
     hash::Hash,
+    ptr::write_volatile,
     sync::atomic::{AtomicU8, AtomicU32, Ordering},
 };
 
-use alloc::sync::Arc;
+use alloc::{format, sync::Arc};
 use collections::hashmap::HashMap;
 
 use crate::{
@@ -90,6 +91,9 @@ impl LockStateData {
         self.remove_ref();
     }
     pub fn try_lock_exclusive(&self) -> Result<(), FSError> {
+        "Lock ex\n".bytes().for_each(|c| unsafe {
+            core::ptr::write_volatile(0x1000_0000 as *mut u8, c);
+        });
         let res = self.state.compare_exchange(
             LockState::Unlocked as u8,
             LockState::Exclusive as u8,
@@ -112,7 +116,7 @@ impl LockStateData {
     pub fn lock_exclusive(&self) {
         loop {
             while self.state.load(Ordering::Acquire) != LockState::Unlocked as u8
-                || self.refs() == 0
+                || self.refs() != 0
             {
                 core::hint::spin_loop();
             }
@@ -144,10 +148,12 @@ pub struct LockTable {
 impl LockTable {
     /// gets the file lock associated with `inode_sector` if present. Otherwise a new lock state is created.
     pub fn get_lock(&mut self, inode_sector: u64) -> Option<Arc<LockStateData>> {
-        let lock_data = self.map.get(&inode_sector).or_else(|| {
-            let new_state = Arc::new(LockStateData::new());
-            self.map.insert(inode_sector, new_state)
-        })?;
-        Some(Arc::clone(&lock_data))
+        if let Some(lock_data) = self.map.get(&inode_sector) {
+            return Some(Arc::clone(&lock_data));
+        }
+
+        let new_state = Arc::new(LockStateData::new());
+        self.map.insert(inode_sector, Arc::clone(&new_state));
+        Some(new_state)
     }
 }

@@ -63,7 +63,12 @@ impl FSRouteTrie {
             return None;
         }
 
-        Some(path.components().map(|cmp| cmp.to_owned()).collect())
+        Some(
+            path.components()
+                .skip(path.is_absolute() as usize)
+                .map(|cmp| cmp.to_owned())
+                .collect(),
+        )
     }
 
     fn child_idx(&self, parent_idx: NodeId, name: &str) -> Option<NodeId> {

@@ -1,6 +1,6 @@
 use core::{error::Error, fmt::Display};
 
-use alloc::string::String;
+use alloc::string::{String, ToString};
 use block::error::BlockError::{self};
 
 #[derive(Clone, Debug)]
@@ -12,7 +12,8 @@ pub enum FSError {
     /// Low level block driver error
     IOError(&'static str),
     VolumeFull(&'static str),
-    OutOfBounds(&'static str),
+    Resolve(String),
+    OutOfBounds(String),
     Corrupted(&'static str),
     PermissionDenied {
         permission: &'static str,
@@ -30,7 +31,10 @@ impl From<BlockError> for FSError {
     fn from(value: BlockError) -> Self {
         match value {
             BlockError::DeviceError(err) => Self::IOError(err),
-            _ => Self::Other, // TODO: Make this comprehensive
+            BlockError::AlignError(msg)
+            | BlockError::BufferMismatch(msg)
+            | BlockError::OutOfBounds(msg) => Self::Type(msg.to_string()), // TODO: Make this comprehensive
+            _ => Self::Other,
         }
     }
 }

@@ -7,7 +7,7 @@ use crate::{
     collections::error::FSError,
     meta::{
         header::FSHeader,
-        inode::{FSInode, as_bytes_mut, block_to_sector},
+        inode::{BLOCK_SIZE, FSInode, as_bytes_mut, block_to_sector},
     },
     storage::sector::{self, FSHeaderSector, FSInodeSector},
 };
@@ -19,6 +19,17 @@ pub struct FSBlockStore<'a> {
 impl<'a> FSBlockStore<'a> {
     pub fn new(blk_dev: &'a mut dyn BlockDevice) -> Self {
         Self { blk_dev }
+    }
+    pub fn capacity(&self) -> u64 {
+        self.blk_dev.capacity()
+    }
+    /// Raw device behind this store, for the few paths that still need buffer-level access.
+    pub fn device(&mut self) -> &mut dyn BlockDevice {
+        self.blk_dev
+    }
+    /// Overwrites logical block `block` (4KiB) with zeroes.
+    pub fn zero_block(&mut self, block: u64) -> Result<(), FSError> {
+        self.write_buffer(block_to_sector(block), 0, &[0u8; BLOCK_SIZE as usize])
     }
     /// Reads a `FSHeader` from disk
     pub fn read_header(&mut self, address: FSHeaderSector) -> Result<FSHeader, FSError> {

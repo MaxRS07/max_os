@@ -20,7 +20,7 @@ impl<'a> Iterator for InodeIter<'a> {
     type Item = u64;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let addr = self.inode.map_logical(self.index, self.blk_store)?;
+        let addr = self.inode.map_logical(self.index, self.blk_store).ok()?;
         self.index += 1;
         if addr == 0 { None } else { Some(addr) }
     }

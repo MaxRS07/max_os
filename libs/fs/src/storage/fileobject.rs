@@ -1,17 +1,18 @@
 use core::{
     cmp::max,
+    fmt::Display,
     ptr::null,
     sync::atomic::{AtomicU8, AtomicU32, Ordering},
 };
 
-use alloc::{format, sync::Arc, vec::Vec};
+use alloc::{borrow::ToOwned, format, sync::Arc, vec::Vec};
 
 use crate::{
     collections::{bitmap::FSBitmap, error::FSError, filelock::LockStateData},
     core::{mutpath::FSMutPath, path::FSPath},
     meta::{
         header::FSHeader,
-        inode::{BLOCK_SIZE, FSInode},
+        inode::{BLOCK_SIZE, FSInode, SECTOR_SIZE, block_to_sector},
         lockstate::LockState,
     },
     storage::{
@@ -20,6 +21,9 @@ use crate::{
         sector::{self, FSHeaderSector, FSInodeSector},
     },
 };
+
+/// On-disk slot size of an `FSHeader`. Keeps a header from straddling a sector boundary.
+const HEADER_SLOT: u64 = 256;
 
 trait FileIO {
     fn is_dir();
@@ -111,31 +115,43 @@ impl<'v, 'a> FileObject<'v, 'a> {
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, FSError> {
         let mut idx = 0;
         while idx < buf.len() {
-            let Some(addr) = self.get_physical_sector() else {
+            let Ok(addr) = self.get_physical_sector() else {
                 break;
             };
             let len = self.blk_store.read_to_buffer(addr, buf, idx)?;
+            if len == 0 {
+                break;
+            }
             idx += len;
-            self.cursor += 1;
+            self.cursor += len as u64;
         }
         Ok(idx)
     }
     /// Reads the next header inside this directory. If `Self` is not a directory, returns err
     pub fn read_next_header(&mut self) -> Option<Located<FSHeader>> {
-        if self.align_to(align_of::<FSHeader>() as u64).is_err() {
+        if self.align_to(HEADER_SLOT).is_err() {
             return None;
         }
-        let header_sector = self.get_header_sector()?;
-        let header = self.cread().ok()?;
+        let Ok(header_sector) = self.get_header_sector() else {
+            return None;
+        };
+        let header: FSHeader = self.cread().ok()?;
+        // an unwritten slot terminates the directory
+        if !header.active() {
+            return None;
+        }
         let located = Located::new(header_sector.get(), header);
+        self.advance(HEADER_SLOT);
         Some(located)
     }
     /// Shifts `self.cursor` to the next `align_of::<T>()` and reads the next `size_of::<T>()` bytes as `T`.
     fn cread<T: Copy>(&mut self) -> Result<T, FSError> {
         self.lock_state.lock_shared();
         let align = align_of::<T>() as u64;
-        self.align_to(align)?;
-        let val = self.blk_store.read(self.get_sector(), self.get_offset());
+        let val = self.align_to(align).and_then(|_| {
+            let sector = self.get_physical_sector()?;
+            self.blk_store.read(sector, self.get_offset())
+        });
         self.lock_state.release_shared();
         val
     }
@@ -146,16 +162,16 @@ impl<'v, 'a> FileObject<'v, 'a> {
         self.cwrite_buffer(buffer)
     }
     /// Writes a header to this file object if it is a directory
-    pub fn write_header(&mut self, header: FSHeader) -> Option<FSHeaderSector> {
+    pub fn write_header(&mut self, header: FSHeader) -> Result<FSHeaderSector, FSError> {
         if !self.is_dir() {
-            return None;
+            return Err(FSError::Type(format!(
+                "Expected directory, {} is a file",
+                header.name().unwrap_or("READ_ERROR")
+            )));
         }
-        self.seek_free_header()?;
-        if self.cwrite(header).is_ok() {
-            self.get_header_sector()
-        } else {
-            None
-        }
+        self.seek_free_header();
+        self.cwrite(header)?;
+        self.get_header_sector()
     }
     pub fn remove_header(&mut self, name: &str) -> Result<(), FSError> {
         // move cursor to first header with matching name
@@ -166,19 +182,35 @@ impl<'v, 'a> FileObject<'v, 'a> {
     }
     /// Performs a write at the cursor. Fails if the write overflows, align doesnt match, etc
     fn cwrite<T>(&mut self, value: T) -> Result<(), FSError> {
+        unsafe {
+            core::ptr::write_volatile(0x1000_0000 as *mut u8, b'c');
+        }
         self.lock_state.lock_exclusive();
+        unsafe {
+            core::ptr::write_volatile(0x1000_0000 as *mut u8, b'0');
+        }
         let align = align_of::<T>() as u64;
-        self.align_to(align)?;
-        self.blk_store
-            .write(self.get_sector(), self.get_offset(), value)?;
+        let res = self
+            .check_size(size_of::<T>() as u64)
+            .and(self.align_to(align))
+            .and_then(|_| {
+                let sector = self.get_physical_sector()?;
+                self.blk_store.write(sector, self.get_offset(), value)
+            });
         self.lock_state.release_exclusive();
-        Ok(())
+        res
     }
     /// Writes a buffer at the cursor without alignment
     fn cwrite_buffer(&mut self, buffer: &[u8]) -> Result<(), FSError> {
         self.lock_state.lock_exclusive();
-        self.check_size(buffer.len() as u64);
-        let sector = self.get_sector();
+        "bruh".bytes().for_each(|c| unsafe {
+            core::ptr::write_volatile(0x1000_0000 as *mut u8, c);
+        });
+        self.check_size(buffer.len() as u64)?;
+        "checked".bytes().for_each(|c| unsafe {
+            core::ptr::write_volatile(0x1000_0000 as *mut u8, c);
+        });
+        let sector = self.get_physical_sector()?;
         let offset = self.get_offset();
         self.blk_store.write_buffer(sector, offset, buffer)?;
         self.cursor += buffer.len() as u64;
@@ -189,44 +221,32 @@ impl<'v, 'a> FileObject<'v, 'a> {
     fn check_permission(&self, minimum: OpenMode) -> Result<(), FSError> {
         if self.mode < minimum {
             return Err(FSError::PermissionDenied {
-                permission: OpenMode::from(self.mode).to_str(),
+                permission: self.mode.to_str(),
                 needs: minimum.to_str(),
             });
         }
         Ok(())
     }
 
-    /// Moves the cursor to the address of the next FSHeader
-    fn seek_next_header(&mut self) -> Option<()> {
-        if !self.is_dir() {
-            return None;
-        }
-        let header_align = align_of::<FSHeader>() as u64;
-        self.cursor += 1;
-        if self.align_to(header_align).is_ok() {
-            return Some(());
-        }
-        None
-    }
     /// writes the asscosiated inode instance to disk
     fn sync_inode(&mut self) -> Result<(), FSError> {
-        self.lock_state.lock_exclusive();
         let inode_address = FSInodeSector::new(self.inode.id());
-        self.blk_store.write_inode(inode_address, self.inode)?;
-        self.lock_state.release_exclusive();
-        Ok(())
+        self.blk_store.write_inode(inode_address, self.inode)
     }
     /* seek */
     /// Moves the cursor to the start of the next free header sector greater than or equal to `self.cursor`. Returns `Some(logical_byte)` if a free header was found. Returns `None` otherwise.    
     fn seek_free_header(&mut self) -> Option<()> {
-        while self.seek_next_header().is_some() {
-            if let Ok(header) = self.cread::<FSHeader>()
-                && header.is_removed()
-            {
+        if !self.is_dir() {
+            return None;
+        }
+        loop {
+            self.align_to(HEADER_SLOT).ok()?;
+            let header = self.cread::<FSHeader>().ok()?;
+            if !header.active() || header.is_removed() {
                 return Some(());
             }
+            self.advance(HEADER_SLOT)?;
         }
-        None
     }
     /// moves the cursor to address of the next header matching `predicate`. Returns none if no matching header was found
     fn find_header<F>(&mut self, predicate: F) -> Option<()>
@@ -235,6 +255,7 @@ impl<'v, 'a> FileObject<'v, 'a> {
     {
         while let Some(header) = self.read_next_header() {
             if predicate(header.value()) {
+                self.cursor -= HEADER_SLOT;
                 return Some(());
             }
         }
@@ -246,44 +267,60 @@ impl<'v, 'a> FileObject<'v, 'a> {
     pub fn align_to(&mut self, align: u64) -> Result<(), FSError> {
         let next = self.cursor.next_multiple_of(align);
         if next > self.max_cursor() {
-            return Err(FSError::OutOfBounds("Align exceeds file size"));
+            return Err(FSError::OutOfBounds("Align exceeds file size".to_owned()));
         }
         self.cursor = next;
         Ok(())
     }
-    /// Allocates space if needed to store `bytes` extra bytes in the file. `Ok` if allocation was successful or none was required. `Err` if allocation fails.
+    // moves the cursor `bytes` bytes forward. Returns None if the the advance is greater than the size of the file
+    fn advance(&mut self, bytes: u64) -> Option<()> {
+        if self.cursor + bytes > self.max_cursor() {
+            return None;
+        }
+        self.cursor += bytes;
+        Some(())
+    }
     fn check_size(&mut self, bytes: u64) -> Result<(), FSError> {
-        let bytes_needed = (self.cursor + bytes).saturating_sub(self.max_cursor());
-        // no allocation is needed
+        let end = self.cursor + bytes;
+        let bytes_needed = end.saturating_sub(self.max_cursor());
+        // the write already fits inside the allocated blocks
         if bytes_needed == 0 {
             return Ok(());
         }
-        let sectors_needed = bytes_needed.div_ceil(BLOCK_SIZE);
+        let first_new_block = self.inode.size();
+        let blocks_needed = bytes_needed.div_ceil(BLOCK_SIZE);
         self.inode
-            .alloc_size(self.data_map, self.blk_store, sectors_needed)
+            .alloc_size(self.data_map, self.blk_store, blocks_needed)
             .ok_or(FSError::VolumeFull(
                 "Failed to allocate bytes, volume is full",
             ))?;
+
+        for block in first_new_block..self.inode.size() {
+            format!("{block}").bytes().for_each(|c| unsafe {
+                core::ptr::write_volatile(0x1000_0000 as *mut u8, c);
+            });
+            let physical = self.inode.map_logical(block, self.blk_store)?;
+            self.blk_store.zero_block(physical)?;
+        }
+
         self.sync_inode()
     }
-    /// returns the current logical sector of the cursor
-    fn get_sector(&self) -> u64 {
-        self.cursor / 4096
-    }
-    fn get_physical_sector(&mut self) -> Option<u64> {
-        self.inode.map_logical(self.get_sector(), self.blk_store)
+    fn get_physical_sector(&mut self) -> Result<u64, FSError> {
+        let block = self.cursor / BLOCK_SIZE;
+        let physical_block = self.inode.map_logical(block, self.blk_store)?;
+        Ok(block_to_sector(physical_block) + (self.cursor % BLOCK_SIZE) / SECTOR_SIZE)
     }
     /// returns the cursor's position within its current sector. Returned value will be smaller than the byte size of a sector
     fn get_offset(&self) -> u64 {
-        self.cursor % 4096
+        self.cursor % SECTOR_SIZE
     }
-    fn get_header_sector(&mut self) -> Option<FSHeaderSector> {
+    fn get_header_sector(&mut self) -> Result<FSHeaderSector, FSError> {
         let sector = self.get_physical_sector()?;
         let offset = self.get_offset();
-        Some(FSHeaderSector::from_sector_offset(sector, offset))
+        Ok(FSHeaderSector::from_sector_offset(sector, offset))
     }
     fn max_cursor(&self) -> u64 {
-        self.inode.size() * 4096
+        self.inode.size() * BLOCK_SIZE
     }
     pub fn dir_contents(self) -> DirContents<'v, 'a> {
         DirContents::from_fileobj(self)

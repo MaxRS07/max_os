@@ -14,6 +14,15 @@ pub struct Superblock {
 }
 
 impl Superblock {
+    pub fn new(version: u32, root: FSHeaderSector, capacity: u64, inodes: u32) -> Self {
+        Self {
+            magic: SUPERBLOCK_MAGIC,
+            version,
+            root,
+            capacity,
+            inodes,
+        }
+    }
     pub fn verify(&self) -> bool {
         self.magic == SUPERBLOCK_MAGIC
     }

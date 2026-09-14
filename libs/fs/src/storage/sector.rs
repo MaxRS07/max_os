@@ -1,12 +1,11 @@
-use crate::meta::{
-    header::FSHeader,
-    inode::{FSInode, SECTOR_SIZE},
-};
+use core::fmt::{Debug, Display};
+
+use crate::meta::inode::SECTOR_SIZE;
 
 // Sector address readability and utilities
 pub type SectorAddr = u64;
 
-#[derive(Clone, Hash, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Hash, Debug, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SectorPacking {
     shift: u64,
     mask: u64,
@@ -33,10 +32,6 @@ impl SectorPacking {
     }
 }
 
-const HEADER_OFFSET_MASK: u64 = SECTOR_SIZE / size_of::<FSInode>() as u64;
-const HEADER_OFFSET_SHIFT: u64 = HEADER_OFFSET_MASK.ilog2() as u64;
-const _: () = assert!(u64::is_power_of_two(HEADER_OFFSET_MASK));
-
 /// Wrapper for a sector address. Uses upper 63 bits for the sector and reserves the lowest bit for the subsector offset
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FSHeaderSector {
@@ -47,7 +42,7 @@ pub struct FSHeaderSector {
 impl FSHeaderSector {
     /// constructs
     pub const fn new(address: u64) -> Self {
-        let packing = SectorPacking::new(2);
+        let packing = SectorPacking::new(SECTOR_SIZE);
         Self { packing, address }
     }
     pub fn from_sector_offset(sector: u64, offset: u64) -> Self {
@@ -86,7 +81,18 @@ impl From<FSHeaderSector> for u64 {
     }
 }
 
-#[derive(Clone, Copy, Hash, Debug, PartialEq, Eq, PartialOrd, Ord)]
+impl Display for FSHeaderSector {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let sector = self.sector();
+        let offset = self.offset();
+        let pack = self.packing;
+        f.write_fmt(format_args!(
+            "FSHeaderSector(packing:{pack:?}, sector:{sector}, offset:{offset})"
+        ))
+    }
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Debug, Eq, PartialOrd, Ord)]
 pub struct FSInodeSector {
     packing: SectorPacking,
     address: u64,
@@ -95,7 +101,10 @@ pub struct FSInodeSector {
 impl FSInodeSector {
     /// constructs
     pub const fn new(address: u64) -> Self {
-        let packing = SectorPacking::new(4);
+        // the offset half of the address is a *byte* offset inside the sector, so the
+        // packing has to reserve enough low bits for a full sector, not for the number
+        // of inodes per sector.
+        let packing = SectorPacking::new(SECTOR_SIZE);
         Self { packing, address }
     }
     pub fn from_sector_offset(sector: u64, offset: u64) -> Self {
@@ -131,5 +140,14 @@ impl FSInodeSector {
 impl From<FSInodeSector> for u64 {
     fn from(value: FSInodeSector) -> Self {
         value.address
+    }
+}
+impl Display for FSInodeSector {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let sector = self.sector();
+        let offset = self.offset();
+        f.write_fmt(format_args!(
+            "FSInodeSector(sector:{sector}, offset:{offset})"
+        ))
     }
 }

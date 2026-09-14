@@ -23,12 +23,11 @@ pub fn init(fdt_ptr: *const u8) {
     setup_boot_mem();
     match FDT::from_ptr(fdt_ptr) {
         Ok(mmap) => {
-            console::init(mmap.debug_mode);
+            console::init(mmap.get_arg("debug"));
             debug!("Intialized FDT");
             sdt::fdt::GLOBAL_FDT.init(|| mmap);
             if let Some(fdt) = GLOBAL_FDT.get() {
                 page_table::init_root_table();
-                info!("{:?}", fdt);
                 heap::setup_system_mem(fdt.memory.size);
             } else {
                 warn!("Failed to set global device tree");

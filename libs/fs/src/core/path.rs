@@ -1,5 +1,5 @@
 use core::{
-    cmp::min,
+    fmt::Display,
     ops::{Index, Range, RangeTo},
     panic,
 };
@@ -34,6 +34,9 @@ impl FSPath {
     }
     pub fn is_root(&self) -> bool {
         self.path.eq("/")
+    }
+    fn raw_components(&self) -> core::str::Split<'_, char> {
+        self.path.split('/')
     }
     pub fn len(&self) -> usize {
         self.path.len()
@@ -74,8 +77,21 @@ impl PartialEq<str> for FSPath {
 }
 
 impl FSLocator for FSPath {
-    fn components(&self) -> core::str::Split<'_, &str> {
-        self.path.split("/")
+    fn components(&self) -> impl Iterator<Item = &str> {
+        let mut components = self
+            .path
+            .split('/')
+            .filter(|component| !component.is_empty());
+        let mut root = self.is_absolute();
+
+        core::iter::from_fn(move || {
+            if root {
+                root = false;
+                Some("/")
+            } else {
+                components.next()
+            }
+        })
     }
 
     fn is_absolute(&self) -> bool {
@@ -94,13 +110,18 @@ impl FSLocator for FSPath {
     }
 
     fn parent(&self) -> &Self {
-        let parent_path = self.path.rsplit_once('/').unwrap_or(("", "")).0;
-        Self::new(parent_path)
+        match self.path.rsplit_once('/') {
+            // a top-level entry like "/file.txt" splits to an empty head; its parent is the root
+            Some(("", _)) if self.is_absolute() => Self::new("/"),
+            Some((head, _)) => Self::new(head),
+            // relative single component, e.g. "file.txt"
+            None => Self::empty(),
+        }
     }
 
     fn is_valid(&self) -> bool {
-        let len = self.components().count();
-        for (i, c) in self.components().enumerate() {
+        let len = self.raw_components().count();
+        for (i, c) in self.raw_components().enumerate() {
             let first_or_last = i == 0 || i == len - 1;
             if (!first_or_last && c.is_empty()) || !c.is_ascii() || c.trim().len() != c.len() {
                 return false;
@@ -120,7 +141,8 @@ impl FSLocator for FSPath {
             return FSPath::new("/");
         }
         let mut nth = 0;
-        let mut idx = 0;
+        // no separator for `depth` is reached when depth == component count: keep the whole path
+        let mut idx = self.path.len();
         for (i, c) in self.path.chars().enumerate() {
             // exclude leading /
             if c == '/' && i != 0 {
@@ -175,5 +197,11 @@ impl AsRef<str> for FSPath {
 impl From<&FSPath> for String {
     fn from(val: &FSPath) -> Self {
         val.path.to_owned()
+    }
+}
+
+impl Display for FSPath {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.path)
     }
 }

@@ -1,4 +1,4 @@
-use core::slice::GetDisjointMutError::IndexOutOfBounds;
+use core::{debug_assert_eq, ptr::addr_of, slice::GetDisjointMutError::IndexOutOfBounds, todo};
 
 use alloc::{
     borrow::ToOwned,
@@ -9,27 +9,28 @@ use alloc::{
 use block::device::BlockDevice;
 
 use crate::{
-    collections::{bitmap::FSBitmap, cache::Cache, error::FSError, pathcache::FSPathCache},
-    core::{
-        locator::FSLocator,
-        path::{self, FSPath},
-    },
+    VERSION,
+    collections::{cache::Cache, error::FSError, pathcache::FSPathCache},
+    core::{locator::FSLocator, path::FSPath},
     meta::{
         context::{CreationContext, HeaderMetadata},
         header::FSHeader,
-        inode::FSInode,
+        inode::{
+            BLOCK_SIZE, Extent, FSInode, SECTOR_SIZE, SECTORS_PER_BLOCK, StorageType,
+            block_to_sector,
+        },
         permission::Permissions,
         superblock::Superblock,
     },
     storage::{
         blockstore::FSBlockStore,
         fileobject::{DirContents, FileObject, OpenMode},
+        format::FormatOptions,
         sector::{FSHeaderSector, FSInodeSector},
-        volumeio::VolumeIO,
+        volumeio::{INODES_PER_SECTOR, VolumeIO},
     },
 };
 
-const INODES_PER_SECTOR: u64 = 2;
 
 /// Disk volume
 pub struct FSVolume<'a, C: Cache = FSPathCache> {
@@ -45,9 +46,9 @@ impl<'a, C> FSVolume<'a, C>
 where
     C: Cache,
 {
-    pub fn new(capacity: u64, io: VolumeIO<'a>) -> Self {
+    pub fn new(root: FSHeaderSector, capacity: u64, io: VolumeIO<'a>) -> Self {
         Self {
-            root: FSHeaderSector::new(0),
+            root,
             cache: C::with_capacity(capacity as usize),
             capacity,
             io,
@@ -55,8 +56,9 @@ where
     }
     /// Creates a new volume from a block device and formats it, fill cache, etc.
     pub fn from_block_device(blk_dev: &'a mut dyn BlockDevice) -> Result<Self, FSError> {
-        let io = VolumeIO::from_block_device(blk_dev)?;
-        let volume = Self::new(1000, io);
+        let (root, io) = VolumeIO::from_block_device(blk_dev)?;
+        let mut volume = Self::new(root, 1000, io);
+        volume.populate_map()?;
         Ok(volume)
     }
     /// rebuilds the path cache from disk by recursively walking the directory tree from the root
@@ -66,7 +68,6 @@ where
     /// recursivley cache path to sector from the root node
     fn populate_map_at(&mut self, path: &FSPath, sector: FSHeaderSector) -> Result<(), FSError> {
         self.cache.put_path(path, sector);
-
         let header = self.io.read_header_address(sector)?;
         let Some(inode_sector) = header.inode_addr() else {
             return Ok(());
@@ -80,9 +81,10 @@ where
             .io
             .children_inode(header, sector, inode)?
             .map(|located| {
+                let header = located.value();
                 (
                     // TODO: error handling on name
-                    located.value().name().unwrap().to_string(),
+                    header.name().unwrap_or("name error").to_string(),
                     FSHeaderSector::new(located.addr()),
                 )
             })
@@ -103,42 +105,32 @@ where
         if let Some(addr) = self.cache.get_path(path) {
             return Ok(addr);
         }
-        // traverse root
-        let mut components = path.components().peekable();
+        // The root component identifies the volume root rather than a child entry.
         let mut current_sector = self.root;
-        let mut current_header = self.io.read_header_address(current_sector)?;
-
-        while let Some(component) = components.next() {
+        for component in path.components() {
+            let current_header = self.io.read_header_address(current_sector)?;
             let inode_addr = current_header
                 .inode_addr()
-                .ok_or(FSError::Type("Expected directory".to_string()))?;
+                .ok_or_else(|| FSError::Type("Expected directory".to_string()))?;
+            let inode = self.io.read_inode_address(inode_addr)?;
 
-            // loop through the file data to find matching header
-            let found = {
-                let inode = self.io.read_inode_address(inode_addr)?;
-                let mut found = None;
-                for child in self
-                    .io
-                    .children_inode(current_header, current_sector, inode)?
-                {
-                    if child.value().name()?.eq(component) {
-                        found = Some(child.addr())
-                    }
-                }
-                found
-            };
-            // error if no match
-            let address = found.ok_or_else(|| FSError::FileNotFound(path.as_ref().to_owned()))?;
-            current_sector = FSHeaderSector::new(address);
+            let children = self
+                .io
+                .children_inode(current_header, current_sector, inode)?;
 
-            self.cache.put_path(path, current_sector);
+            let found = self
+                .io
+                .children_inode(current_header, current_sector, inode)?
+                .find(|child| child.value().name().is_ok_and(|name| name == component))
+                .map(|child| child.addr());
 
-            if components.peek().is_none() {
-                return Ok(current_sector);
-            }
-            current_header = self.io.read_header_address(current_sector)?;
+            current_sector = FSHeaderSector::new(
+                found.ok_or_else(|| FSError::FileNotFound(path.as_ref().to_owned()))?,
+            );
         }
-        Err(FSError::file_not_found(String::new()))
+
+        self.cache.put_path(path, current_sector);
+        Ok(current_sector)
     }
 
     pub fn create_file(
@@ -154,8 +146,8 @@ where
             0,
             parent_metadata.storage_type,
         );
-        let header = FSHeader::new_file(path.name(), metadata, context.now)?;
-        self.create_header(path, header)
+        let mut header = FSHeader::new_file(path.name(), metadata, context.now)?;
+        self.create_header(path, &mut header)
     }
     pub fn create_dir(
         &mut self,
@@ -170,21 +162,20 @@ where
             0,
             parent_metadata.storage_type,
         );
-        let header = FSHeader::new_dir(path.name(), metadata, context.now)?;
-        self.create_header(path, header)
+        let mut header = FSHeader::new_dir(path.name(), metadata, context.now)?;
+        self.create_header(path, &mut header)
     }
-    pub fn create_header(
+    /// Writes `header` to the inode at `path.parent()`, placing it in the directory
+    fn create_header(
         &mut self,
         path: &FSPath,
-        header: FSHeader,
+        header: &mut FSHeader,
     ) -> Result<FSHeaderSector, FSError> {
-        let mut fo = self.open_read(path)?;
-        fo.write_header(header)
-            .map(|header_sector| {
-                self.cache.put_path(path, header_sector);
-                header_sector
-            })
-            .ok_or(FSError::IOError("Write failed"))
+        self.allocate_header(header, header.metadata().storage_type)?;
+        let mut fo = self.open_read(path.parent())?;
+        fo.write_header(*header).inspect(|header_sector| {
+            self.cache.put_path(path, *header_sector);
+        })
     }
     pub fn delete_file(&mut self, path: &FSPath) -> Result<FSHeader, FSError> {
         let sector = self.resolve_path(path)?;
@@ -238,6 +229,16 @@ where
             .map(|inode_address| self.io.read_inode_address(inode_address))?;
         Ok((header, header_sector, inode?))
     }
+    /// Allocates an Inode in the volume and attributes it to `header`. Inode will be preallocated with `size` bytes
+    fn allocate_header(
+        &mut self,
+        header: &mut FSHeader,
+        kind: StorageType,
+    ) -> Result<FSInodeSector, FSError> {
+        let inode_addr = self.io.allocate_inode(kind)?;
+        header.set_inode_addr(inode_addr);
+        Ok(inode_addr)
+    }
 
     /* Directory Children Getters */
     pub fn children<'v>(&'v mut self, path: &FSPath) -> Result<DirContents<'v, 'a>, FSError> {
@@ -247,6 +248,61 @@ where
             )));
         }
         self.open_read(path).map(|fobj| fobj.dir_contents())
+    }
+    /* Reformat on mount, write superblock and create root folder */
+    pub fn format(blk_dev: &'a mut dyn BlockDevice, opts: FormatOptions) -> Result<(), FSError> {
+        let mut blk_store = FSBlockStore::new(blk_dev);
+
+        // write superblock to start of first sector
+        let inode_sectors = (opts.inodes as u64).div_ceil(INODES_PER_SECTOR);
+        let meta_sectors = 1 + inode_sectors;
+        let data_start = meta_sectors.div_ceil(SECTORS_PER_BLOCK);
+        let total_blocks = blk_store.capacity() / SECTORS_PER_BLOCK;
+        total_blocks
+            .checked_sub(data_start)
+            .filter(|n| *n > 0)
+            .ok_or(FSError::OutOfBounds(
+                "Metadata exceeds the volume's capacity".to_owned(),
+            ))?;
+
+        // the inode table must start zeroed: a slot with a null id is what marks it free
+        for sector in 1..=inode_sectors {
+            blk_store.write_buffer(sector, 0, &[0u8; SECTOR_SIZE as usize])?;
+        }
+
+        // the root directory starts out owning a single block and grows through
+        // `alloc_size` like any other directory
+        let root_inode_addr = FSInodeSector::from_sector_offset(1, 0);
+        let mut root_node = FSInode::empty_ext();
+        root_node.set_extents(&[Extent {
+            logical_block: 0,
+            physical_block: data_start,
+            block_count: 1,
+            flags: 0,
+        }]);
+        if let FSInode::Extents { id, size, .. } = &mut root_node {
+            *id = root_inode_addr.get();
+            *size = 1;
+        }
+        blk_store.write_inode(root_inode_addr, root_node)?;
+
+        let meta = HeaderMetadata::new(
+            0,
+            Permissions::ROOT,
+            FSHeader::IS_ROOT,
+            StorageType::Extents,
+        );
+        let mut root = FSHeader::new_dir("/", meta, 0)?;
+        root.set_inode_addr(root_inode_addr);
+        let root_sector = FSHeaderSector::from_sector_offset(0, 256);
+        blk_store.write_header(root_sector, root)?;
+
+        blk_store.write_buffer(block_to_sector(data_start), 0, &[0u8; BLOCK_SIZE as usize])?;
+
+        let superblock = Superblock::new(VERSION, root_sector, opts.capacity, opts.inodes);
+
+        blk_store.write(0, 0, superblock)?;
+        Ok(())
     }
 
     /* path helper methods */
@@ -284,6 +340,9 @@ impl<'a> Volume<'a> for FSVolume<'a> {
     fn delete_file(&mut self, path: &FSPath) -> Result<FSHeader, FSError> {
         self.delete_file(path)
     }
+    fn format(&mut self) -> Result<(), FSError> {
+        todo!()
+    }
 }
 trait Volume<'a> {
     fn resolve_path(&mut self, path: &FSPath) -> Result<FSHeaderSector, FSError>;
@@ -292,4 +351,5 @@ trait Volume<'a> {
     fn read_inode(&mut self, path: &FSPath) -> Result<FSInode, FSError>;
     fn read_header(&mut self, path: &FSPath) -> Result<FSHeader, FSError>;
     fn delete_file(&mut self, path: &FSPath) -> Result<FSHeader, FSError>;
+    fn format(&mut self) -> Result<(), FSError>;
 }

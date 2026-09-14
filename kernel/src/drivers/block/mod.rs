@@ -8,7 +8,7 @@ use crate::{drivers::block::virtio::VirtioBlock, println};
 
 pub mod virtio;
 
-pub static BLOCK_DEVICE: Once<&mut dyn BlockDevice> = Once::new();
+pub static BLOCK_DEVICE: Once<&'static mut dyn BlockDevice> = Once::new();
 
 pub fn init(fdt: &FDT, mmio_idx: usize) {
     if let Some(blk_drv) = VirtioBlock::from_mmio(fdt, mmio_idx) {

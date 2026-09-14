@@ -1,10 +1,14 @@
+use core::fmt::Debug;
+
 #[repr(transparent)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 /// Wrapper struct for Unix style permission bitflags
 pub struct Permissions(u16);
 
 impl Permissions {
     /// Used to mark files that should inherit permissions from their parent directory
+
+    /* MASKS and bitshifts */
     pub const INHERIT: u16 = 1 << 15;
 
     pub const OWNER_MASK: u16 = 0o700;
@@ -19,6 +23,14 @@ impl Permissions {
     pub const READ: u16 = 2;
     pub const WRITE: u16 = 4;
 
+    /* Permission constants */
+    /// Permission used by default on root dirs.\
+    /// `rwxr-xr-x`
+    pub const ROOT: Self = Self::from_raw(0o755);
+
+    pub const fn from_raw(value: u16) -> Self {
+        Self(value)
+    }
     pub fn without_umask(self, umask: Self) -> Self {
         Self(self.0 & !umask.0)
     }
@@ -76,5 +88,12 @@ impl Permissions {
     }
     fn inherit(&self) -> bool {
         self.0 & Self::INHERIT != 0
+    }
+}
+
+impl Debug for Permissions {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let inner = self.0;
+        f.write_fmt(format_args!("Permissions({inner:#o})"))
     }
 }

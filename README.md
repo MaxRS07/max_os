@@ -27,4 +27,6 @@ This is by far my biggest (and most fun) project yet! The planned scope covers:
     - Game engine
     - 3D game
 
-Star if you want to follow updates to this project or learn something about OS development!
+Star if you want to follow updates to this project or learn something about OS development! 
+
+__P.S. Sorry about the commit history, didn't expect to take this as far as it is.__

@@ -13,7 +13,7 @@ pub mod syscall;
 
 use core::{arch::global_asm, panic};
 
-use log::info;
+use log::{Level::Debug, debug, info, warn};
 use sdt::fdt::GLOBAL_FDT;
 
 use crate::{
@@ -29,10 +29,9 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
     println!("Entered kernel in S mode. Hardware thread {}.", hart_id);
     mm::init(fdt_ptr); // global allocator & fdt
 
-    if GLOBAL_FDT.get().is_none() {
+    let Some(fdt) = GLOBAL_FDT.get() else {
         panic!("Failed to parse device tree");
-    }
-    let fdt = GLOBAL_FDT.get().unwrap();
+    };
     riscv::setup();
 
     info!("Entry on hart id: {}", hart_id);
@@ -46,9 +45,12 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
         _ => {}
     });
 
-    if let Some(blk_drv) = unsafe { BLOCK_DEVICE.get_mut() } {
-        let mut blk_drv_ref = &**blk_drv;
-        fs::fs_init(&mut blk_drv_ref);
+    if let Some(blk_dev) = unsafe { BLOCK_DEVICE.get_mut() } {
+        debug!("Initializing file system");
+        match fs::fs_init(&mut **blk_dev, fdt.get_arg("remount")) {
+            Ok(_) => debug!("Initialized file system"),
+            Err(msg) => warn!("Failed to initialize file system: {msg:?}"),
+        }
     }
 
     schedule_interrupt_timer(10_000_000);

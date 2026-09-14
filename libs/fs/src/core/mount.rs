@@ -8,7 +8,7 @@ use block::device::BlockDevice;
 
 use crate::{
     collections::error::FSError,
-    core::{locator::FSLocator, path::FSPath},
+    core::{locator::FSLocator, mutpath, path::FSPath},
     storage::volume::FSVolume,
 };
 

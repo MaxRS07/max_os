@@ -9,3 +9,5 @@ pub mod storage;
 pub mod vfs;
 
 extern crate alloc;
+
+pub const VERSION: u32 = 0;

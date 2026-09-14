@@ -260,9 +260,12 @@ impl BlockDevice for VirtioBlock {
     /// Panics if buffer len is not aligned to `self.sector_size()`
     fn read_buffer(&mut self, sector: u64, buffer: &mut [u8]) -> Result<usize, BlockError> {
         if !buffer.len().is_multiple_of(self.sector_size() as usize) {
-            return Err(BlockError::AlignError(
-                "Buffer must be aligned to sector size",
-            ));
+            let aligned_len = (buffer.len() + (self.sector_size() - 1) as usize)
+                & !(self.sector_size() as usize - 1);
+            let mut read_buffer = alloc::vec![0u8; aligned_len];
+            self.blk_read_buf(sector, &mut read_buffer)?;
+            buffer.copy_from_slice(&read_buffer[..buffer.len()]);
+            return Ok(buffer.len());
         }
         self.blk_read_buf(sector, buffer)
     }

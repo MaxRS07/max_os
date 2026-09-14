@@ -2,8 +2,8 @@ use crate::core::path::FSPath;
 
 /// Common trait for types that can be used as file system locators
 pub trait FSLocator {
-    /// returns a `core::str::Split` of each directory contained in the path
-    fn components(&self) -> core::str::Split<'_, &str>;
+    /// Returns each component in the path. Absolute paths begin with `"/"`.
+    fn components(&self) -> impl Iterator<Item = &str>;
     /// `true` if this path begins at the root folder
     fn is_absolute(&self) -> bool;
     /// returns the file extension of file at the path, or an empty str `""` if the path is a directory or no extension is found

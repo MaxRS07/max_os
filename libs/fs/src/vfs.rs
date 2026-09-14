@@ -6,14 +6,18 @@ use crate::{
     collections::error::FSError,
     core::{locator::FSLocator, mount::FSMountTable, path::FSPath},
     meta::{context::CreationContext, header::FSHeader, permission::Permissions},
-    storage::{fileobject::FileObject, sector::FSHeaderSector, volume::FSVolume},
+    storage::{
+        fileobject::{FileObject, OpenMode},
+        sector::FSHeaderSector,
+        volume::FSVolume,
+    },
 };
 pub struct Vfs<'a> {
     mount_table: FSMountTable<'a>,
 }
 
 impl<'a> Vfs<'a> {
-    pub fn new(_blk_dev: &'static mut dyn BlockDevice) -> Self {
+    pub fn new() -> Self {
         Self {
             mount_table: FSMountTable::new(),
         }
@@ -33,9 +37,17 @@ impl<'a> Vfs<'a> {
         }
         self.mount_table.unmount(path)
     }
-    pub fn get_file<'v>(&'v mut self, path: &FSPath) -> Result<FileObject<'v, 'a>, FSError> {
+    pub fn open<'v>(
+        &'v mut self,
+        path: &FSPath,
+        mode: OpenMode,
+    ) -> Result<FileObject<'v, 'a>, FSError> {
         if let Some(vol) = self.resolve(path) {
-            return vol.open_read(path);
+            return match mode {
+                OpenMode::Append => vol.open_append(path),
+                OpenMode::Read => vol.open_read(path),
+                OpenMode::Write => vol.open_write(path),
+            };
         }
         Err(FSError::FileNotFound(format!(
             "Failed to resolve path {path:?}"
@@ -51,8 +63,9 @@ impl<'a> Vfs<'a> {
         if let Some(vol) = self.resolve(path) {
             return vol.create_file(path, context, permissions);
         }
-
-        Err(FSError::Other)
+        Err(FSError::Resolve(format!(
+            "Failed to resolve path: \"{path}\""
+        )))
     }
 
     /// Retuns the volume
@@ -61,5 +74,11 @@ impl<'a> Vfs<'a> {
             return None;
         }
         self.mount_table.find_volume(path)
+    }
+}
+
+impl<'a> Default for Vfs<'a> {
+    fn default() -> Self {
+        Self::new()
     }
 }

@@ -3,15 +3,8 @@ use crate::{
     region::FDTRegion,
     stream::{FDTElement, FdtStream},
 };
-use alloc::{
-    borrow::ToOwned,
-    fmt::format,
-    format,
-    string::{String, ToString},
-    vec::Vec,
-};
-use collections::hashmap::{FnvBuildHasher, HashMap};
-use log::{info, warn};
+use alloc::{borrow::ToOwned, format, string::String, vec::Vec};
+use collections::hashmap::HashMap;
 use sync::once::Once;
 
 pub static GLOBAL_FDT: Once<FDT> = Once::new();
@@ -43,7 +36,7 @@ pub struct FDT<'a> {
     pub pci_mmio_pref: FDTRegion<'a>,     // 64-bit prefetchable BARs
     element_map: HashMap<String, FDTElement>,
 
-    args: Vec<String>,
+    pub args: HashMap<String, bool>,
 }
 
 impl<'a> FDT<'a> {
@@ -85,9 +78,13 @@ impl<'a> FDT<'a> {
                     if current_node == "chosen" && name == "bootargs" {
                         unsafe {
                             let bytes = core::slice::from_raw_parts(value_ptr, len);
-                            let str = str::from_utf8_unchecked(bytes);
-                            map.args.push(str.to_owned());
-                            map.debug_mode = value_ptr.read() == 0x31
+                            if let Ok(args) = str::from_utf8(bytes) {
+                                for arg in args.trim_end_matches('\0').split(',') {
+                                    arg.split_once("=").map(|(k, v)| {
+                                        map.args.insert(k.to_owned(), v.eq("1"));
+                                    });
+                                }
+                            }
                         };
                     }
 
@@ -166,6 +163,10 @@ impl<'a> FDT<'a> {
     }
     pub fn get_element_string(&self, path: &String) -> Option<FDTElement> {
         self.element_map.get(path)
+    }
+    pub fn get_arg(&self, arg: &str) -> bool {
+        let arg = arg.to_owned();
+        self.args.get(&arg).unwrap_or(false)
     }
 }
 
