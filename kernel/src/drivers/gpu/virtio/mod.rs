@@ -4,7 +4,7 @@ use alloc::{
     boxed::Box,
     vec::{self, Vec},
 };
-use graphics::{gpu::GpuDevice, types::Brga};
+use graphics::{device::GpuDevice, types::Brga};
 use log::{debug, error, warn};
 use sdt::fdt::FDT;
 use virtio::{

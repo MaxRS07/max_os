@@ -10,6 +10,7 @@ members = [
     "libs/log",
     "libs/mem",
     "libs/mmio",
+    "libs/net",
     "libs/sdt",
     "libs/sync",
     "libs/virtio",

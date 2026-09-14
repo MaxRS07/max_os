@@ -45,6 +45,7 @@ dependencies = [
  "log",
  "mem",
  "mmio",
+ "net",
  "sdt",
  "sync",
  "virtio",
@@ -61,6 +62,10 @@ dependencies = [
  "log",
  "sdt",
 ]
+
+[[package]]
+name = "net"
+version = "0.1.0"
 
 [[package]]
 name = "sdt"

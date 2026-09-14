@@ -16,6 +16,7 @@ collections = { path = "../libs/collections" }
 mem = { path = "../libs/mem" }
 fs = { path = "../libs/fs" }
 block = { path = "../libs/block" }
+net = { path = "../libs/net" }
 
 [[bin]]
 name = "maxos"

@@ -34,6 +34,8 @@ if (RUSTFLAGS="-Awarnings" cargo build --release) then
     -device virtio-tablet-device \
     -drive file=/Volumes/MAX_OS/max_os.img,format=raw,id=usb_backend,if=none \
     -device virtio-blk-device,drive=usb_backend \
+    -device virtio-net-device,netdev=net0 \
+    -netdev user,id=net0,hostfwd=tcp::10022-:22 \
     -display cocoa \
     -serial stdio \
     -append "${JOIN_ARGS}"
