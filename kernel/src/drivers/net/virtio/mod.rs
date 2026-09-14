@@ -1,4 +1,7 @@
-use alloc::vec::{self, Vec};
+use alloc::{
+    boxed::Box,
+    vec::{self, Vec},
+};
 use log::warn;
 use mmio::mmio_read;
 use net::device::NetDevice;
@@ -31,17 +34,14 @@ pub struct VirtioNet {
     config: VirtioNetConfig,
     /// between 1 and 65535 pairs
     max_virtqueue_pairs: u16,
-    /// incoming packets are pushed here
-    receiveq: VirtQueue,
-    /// put outgoing packets here
-    transmitq: VirtQueue,
     // N extra transmit queues (N=1 if VIRTIO_NET_F_MQ is not negotiated, otherwise N is set by max_virtqueue_pairs.). These i thing happen in parallel
-    /// 2(`max_virtqueue_pairs`-1) entries
-    recieveqn: Vec<VirtQueue>,
-    /// 2(`max_virtqueue_pairs`) + 1 entries
-    transmitqn: Vec<VirtQueue>,
+    /// `max_virtqueue_pairs` entries
+    receiveqs: Vec<VirtQueue>,
+    /// `max_virtqueue_pairs` entries
+    transmitqs: Vec<VirtQueue>,
     /// 2(`max_virtqueue_pairs`) entries
-    controlqn: Vec<VirtQueue>,
+    /// only exists if VIRTIO_NET_F_CTRL_VQ set.
+    controlq: Option<VirtQueue>,
 }
 
 impl VirtioNet {
@@ -61,8 +61,8 @@ impl VirtioNet {
             warn!("Failed to initialize NET driver: {error}")
         }
 
-        let receiveq = VirtQueue::default();
-        let transmitq = VirtQueue::default();
+        let receiveqs = alloc::vec![VirtQueue::default(); max_pairs as usize];
+        let transmitqs = alloc::vec![VirtQueue::default(); max_pairs as usize];
 
         let config: VirtioNetConfig = mmio_read(mmio_addr, VIRTIO_BLK_CFG_OFFSET);
 
@@ -74,15 +74,40 @@ impl VirtioNet {
             1
         };
 
+        let controlq = if Self::has_flag(cfg_flags, VIRTIO_NET_F_CTRL_VQ) {
+            Some(VirtQueue::default())
+        } else {
+            None
+        };
+
         Some(Self {
             config,
             max_virtqueue_pairs,
-            receiveq,
-            transmitq,
-            recieveqn: alloc::vec![VirtQueue::default(); (2 * max_virtqueue_pairs - 1) as usize],
-            transmitqn: alloc::vec![VirtQueue::default(); (2 * max_virtqueue_pairs + 1) as usize],
-            controlqn: alloc::vec![VirtQueue::default(); (2 * max_virtqueue_pairs) as usize],
+            receiveqs,
+            transmitqs,
+            controlq,
         })
+    }
+    fn populate_buffers(cfg_flags: u64, queue: &mut VirtQueue) -> Result<(), ()> {
+        let min_size = if Self::has_flag(
+            cfg_flags,
+            VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6,
+        ) {
+            0xFFFF
+        } else {
+            0x5F6
+        };
+    }
+    /// access a queue reference by index
+    fn get_queue(&mut self, index: usize) -> Option<&mut VirtQueue> {
+        if index >= (2 * self.max_virtqueue_pairs + 1) as usize {
+            return self.controlq.as_mut();
+        }
+        if index.is_multiple_of(2) {
+            self.receiveqs.get_mut(index / 2)
+        } else {
+            self.transmitqs.get_mut(index / 2 + 1)
+        }
     }
     fn verify_cfg_flags(cfg_flags: u64) -> Result<(), &'static str> {
         let has_tsox_guest =

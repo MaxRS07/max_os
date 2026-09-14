@@ -7,6 +7,12 @@ pub struct VirtioNetConfig {
     pub mac: [u8; 6],
     pub status: u16,
     pub max_virtqueue_pairs: u16,
+    /// mtu only exists if VIRTIO_NET_F_MTU is set. This field specifies the maximum MTU for the driver to use.\
+    /// - The device MUST set mtu to between 68 and 65535 inclusive, if it offers VIRTIO_NET_F_MTU.\
+    /// - The device SHOULD set mtu to at least 1280, if it offers VIRTIO_NET_F_MTU.\
+    /// - The device MUST NOT modify mtu once it has been set.\
+    /// - The device MUST NOT pass received packets that exceed mtu (plus low level ethernet header length) size with gso_type NONE or ECN after VIRTIO_NET_F_MTU has been successfully negotiated.\
+    /// - The device MUST forward transmitted packets of up to mtu (plus low level ethernet header length) size with gso_type NONE or ECN, and do so without fragmentation, after VIRTIO_NET_F_MTU has been successfully negotiated.\
     pub mtu: u16,
 }
 
