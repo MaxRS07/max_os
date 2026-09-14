@@ -46,6 +46,7 @@ pub enum FSInode {
         id: u64,
         /// number of occupied data blocks (4KiB each). Secondary and tertiary index blocks are not counted.
         size: u64,
+        len_bytes: u64,
         /// block pointers 0..5 stored directly, each addressing a 4KiB block. will always be fully used if indirect is active
         direct: [u64; 6],
         /// primary index block containing `ADDRS_PER_BLOCK` pointers to data blocks.
@@ -59,9 +60,12 @@ pub enum FSInode {
     Extents {
         /// unique inode number
         id: u64,
-        size: u64,
+        len_bytes: u64,
         extents: [Extent; 3],
+        size: u64,
         extent_count: u16,
+        inode_store: u64,
+        reserved: [u8; 8],
     },
 }
 
@@ -76,7 +80,7 @@ impl FSInode {
     pub fn new_sized(
         kind: StorageType,
         id: u64,
-        size: u64,
+        size: u32,
         map: &mut dyn SectorAllocator,
         blk_dev: &mut dyn BlockDevice,
     ) -> Option<Self> {
@@ -84,7 +88,8 @@ impl FSInode {
             StorageType::Extents => Self::Extents {
                 id,
                 size,
-                extents: [Extent::empty(); 3],
+                len_bytes: 0,
+                extents: [Extent::empty(); 4],
                 extent_count: 0,
             },
             StorageType::Indirect => Self::Indirect {
@@ -691,7 +696,6 @@ pub struct Extent {
     pub logical_block: SectorAddr,
     pub physical_block: SectorAddr,
     pub block_count: u64,
-    pub flags: u16,
 }
 
 impl Extent {

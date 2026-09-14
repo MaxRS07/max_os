@@ -46,7 +46,9 @@ unsafe impl GlobalAlloc for LinkedListAllocator {
 
 impl LinkedListAllocator {
     pub fn alloc(layout: Layout) -> *mut u8 {
-        let size = layout.size().max(1);
+        // Round up: the tail block below is placed at `payload + size`, so an unrounded size
+        // puts the next BlockHeader at an unaligned address that no longer abuts its neighbour.
+        let size = layout.size().max(1).next_multiple_of(HEADER_SIZE);
         let align = layout.align().max(HEADER_SIZE);
 
         let mut cur = unsafe { BLOCK_HEAD };
@@ -77,20 +79,25 @@ impl LinkedListAllocator {
                             (*th).next = ab.next;
                             (*th).prev = alloc_hdr as *mut BlockHeader;
 
-                            if BLOCK_TAIL == cur || BLOCK_TAIL == alloc_hdr as *mut BlockHeader {
-                                BLOCK_TAIL = th
-                            }
-
                             if !ab.next.is_null() {
                                 (*ab.next).prev = th;
                             }
                             ab.next = th;
                             ab.size = size;
+
+                            if (*th).next.is_null() {
+                                BLOCK_TAIL = th;
+                            }
                         } else {
                             ab.size = block_end - payload;
                         }
 
                         ab.free = false;
+                        // a leading-padding split inserts `ab` after `cur`, so `ab` can be the
+                        // new last node even though `cur` was the previous tail
+                        if ab.next.is_null() {
+                            BLOCK_TAIL = alloc_hdr as *mut BlockHeader;
+                        }
                         return payload as *mut u8;
                     }
                 }
@@ -228,7 +235,8 @@ pub unsafe fn init(mm_start: *const u8) {
 
         let block_start = &mut *block_start_ptr;
         block_start.free = true;
-        block_start.size = 0x1000;
+        // `size` is the payload size, so the header has to come out of the page
+        block_start.size = 0x1000 - HEADER_SIZE;
         block_start.next = null_mut();
         block_start.prev = null_mut();
     }

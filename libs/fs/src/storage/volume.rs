@@ -31,7 +31,6 @@ use crate::{
     },
 };
 
-
 /// Disk volume
 pub struct FSVolume<'a, C: Cache = FSPathCache> {
     /// Address of the root header in this volume
@@ -223,6 +222,7 @@ where
     ) -> Result<(FSHeader, FSHeaderSector, FSInode), FSError> {
         let header_sector = self.resolve_path(path)?;
         let header = self.io.read_header_address(header_sector)?;
+
         let inode = header
             .inode_addr()
             .ok_or(FSError::IOError("Failed to open file"))

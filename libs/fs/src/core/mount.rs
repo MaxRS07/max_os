@@ -3,7 +3,7 @@ use core::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use alloc::vec::Vec;
+use alloc::{format, vec::Vec};
 use block::device::BlockDevice;
 
 use crate::{
@@ -65,6 +65,7 @@ impl<'a> FSMountTable<'a> {
         }
         for entry in self.table.iter_mut() {
             if entry.prefix.matches_prefix(path) {
+
                 return Some(&mut entry.volume);
             }
         }

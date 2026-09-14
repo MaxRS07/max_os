@@ -91,9 +91,6 @@ impl LockStateData {
         self.remove_ref();
     }
     pub fn try_lock_exclusive(&self) -> Result<(), FSError> {
-        "Lock ex\n".bytes().for_each(|c| unsafe {
-            core::ptr::write_volatile(0x1000_0000 as *mut u8, c);
-        });
         let res = self.state.compare_exchange(
             LockState::Unlocked as u8,
             LockState::Exclusive as u8,

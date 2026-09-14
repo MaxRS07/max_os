@@ -25,7 +25,6 @@ use crate::drivers::block::virtio::cfg::{
 };
 
 pub mod cfg;
-
 pub const VIRTIO_BLOCK_ID: u32 = 2;
 
 /// Maximum size of any single segment is in size_max.
@@ -202,6 +201,7 @@ impl VirtioBlock {
         } else {
             self.blk_read(sector, sector_size)?
         };
+
         buf[offset as usize..offset as usize + data.len()].copy_from_slice(data);
 
         let hdr = VirtioBlkOutHeader {

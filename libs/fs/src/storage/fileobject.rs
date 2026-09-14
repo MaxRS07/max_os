@@ -182,13 +182,7 @@ impl<'v, 'a> FileObject<'v, 'a> {
     }
     /// Performs a write at the cursor. Fails if the write overflows, align doesnt match, etc
     fn cwrite<T>(&mut self, value: T) -> Result<(), FSError> {
-        unsafe {
-            core::ptr::write_volatile(0x1000_0000 as *mut u8, b'c');
-        }
         self.lock_state.lock_exclusive();
-        unsafe {
-            core::ptr::write_volatile(0x1000_0000 as *mut u8, b'0');
-        }
         let align = align_of::<T>() as u64;
         let res = self
             .check_size(size_of::<T>() as u64)
@@ -203,16 +197,12 @@ impl<'v, 'a> FileObject<'v, 'a> {
     /// Writes a buffer at the cursor without alignment
     fn cwrite_buffer(&mut self, buffer: &[u8]) -> Result<(), FSError> {
         self.lock_state.lock_exclusive();
-        "bruh".bytes().for_each(|c| unsafe {
-            core::ptr::write_volatile(0x1000_0000 as *mut u8, c);
-        });
         self.check_size(buffer.len() as u64)?;
-        "checked".bytes().for_each(|c| unsafe {
-            core::ptr::write_volatile(0x1000_0000 as *mut u8, c);
-        });
+
         let sector = self.get_physical_sector()?;
         let offset = self.get_offset();
         self.blk_store.write_buffer(sector, offset, buffer)?;
+
         self.cursor += buffer.len() as u64;
         self.lock_state.release_exclusive();
         Ok(())
@@ -283,7 +273,6 @@ impl<'v, 'a> FileObject<'v, 'a> {
     fn check_size(&mut self, bytes: u64) -> Result<(), FSError> {
         let end = self.cursor + bytes;
         let bytes_needed = end.saturating_sub(self.max_cursor());
-        // the write already fits inside the allocated blocks
         if bytes_needed == 0 {
             return Ok(());
         }
@@ -294,16 +283,13 @@ impl<'v, 'a> FileObject<'v, 'a> {
             .ok_or(FSError::VolumeFull(
                 "Failed to allocate bytes, volume is full",
             ))?;
-
         for block in first_new_block..self.inode.size() {
-            format!("{block}").bytes().for_each(|c| unsafe {
-                core::ptr::write_volatile(0x1000_0000 as *mut u8, c);
-            });
             let physical = self.inode.map_logical(block, self.blk_store)?;
-            self.blk_store.zero_block(physical)?;
+            // self.blk_store.zero_block(physical)?;
         }
+        // self.sync_inode()?;
 
-        self.sync_inode()
+        Ok(())
     }
     fn get_physical_sector(&mut self) -> Result<u64, FSError> {
         let block = self.cursor / BLOCK_SIZE;

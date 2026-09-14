@@ -120,6 +120,7 @@ impl VirtQueue {
             while core::ptr::read_volatile(&self.used.idx) == last {
                 core::hint::spin_loop();
             }
+
             core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
         }
     }
@@ -148,9 +149,7 @@ impl VirtQueue {
     /// recorded in the used-ring entry at `idx`. `idx` is the value returned by
     /// `send_command_raw`, used after `wait_used` confirms the device processed it.
     pub fn used_len_for(&self, idx: u16) -> u32 {
-        unsafe {
-            core::ptr::read_volatile(&self.used.ring[idx as usize % QUEUE_SIZE]).len
-        }
+        unsafe { core::ptr::read_volatile(&self.used.ring[idx as usize % QUEUE_SIZE]).len }
     }
 
     /// Pops the next unconsumed used-ring entry, if any, advancing `last_used_idx`.
