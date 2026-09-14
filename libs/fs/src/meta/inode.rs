@@ -30,30 +30,22 @@ pub const SECTORS_PER_BLOCK: u64 = BLOCK_SIZE / SECTOR_SIZE;
 /// Number of `SectorAddr` entries that fit in a single indirect block.
 pub const ADDRS_PER_BLOCK: u64 = BLOCK_SIZE / size_of::<SectorAddr>() as u64;
 
-/// Converts a logical block number (as stored in an inode's direct/indirect
-/// pointers) into the raw device sector it begins at.
+/// Converts a logical block number to physical sector
 pub(crate) const fn block_to_sector(block: u64) -> u64 {
     block * SECTORS_PER_BLOCK
 }
 
-// Every byte -> sector translation in the filesystem assumes a block is an exact run of
-// `SECTORS_PER_BLOCK` sectors, so pin the relationship down at compile time.
 const _: () = assert!(BLOCK_SIZE == SECTORS_PER_BLOCK * SECTOR_SIZE);
 const _: () = assert!(SECTORS_PER_BLOCK == 8);
 
 /// A byte position inside an inode's data, resolved against its block map.
-///
-/// A block is `SECTORS_PER_BLOCK` *contiguous* sectors, so a transfer may run from
-/// `sector`/`sector_offset` for up to `block_remaining` bytes without consulting the map
-/// again. Past that boundary the next logical block can sit anywhere on the device, and the
-/// mapping has to be redone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BlockPos {
-    /// Raw device sector holding the byte.
+    /// Raw device sector holding the byte
     pub sector: u64,
-    /// Byte offset of the position within `sector`. Always less than [`SECTOR_SIZE`].
+    /// Byte offset of the position within `sector`
     pub sector_offset: u64,
-    /// Bytes from the position to the end of its enclosing 4KiB block.
+    /// Bytes from the position to the end of its block
     pub block_remaining: u64,
 }
 
@@ -565,9 +557,6 @@ impl FSInode {
         }
     }
     /// Maps a logical 4KiB block index within this inode to the physical block backing it.
-    ///
-    /// Both values are *block* numbers, not sector addresses. Use [`Self::map_byte`] to turn
-    /// a byte position into a sector.
     pub fn map_logical(
         &self,
         logical: u64,
@@ -638,12 +627,7 @@ impl FSInode {
         }
     }
 
-    /// Resolves a byte position within this inode's data to a physical [`BlockPos`].
-    ///
-    /// This is the single place byte positions become sector addresses: the byte is split
-    /// into a logical 4KiB block plus an in-block offset, the block is mapped through
-    /// [`Self::map_logical`], and the result is expanded into the block's run of
-    /// `SECTORS_PER_BLOCK` sectors.
+    /// Resolves a byte position within this inode's data to a physical `BlockPos`.
     pub fn map_byte(
         &self,
         byte: u64,

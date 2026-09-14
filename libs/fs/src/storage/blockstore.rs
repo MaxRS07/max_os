@@ -125,11 +125,8 @@ impl<'a> FSBlockStore<'a> {
             Ok(byte_ptr.read_unaligned())
         }
     }
-    /// Reads `dst.len()` bytes starting `offset` bytes into `sector`.
-    ///
-    /// The span is allowed to continue into the sectors that follow `sector`, so callers must
-    /// keep it inside a single 4KiB block, where sectors are contiguous by construction.
-    /// Issues one device request covering the minimum whole number of sectors.
+    /// Reads `dst.len()` bytes starting `offset` bytes into `sector`. The span may run into
+    /// following sectors, so callers must keep it inside a single block.
     pub fn read_at(&mut self, sector: u64, offset: u64, dst: &mut [u8]) -> Result<(), FSError> {
         if dst.is_empty() {
             return Ok(());
@@ -147,8 +144,7 @@ impl<'a> FSBlockStore<'a> {
         Ok(())
     }
 
-    /// Writes `src` starting `offset` bytes into `sector`, under the same contiguity rule as
-    /// [`Self::read_at`].
+    /// Writes `src` starting `offset` bytes into `sector`
     pub fn write_at(&mut self, sector: u64, offset: u64, src: &[u8]) -> Result<(), FSError> {
         if src.is_empty() {
             return Ok(());

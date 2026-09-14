@@ -111,10 +111,8 @@ impl<'v, 'a> FileObject<'v, 'a> {
 
     /* Read methods */
 
-    /// Fills `buf` from the cursor, advancing the cursor by the number of bytes read.
-    ///
-    /// Stops short once the cursor reaches the end of the inode's allocated data, so the
-    /// return value is the number of bytes actually read, which may be less than `buf.len()`.
+    /// Tries to read `buf.len()` bytes from the current cursor position, stopping at the end of
+    /// the inode's allocated data. Returns the length of the read data, advancing the cursor by it
     pub fn read(&mut self, buf: &mut [u8]) -> Result<usize, FSError> {
         let limit = self.max_cursor();
         let mut idx = 0;
@@ -197,15 +195,14 @@ impl<'v, 'a> FileObject<'v, 'a> {
         self.lock_state.release_exclusive();
         res
     }
-    /// Writes a buffer at the cursor without alignment, advancing the cursor past it.
+    /// Writes a buffer at the cursor without alignment
     fn cwrite_buffer(&mut self, buffer: &[u8]) -> Result<(), FSError> {
         self.lock_state.lock_exclusive();
         let res = self.write_buffer_positioned(buffer);
         self.lock_state.release_exclusive();
         res
     }
-    /// Body of [`Self::cwrite_buffer`], split out so `?` cannot return while the exclusive
-    /// lock is held: leaking it would leave the inode locked forever.
+    /// Body of `cwrite_buffer`, split out so `?` cannot return while the lock is held
     fn write_buffer_positioned(&mut self, buffer: &[u8]) -> Result<(), FSError> {
         self.check_size(buffer.len() as u64)?;
         let limit = self.max_cursor();
@@ -312,14 +309,12 @@ impl<'v, 'a> FileObject<'v, 'a> {
 
         Ok(())
     }
-    /// Resolves the cursor against the inode's block map. Every read and write positions
-    /// itself through here, so sector and in-sector offset always come from one computation.
+    /// Resolves the cursor against the inode's block map
     fn position(&mut self) -> Result<BlockPos, FSError> {
         self.inode.map_byte(self.cursor, self.blk_store)
     }
-    /// Largest transfer that may start at `pos`: capped by `wanted`, by the end of `pos`'s
-    /// 4KiB block (the next logical block can live anywhere on the device, so the mapping has
-    /// to be redone there), and by `limit`, the end of the file's allocated data.
+    /// Largest transfer that may start at `pos`, capped by `wanted`, the end of `pos`'s block,
+    /// and `limit`
     fn transfer_len(&self, pos: &BlockPos, wanted: usize, limit: u64) -> usize {
         (wanted as u64)
             .min(pos.block_remaining)
