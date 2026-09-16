@@ -1,13 +1,20 @@
 use core::arch::asm;
 
-use crate::syscall::{com::ComOp, fs::FsOp};
+use log::warn;
+
+use crate::{
+    fs::GLOBAL_FS,
+    syscall::{com::ComOp, context::KernelContext, error::SyscallError, fs::FsOp, op::SysOp},
+};
 
 mod com;
+mod context;
 mod ctrl;
 mod device;
+mod error;
 mod fs;
 mod mem;
-
+mod op;
 /// top 8 bits for identifing the call type
 const SYSCALL_MASK: usize = 0xFF << (usize::BITS - 8);
 /// lower 24 for function routing
@@ -28,24 +35,43 @@ enum Syscall {
     Memory,
 }
 
-fn route_call(value: usize) -> Syscall {
-    let call_type = value & SYSCALL_MASK >> (usize::BITS - 8);
-    let fn_type = value & FN_MASK;
-    match call_type {
-        1 => Syscall::Communication(ComOp::from(fn_type)),
-        2 => Syscall::Control,
-        3 => Syscall::Device,
-        4 => Syscall::FileSystem(FsOp::from(fn_type)),
-        5 => Syscall::Memory,
-        _ => panic!("Unsupported syscall"),
+impl SysOp for Syscall {
+    fn call(&mut self, ktx: KernelContext, args: SyscallArgs) {
+        match self {
+            _ => (),
+        }
+    }
+}
+impl Syscall {
+    pub fn from_call_fn(call_type: usize, fn_type: usize) -> Result<Self, SyscallError> {
+        Ok(match call_type {
+            1 => Syscall::Communication(ComOp::from(fn_type)),
+            2 => Syscall::Control,
+            3 => Syscall::Device,
+            4 => Syscall::FileSystem(FsOp::from(fn_type)),
+            5 => Syscall::Memory,
+            _ => return Err(SyscallError::InvalidCall),
+        })
     }
 }
 
+fn route_call(value: usize) -> Result<Syscall, SyscallError> {
+    let call_type = value & SYSCALL_MASK >> (usize::BITS - 8);
+    let fn_type = value & FN_MASK;
+    Syscall::from_call_fn(call_type, fn_type)
+}
+
 pub fn handle_ecall() {
+    let Some(fs) = GLOBAL_FS.get_mut() else {
+        warn!("Failed to get GLOBAL_FS instance");
+        return;
+    };
+    let mut ktx = KernelContext::new(fs);
     let mut id = 0usize;
-    let (arg1, ag2, arg3, arg4, arg5, arg6) = load_args(&mut id);
+    let args = load_args(&mut id);
     match route_call(id) {
-        _ => {}
+        Ok(op) => op.call(ktx, args),
+        Err(msg) => warn!(msg),
     }
 }
 /// Loads the syscall registers and returns them

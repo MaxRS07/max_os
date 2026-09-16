@@ -1,3 +1,5 @@
+use core::cell::OnceCell;
+
 use block::device::BlockDevice;
 use fs::{
     collections::{bitmap::FSBitmap, error::FSError, pathcache::FSPathCache},
@@ -6,11 +8,14 @@ use fs::{
     storage::{fileobject::OpenMode, format::FormatOptions, volume::FSVolume},
     vfs::Vfs,
 };
-use log::{Level::Debug, debug};
+use log::{Level::Debug, debug, warn};
+use sync::once::Once;
 
 use crate::console::writer::println;
 
 pub mod call;
+
+pub const GLOBAL_FS: OnceCell<Vfs> = OnceCell::new();
 
 pub fn fs_init(blk_dev: &mut (dyn BlockDevice + 'static), remount: bool) -> Result<(), FSError> {
     let mut vfs = Vfs::new();
@@ -29,6 +34,10 @@ pub fn fs_init(blk_dev: &mut (dyn BlockDevice + 'static), remount: bool) -> Resu
     debug!("Mounting primary drive, ({bytes} bytes)");
     vfs.mount(FSPath::new("/"), blk_dev)?;
     debug!("Primary drive mounted");
+
+    if let Err(error) = GLOBAL_FS.set(vfs) {
+        warn!("Failed to set FS")
+    }
 
     let permissions = Permissions::from_raw(0);
     let context = CreationContext::new(0, 0, permissions, 0);

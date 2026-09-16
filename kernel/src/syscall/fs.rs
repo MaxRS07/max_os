@@ -3,7 +3,7 @@ use core::str::{self, FromStr};
 use alloc::{borrow::ToOwned, string::String};
 use log::warn;
 
-use crate::syscall::SyscallArgs;
+use crate::syscall::{SyscallArgs, context::KernelContext, op::SysOp};
 
 /// File system operations
 pub enum FsOp {
@@ -14,8 +14,8 @@ pub enum FsOp {
     Seek,
 }
 
-impl FsOp {
-    fn call(&self, args: SyscallArgs) {
+impl SysOp for FsOp {
+    fn call(&self, ktx: KernelContext, args: SyscallArgs) {
         match self {
             Self::Open => {
                 let path = Self::get_path(args.0, args.1);
@@ -26,6 +26,8 @@ impl FsOp {
             _ => (),
         }
     }
+}
+impl FsOp {
     fn get_path(addr: usize, len: usize) -> String {
         unsafe {
             let str_ptr = addr as *const u8;
