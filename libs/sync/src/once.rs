@@ -32,16 +32,17 @@ const RUNNING: usize = 0x1;
 const EXECUTED: usize = 0x2;
 const POISONED: usize = 0x3;
 
-pub struct Once<T> {
+/// Thread safe implementation of [`OnceCell`] for mutable statics
+pub struct OnceLock<T> {
     state: AtomicUsize,
     value: UnsafeCell<Option<T>>,
 }
 
-unsafe impl<T: Send + Sync> Sync for Once<T> {}
+unsafe impl<T: Send + Sync> Sync for OnceLock<T> {}
 
-impl<T> Once<T> {
+impl<T> OnceLock<T> {
     pub const fn new() -> Self {
-        Once {
+        OnceLock {
             state: AtomicUsize::new(WAITING),
             value: UnsafeCell::new(None),
         }
@@ -103,13 +104,13 @@ impl<T> Once<T> {
     }
 }
 
-impl<T> Default for Once<T> {
+impl<T> Default for OnceLock<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T> Debug for Once<T>
+impl<T> Debug for OnceLock<T>
 where
     T: Debug,
 {

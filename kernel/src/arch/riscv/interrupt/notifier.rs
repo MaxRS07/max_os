@@ -1,11 +1,11 @@
 use alloc::boxed::Box;
 use collections::hashmap::HashMap;
 use log::info;
-use sync::once::Once;
+use sync::once::OnceLock;
 
 use crate::arch::riscv::interrupt::route::Trap;
 
-pub static INTERRUPT_NOTIFIER: Once<InterruptNotifier> = Once::new();
+pub static INTERRUPT_NOTIFIER: OnceLock<InterruptNotifier> = OnceLock::new();
 
 pub fn init_notifier() {
     let global_notifier = InterruptNotifier::default();

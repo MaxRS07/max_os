@@ -1,6 +1,9 @@
-use core::sync::atomic::{
-    Ordering::{Acquire, SeqCst},
-    fence,
+use core::{
+    cell::OnceCell,
+    sync::atomic::{
+        Ordering::{Acquire, SeqCst},
+        fence,
+    },
 };
 
 use config::*;
@@ -8,7 +11,8 @@ use core::panic;
 use log::info;
 use log::warn;
 use sdt::fdt::FDT;
-use sync::once::Once;
+use sync::once::OnceLock;
+
 use virtio::VIRTIO_DEV_GPU;
 
 pub mod config;
@@ -31,7 +35,7 @@ pub const PCI_CMD_IO_SPACE: u16 = (1 << 0);
 pub const PCI_CMD_MEM_SPACE: u16 = (1 << 1);
 pub const PCI_CMD_BUS_MASTER: u16 = (1 << 2);
 
-static ALLOCATOR: Once<pci_bump::PciAllocator> = Once::new();
+static ALLOCATOR: OnceLock<pci_bump::PciAllocator> = OnceLock::new();
 
 pub fn init(map: FDT) {
     let pci_alloc = pci_bump::PciAllocator::new(map);

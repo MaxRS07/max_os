@@ -88,16 +88,16 @@ impl VirtioNet {
             controlq,
         })
     }
-    fn populate_buffers(cfg_flags: u64, queue: &mut VirtQueue) -> Result<(), ()> {
-        let min_size = if Self::has_flag(
-            cfg_flags,
-            VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6,
-        ) {
-            0xFFFF
-        } else {
-            0x5F6
-        };
-    }
+    // fn populate_buffers(cfg_flags: u64, queue: &mut VirtQueue) -> Result<(), ()> {
+    //     let min_size = if Self::has_flag(
+    //         cfg_flags,
+    //         VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6,
+    //     ) {
+    //         0xFFFF
+    //     } else {
+    //         0x5F6
+    //     };
+    // }
     /// access a queue reference by index
     fn get_queue(&mut self, index: usize) -> Option<&mut VirtQueue> {
         if index >= (2 * self.max_virtqueue_pairs + 1) as usize {

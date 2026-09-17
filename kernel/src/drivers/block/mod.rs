@@ -2,13 +2,13 @@ use alloc::boxed::Box;
 use block::device::BlockDevice;
 use log::warn;
 use sdt::fdt::FDT;
-use sync::once::Once;
+use sync::once::OnceLock;
 
 use crate::{drivers::block::virtio::VirtioBlock, println};
 
 pub mod virtio;
 
-pub static BLOCK_DEVICE: Once<&'static mut dyn BlockDevice> = Once::new();
+pub static BLOCK_DEVICE: OnceLock<&'static mut dyn BlockDevice> = OnceLock::new();
 
 pub fn init(fdt: &FDT, mmio_idx: usize) {
     if let Some(blk_drv) = VirtioBlock::from_mmio(fdt, mmio_idx) {
