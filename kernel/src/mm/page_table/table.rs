@@ -5,7 +5,7 @@ use fs::collections::error::FSError;
 use sdt::region::{self, FDTRegion};
 use table_entry::TableEntry;
 
-use crate::mm::error::MemoryError;
+use crate::mm::{error::MemoryError, heap::page_table::table_entry::TableEntry};
 
 const TABLE_LEN: usize = 1024;
 const LEAF_SIZE: usize = 0x1000;
@@ -33,7 +33,6 @@ impl Table {
         flags: usize,
     ) -> Result<(), MemoryError> {
         let align = MEGATABLE_SIZE; // 4MiB
-        let flags = flags & TableEntry::FLAG_MASK;
 
         let vpn_root = (virt_addr >> 22) & 0x3FF;
         let vpn_leaf = (virt_addr >> 12) & 0x3FF;

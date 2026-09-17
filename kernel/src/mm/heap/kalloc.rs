@@ -6,11 +6,10 @@ use core::{
 
 use log::{debug, error, info};
 
-use crate::mm::heap::palloc::{self, FREE_PAGES};
-
-// TODO: stop using public mutable statics
-pub static mut BLOCK_HEAD: *mut BlockHeader = core::ptr::null_mut();
-pub static mut BLOCK_TAIL: *mut BlockHeader = core::ptr::null_mut();
+use crate::mm::heap::{
+    PAGE_ALLOCATOR,
+    palloc::{self, FREE_PAGES},
+};
 
 static HEADER_SIZE: usize = size_of::<BlockHeader>();
 
@@ -23,11 +22,14 @@ pub struct BlockHeader {
     pub prev: *mut BlockHeader,
 }
 
-pub struct LinkedListAllocator;
+pub struct LinkedListAllocator {
+    head: *mut BlockHeader,
+    tail: *mut BlockHeader,
+}
 
 unsafe impl GlobalAlloc for LinkedListAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        LinkedListAllocator::alloc(layout)
+        unsafe { self.alloc(layout) }
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
@@ -45,13 +47,32 @@ unsafe impl GlobalAlloc for LinkedListAllocator {
 }
 
 impl LinkedListAllocator {
-    pub fn alloc(layout: Layout) -> *mut u8 {
-        // Round up: the tail block below is placed at `payload + size`, so an unrounded size
-        // puts the next BlockHeader at an unaligned address that no longer abuts its neighbour.
+    /// Initalizes the linked list allocator over the first leaf in the page table
+    ///
+    /// # Safety
+    ///
+    /// .
+    pub unsafe fn new(mm_start: *const u8) -> Option<Self> {
+        let block_start_ptr = unsafe { PAGE_ALLOCATOR.get_mut() }?.alloc() as *mut BlockHeader;
+        unsafe {
+            let block_start = &mut *block_start_ptr;
+            block_start.free = true;
+            // `size` is the payload size, so the header has to come out of the page
+            block_start.size = 0x1000 - HEADER_SIZE;
+            block_start.next = null_mut();
+            block_start.prev = null_mut();
+        }
+        Some(Self {
+            head: block_start_ptr,
+            tail: block_start_ptr,
+        })
+    }
+    pub fn alloc(&mut self, layout: Layout) -> *mut u8 {
+        // put next header at an unaligned address; prevent overlap
         let size = layout.size().max(1).next_multiple_of(HEADER_SIZE);
         let align = layout.align().max(HEADER_SIZE);
 
-        let mut cur = unsafe { BLOCK_HEAD };
+        let mut cur = unsafe { self.head };
         while !cur.is_null() {
             if let Some((block, payload, base, block_end)) = Self::block_fits(cur, size, align) {
                 let alloc_hdr = payload - HEADER_SIZE;
@@ -93,10 +114,9 @@ impl LinkedListAllocator {
                         }
 
                         ab.free = false;
-                        // a leading-padding split inserts `ab` after `cur`, so `ab` can be the
-                        // new last node even though `cur` was the previous tail
+                        // make sure split replaces the tail
                         if ab.next.is_null() {
-                            BLOCK_TAIL = alloc_hdr as *mut BlockHeader;
+                            self.tail = alloc_hdr as *mut BlockHeader;
                         }
                         return payload as *mut u8;
                     }
@@ -133,7 +153,7 @@ impl LinkedListAllocator {
                     BLOCK_TAIL = new_block;
                 }
             }
-            return Self::alloc(layout);
+            return self.alloc(layout);
         }
         null_mut()
     }
@@ -219,25 +239,5 @@ impl LinkedListAllocator {
                 }
             }
         }
-    }
-}
-
-/// Initalizes the linked list allocator over the first 4KiB in RAM
-///
-/// # Safety
-///
-/// .
-pub unsafe fn init(mm_start: *const u8) {
-    let block_start_ptr = palloc::alloc() as *mut BlockHeader;
-    unsafe {
-        BLOCK_HEAD = block_start_ptr;
-        BLOCK_TAIL = block_start_ptr;
-
-        let block_start = &mut *block_start_ptr;
-        block_start.free = true;
-        // `size` is the payload size, so the header has to come out of the page
-        block_start.size = 0x1000 - HEADER_SIZE;
-        block_start.next = null_mut();
-        block_start.prev = null_mut();
     }
 }

@@ -11,7 +11,7 @@ use crate::{console, println};
 
 pub mod error;
 pub mod heap;
-pub mod pmm;
+pub mod page_table;
 
 // declare boot stack addresses
 unsafe extern "C" {

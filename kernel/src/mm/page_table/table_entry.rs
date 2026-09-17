@@ -1,3 +1,5 @@
+use crate::mm::error::MemoryError;
+
 #[derive(Clone, Copy, Debug)]
 #[repr(transparent)]
 pub struct TableEntry(pub usize);
@@ -24,7 +26,15 @@ impl TableEntry {
     pub fn get_flags(&self) -> usize {
         self.0 & Self::FLAG_MASK
     }
-
+    /// Errs if conflicting flags are detected, returns masked flags if ok
+    pub fn check_flags(flags: usize) -> Result<usize, MemoryError> {
+        if flags & Self::USER != 0 && flags & Self::WRITE != 0 && flags & Self::EXECUTE != 0 {
+            return Err(MemoryError::AccessViolation(
+                "User facing entries must enforce W^X access",
+            ));
+        }
+        Ok(flags & Self::FLAG_MASK)
+    }
     pub fn set_flags(&mut self, flags: usize) {
         self.0 = (self.0 & !Self::FLAG_MASK) | (flags & Self::FLAG_MASK);
     }
