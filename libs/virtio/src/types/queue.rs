@@ -53,13 +53,8 @@ pub struct DescBuf {
 }
 impl VirtQueue {
     // keep the original as a convenience wrapper
-    pub fn send_command<Req, Resp>(
-        &mut self,
-        mmio_addr: usize,
-        request: &Req,
-        response: &mut Resp,
-    ) {
-        let last = self.send_command_raw(
+    pub fn push_desc<Req, Resp>(&mut self, mmio_addr: usize, request: &Req, response: &mut Resp) {
+        let last = self.push_desc_raw(
             mmio_addr,
             &[
                 DescBuf {
@@ -78,7 +73,7 @@ impl VirtQueue {
         self.wait_used(last);
     }
     /// Submits the descriptor chain but doesnt wait on the write, you must call wait_used manually
-    pub fn send_command_raw(&mut self, mmio_addr: usize, bufs: &[DescBuf], desc_start: u16) -> u16 {
+    pub fn push_desc_raw(&mut self, mmio_addr: usize, bufs: &[DescBuf], desc_start: u16) -> u16 {
         assert!(
             bufs.len() <= QUEUE_SIZE,
             "buf queue longer than max queue size size, rejecting command"
@@ -113,6 +108,20 @@ impl VirtQueue {
             last
         }
     }
+    /// Pushes a single struct `T` to the descriptor queue. Increments available queue and noifies the device
+    pub fn push_descriptor<T>(&mut self, idx: u16, value: T, flags: u16) {
+        let box_t = Box::new(T);
+        let t_ptr = Box::into_raw(box_t) as u64;
+
+        self.desc[idx as usize].addr = rx_buffer_addr;
+        self.desc[idx as usize].len = size_of::<RxBuffer>() as u32;
+        self.desc[idx as usize].flags = flags;
+        self.desc[idx as usize].next = 0;
+
+        let avail_slot = queue.avail.idx % 256;
+        self.avail.ring[avail_slot as usize] = idx;
+        self.avail_push(idx);
+    }
 
     /// spins until the device has processed the descriptor chain and changes `used.idx`
     pub fn wait_used(&self, last: u16) {
@@ -126,8 +135,6 @@ impl VirtQueue {
     }
 
     /// Pushes a descriptor chain head onto the avail ring, making it visible to the device.
-    /// Used both to submit new requests and to recycle a descriptor after consuming its
-    /// used-ring entry (e.g. standing receive buffers).
     pub fn avail_push(&mut self, desc_idx: u16) {
         unsafe {
             let avail = self.avail.as_mut();
@@ -145,16 +152,12 @@ impl VirtQueue {
         mmio::mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_QUEUE_NOTIFY, self.queue_idx);
     }
 
-    /// Reads the `len` (total bytes written into the writable descriptors of the chain)
-    /// recorded in the used-ring entry at `idx`. `idx` is the value returned by
-    /// `send_command_raw`, used after `wait_used` confirms the device processed it.
+    /// Reads the `len` written back by the block driver
     pub fn used_len_for(&self, idx: u16) -> u32 {
         unsafe { core::ptr::read_volatile(&self.used.ring[idx as usize % QUEUE_SIZE]).len }
     }
 
-    /// Pops the next unconsumed used-ring entry, if any, advancing `last_used_idx`.
-    /// Returns `(descriptor_head_id, bytes_written)`. Used for queues with standing
-    /// receive buffers where completions arrive asynchronously (e.g. input events).
+    /// Pops the next unconsumed used-ring entry
     pub fn pop_used(&mut self) -> Option<(u16, u32)> {
         unsafe {
             let used = self.used.as_ref();

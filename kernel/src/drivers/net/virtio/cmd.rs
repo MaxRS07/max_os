@@ -42,6 +42,8 @@ pub const VIRTIO_NET_F_GUEST_ANNOUNCE: u64 = 1 << (21);
 pub const VIRTIO_NET_F_MQ: u64 = 1 << (22);
 /// Set MAC address through control channel.
 pub const VIRTIO_NET_F_CTRL_MAC_ADDR: u64 = 1 << (23);
+
+pub const VIRTIO_RING_F_EVENT_IDX: u64 = 1 << 29;
 /// Device can process duplicated ACKs and report number of coalesced segments and duplicated ACKs
 pub const VIRTIO_NET_F_RSC_EXT: u64 = 1 << (61);
 /// Device may act as a standby for a primary device with the same MAC address.
@@ -56,12 +58,48 @@ pub const VIRTIO_NET_HDR_GSO_UDP: u64 = 3;
 pub const VIRTIO_NET_HDR_GSO_TCPV6: u64 = 4;
 pub const VIRTIO_NET_HDR_GSO_ECN: u64 = 0x80;
 
-struct VirtioNetHdr {
-    flags: u8,
-    gso_type: u8,
-    hdr_len: u16,
-    gso_size: u16,
-    csum_start: u16,
-    csum_offset: u16,
-    num_buffers: u16,
+/// Starting flags for my driver, adapt more features later
+pub const BASIC_FLAGS: u64 =
+    VIRTIO_NET_F_MAC | VIRTIO_NET_F_STATUS | VIRTIO_RING_F_EVENT_IDX | 1 << 32; // bit 32 marks version 1
+
+pub struct VirtioNetHdr {
+    pub flags: u8,
+    pub gso_type: u8,
+    pub hdr_len: u16,
+    pub gso_size: u16,
+    pub csum_start: u16,
+    pub csum_offset: u16,
+    pub num_buffers: u16,
+}
+impl VirtioNetHdr {
+    pub fn empty() -> Self {
+        Self {
+            flags: 0,
+            gso_type: 0,
+            hdr_len: 0,
+            gso_size: 0,
+            csum_start: 0,
+            csum_offset: 0,
+            num_buffers: 0,
+        }
+    }
+}
+
+const RX_PAYLOAD_SIZE: usize = 1526;
+
+pub struct RxBuffer {
+    pub hdr: VirtioNetHdr,
+    pub payload: [u8; RX_PAYLOAD_SIZE - size_of::<VirtioNetHdr>()],
+}
+
+impl RxBuffer {
+    pub fn empty() -> Self {
+        Self {
+            hdr: VirtioNetHdr::empty(),
+            payload: [0; Self::payload_size()],
+        }
+    }
+    pub const fn payload_size() -> usize {
+        RX_PAYLOAD_SIZE - size_of::<VirtioNetHdr>()
+    }
 }

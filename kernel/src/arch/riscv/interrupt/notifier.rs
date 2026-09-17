@@ -1,11 +1,12 @@
+use core::cell::OnceCell;
+
 use alloc::boxed::Box;
 use collections::hashmap::HashMap;
 use log::info;
-use sync::once::Once;
 
 use crate::arch::riscv::interrupt::route::Trap;
 
-pub static INTERRUPT_NOTIFIER: Once<InterruptNotifier> = Once::new();
+pub static INTERRUPT_NOTIFIER: OnceCell<InterruptNotifier> = Once::new();
 
 pub fn init_notifier() {
     let global_notifier = InterruptNotifier::default();

@@ -205,7 +205,7 @@ impl VirtioInput {
             // complete once a real input event arrives, which may never
             // happen, so we must not wait on the used ring here.
             self.event_queue
-                .send_command_raw(self.mmio_addr, &buf, i as u16);
+                .push_desc_raw(self.mmio_addr, &buf, i as u16);
         }
     }
     /// returns a Vec of all input events and resets the buffer

@@ -107,7 +107,7 @@ impl VirtioGpu {
         let mut response = VirtioGpuDisplayInfo::default();
 
         self.controlq
-            .send_command(self.mmio_addr, &request, &mut response);
+            .push_desc(self.mmio_addr, &request, &mut response);
 
         response
     }
@@ -123,7 +123,7 @@ impl VirtioGpu {
         let mut response = VirtioGpuCtrlHdr::default();
 
         self.controlq
-            .send_command(self.mmio_addr, &request, &mut response);
+            .push_desc(self.mmio_addr, &request, &mut response);
 
         response
     }
@@ -150,7 +150,7 @@ impl VirtioGpu {
         let entry_addr = &mut *entry as *mut VirtioGpuMemEntry as usize;
         let address = &mut *response as *mut VirtioGpuCtrlHdr as usize;
 
-        let last = self.controlq.send_command_raw(
+        let last = self.controlq.push_desc_raw(
             self.mmio_addr,
             &[
                 DescBuf {
@@ -188,7 +188,7 @@ impl VirtioGpu {
         };
         let mut response = VirtioGpuCtrlHdr::default();
         self.controlq
-            .send_command(self.mmio_addr, &request, &mut response);
+            .push_desc(self.mmio_addr, &request, &mut response);
     }
 
     fn flush_resources(&mut self) -> Result<(), GpuError> {
@@ -211,7 +211,7 @@ impl VirtioGpu {
 
         let mut response = VirtioGpuCtrlHdr::default();
         self.controlq
-            .send_command(self.mmio_addr, &transfer_req, &mut response);
+            .push_desc(self.mmio_addr, &transfer_req, &mut response);
 
         // flush to scanout
         let flush_req = VirtioGpuResourceFlush {
@@ -229,7 +229,7 @@ impl VirtioGpu {
             padding: 0,
         };
         self.controlq
-            .send_command(self.mmio_addr, &flush_req, &mut response);
+            .push_desc(self.mmio_addr, &flush_req, &mut response);
         Ok(())
     }
 

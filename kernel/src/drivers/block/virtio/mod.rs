@@ -117,7 +117,7 @@ impl VirtioBlock {
             },
         ];
 
-        let last = self.requestq.send_command_raw(self.mmio_addr, &bufs, 0);
+        let last = self.requestq.push_desc_raw(self.mmio_addr, &bufs, 0);
         self.requestq.wait_used(last);
 
         match status {
@@ -155,7 +155,7 @@ impl VirtioBlock {
             },
         ];
 
-        let last = self.requestq.send_command_raw(self.mmio_addr, &bufs, 0);
+        let last = self.requestq.push_desc_raw(self.mmio_addr, &bufs, 0);
         self.requestq.wait_used(last);
 
         // len covers all writable descriptors in the chain (data buffer + 1-byte status)
@@ -229,7 +229,7 @@ impl VirtioBlock {
             },
         ];
 
-        let last = self.requestq.send_command_raw(self.mmio_addr, &bufs, 0);
+        let last = self.requestq.push_desc_raw(self.mmio_addr, &bufs, 0);
         self.requestq.wait_used(last);
 
         match status {

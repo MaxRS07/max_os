@@ -6,15 +6,16 @@ use sdt::fdt::GLOBAL_FDT;
 
 use crate::{arch::riscv::csr::Csr::SATP, mm::heap::page_table::table::Table};
 
-pub mod pdpt;
+pub mod address;
 pub mod table;
+pub mod table_entry;
 
 static mut ROOT_TABLE: Table = Table::new();
 
 /// Creates global page table root, maps 0x8000_0000 to itself
 pub fn init_root_table() {
     unsafe {
-        let root_ptr = addr_of_mut!(ROOT_TABLE);
+        let root_ptr = &raw mut ROOT_TABLE;
         let root_addr = root_ptr.addr();
         debug!("Created root table at 0x{:x}", root_addr);
         match map_boot_pages(root_ptr) {

@@ -7,7 +7,7 @@ use mmio::mmio_read;
 use net::device::NetDevice;
 use sdt::fdt::FDT;
 use virtio::{
-    ALL_FEATURES,
+    ALL_FEATURES, VIRTIO_MMIO_QUEUE_NUM,
     init::init_state,
     types::{device::verify_virtio_magic, queue::VirtQueue},
 };
@@ -17,12 +17,12 @@ use crate::drivers::{
     net::virtio::{
         cfg::VirtioNetConfig,
         cmd::{
-            VIRTIO_NET_F_CSUM, VIRTIO_NET_F_CTRL_MAC_ADDR, VIRTIO_NET_F_CTRL_RX,
+            RxBuffer, VIRTIO_NET_F_CSUM, VIRTIO_NET_F_CTRL_MAC_ADDR, VIRTIO_NET_F_CTRL_RX,
             VIRTIO_NET_F_CTRL_VLAN, VIRTIO_NET_F_CTRL_VQ, VIRTIO_NET_F_GUEST_ANNOUNCE,
             VIRTIO_NET_F_GUEST_CSUM, VIRTIO_NET_F_GUEST_ECN, VIRTIO_NET_F_GUEST_TSO4,
             VIRTIO_NET_F_GUEST_TSO6, VIRTIO_NET_F_GUEST_UFO, VIRTIO_NET_F_HOST_ECN,
             VIRTIO_NET_F_HOST_TSO4, VIRTIO_NET_F_HOST_TSO6, VIRTIO_NET_F_HOST_UFO, VIRTIO_NET_F_MQ,
-            VIRTIO_NET_F_RSC_EXT,
+            VIRTIO_NET_F_RSC_EXT, VirtioNetHdr,
         },
     },
 };
@@ -61,9 +61,6 @@ impl VirtioNet {
             warn!("Failed to initialize NET driver: {error}")
         }
 
-        let receiveqs = alloc::vec![VirtQueue::default(); max_pairs as usize];
-        let transmitqs = alloc::vec![VirtQueue::default(); max_pairs as usize];
-
         let config: VirtioNetConfig = mmio_read(mmio_addr, VIRTIO_BLK_CFG_OFFSET);
 
         let max_virtqueue_pairs = if cfg_flags & VIRTIO_NET_F_MQ != 0 {
@@ -73,6 +70,11 @@ impl VirtioNet {
             // default to 1 if not specified
             1
         };
+
+        let num_trcv_qs = max_virtqueue_pairs as usize / 2;
+
+        let receiveqs = alloc::vec![VirtQueue::default(); num_trcv_qs];
+        let transmitqs = alloc::vec![VirtQueue::default(); num_trcv_qs];
 
         let controlq = if Self::has_flag(cfg_flags, VIRTIO_NET_F_CTRL_VQ) {
             Some(VirtQueue::default())
@@ -88,15 +90,23 @@ impl VirtioNet {
             controlq,
         })
     }
-    fn populate_buffers(cfg_flags: u64, queue: &mut VirtQueue) -> Result<(), ()> {
+    pub fn send_packet(&mut self, data)
+    fn populate_buffers(&mut self, cfg_flags: u64) -> Result<(), ()> {
         let min_size = if Self::has_flag(
             cfg_flags,
             VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6,
         ) {
-            0xFFFF
+            65550
         } else {
-            0x5F6
+            1526
         };
+        let idx = 0u16;
+        for queue in self.receiveqs.iter_mut() {
+            let rx_buffer = RxBuffer::empty();
+            // make writable
+            queue.push_descriptor(idx, rx_buffer, 0x2);
+        }
+        Err(())
     }
     /// access a queue reference by index
     fn get_queue(&mut self, index: usize) -> Option<&mut VirtQueue> {
@@ -168,5 +178,7 @@ impl VirtioNet {
 }
 
 impl NetDevice for VirtioNet {
-    fn send_packet() {}
+    fn send_packet(&mut self) {
+
+    }
 }

@@ -1,14 +1,15 @@
+use core::cell::OnceCell;
+
 use alloc::boxed::Box;
 use block::device::BlockDevice;
 use log::warn;
 use sdt::fdt::FDT;
-use sync::once::Once;
 
 use crate::{drivers::block::virtio::VirtioBlock, println};
 
 pub mod virtio;
 
-pub static BLOCK_DEVICE: Once<&'static mut dyn BlockDevice> = Once::new();
+pub static BLOCK_DEVICE: OnceCell<&'static mut dyn BlockDevice> = OnceCell::new();
 
 pub fn init(fdt: &FDT, mmio_idx: usize) {
     if let Some(blk_drv) = VirtioBlock::from_mmio(fdt, mmio_idx) {

@@ -1,3 +1,5 @@
+use core::cell::OnceCell;
+
 use crate::{
     fdt_header::FdtHeader,
     region::FDTRegion,
@@ -5,9 +7,8 @@ use crate::{
 };
 use alloc::{borrow::ToOwned, format, string::String, vec::Vec};
 use collections::hashmap::HashMap;
-use sync::once::Once;
 
-pub static GLOBAL_FDT: Once<FDT> = Once::new();
+pub static GLOBAL_FDT: OnceCell<FDT> = OnceCell::new();
 
 #[derive(Clone, Default, Debug)]
 pub struct FDT<'a> {

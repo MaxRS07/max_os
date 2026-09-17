@@ -1,7 +1,11 @@
 use core::fmt::Display;
 
 use alloc::boxed::Box;
+use fs::collections::error::FSError;
 use sdt::region::{self, FDTRegion};
+use table_entry::TableEntry;
+
+use crate::mm::error::MemoryError;
 
 const TABLE_LEN: usize = 1024;
 const LEAF_SIZE: usize = 0x1000;
@@ -9,23 +13,25 @@ const MEGATABLE_SIZE: usize = 0x400000;
 
 #[repr(align(4096))]
 pub struct Table {
-    /// stores
+    pub valid_entries: u16,
     pub pages: [TableEntry; TABLE_LEN],
 }
 
 impl Table {
     pub const fn new() -> Self {
         Self {
+            valid_entries: 0,
             pages: [TableEntry(0); TABLE_LEN],
         }
     }
     pub const MEGAPAGE: usize = 1 << 8;
+    /// Maps a single virtual address to a physical leaf
     pub fn map(
         &mut self,
         virt_addr: usize,
         phys_addr: usize,
         flags: usize,
-    ) -> Result<(), &'static str> {
+    ) -> Result<(), MemoryError> {
         let align = MEGATABLE_SIZE; // 4MiB
         let flags = flags & TableEntry::FLAG_MASK;
 
@@ -38,10 +44,13 @@ impl Table {
         if (flags & Self::MEGAPAGE) != 0 {
             if vpn_leaf == 0 && phys_addr.is_multiple_of(align) {
                 root_entry.set_addr(phys_addr);
+                self.valid_entries += 1;
                 root_entry.init(flags);
                 return Ok(());
             } else {
-                return Err("Specified megatable, but address not aligned");
+                return Err(MemoryError::PageFault(
+                    "Specified megatable, but address not aligned",
+                ));
             }
         }
 
@@ -51,6 +60,7 @@ impl Table {
             let addr = Box::into_raw(boxed).addr();
             root_entry.set_addr(addr as usize);
             root_entry.set_valid(true);
+            self.valid_entries += 1;
         }
         let ptr = root_entry.addr() as *mut Table;
         unsafe {
@@ -67,7 +77,7 @@ impl Table {
         virt_addr: usize,
         region: &FDTRegion,
         flags: usize,
-    ) -> Result<(), &'static str> {
+    ) -> Result<(), MemoryError> {
         let mut offset_size = LEAF_SIZE;
         if flags & Table::MEGAPAGE != 0 {
             offset_size = MEGATABLE_SIZE;
@@ -89,7 +99,7 @@ impl Table {
         &mut self,
         region: &FDTRegion,
         flags: usize,
-    ) -> Result<(), &'static str> {
+    ) -> Result<(), MemoryError> {
         self.map_region(region.base_address as usize, region, flags)
     }
 
@@ -98,8 +108,60 @@ impl Table {
             let _ = self.map_region_identity(slot, flags);
         }
     }
+    /// unmaps a virtual address from a physical address, freeing the physical page
+    /// ## warning
+    /// megapages cannor be partially unmapped. unmapping a leaf inside a megatable probably wont do anything
+    pub fn unmap(&mut self, virt_addr: usize) -> Result<usize, MemoryError> {
+        let align = MEGATABLE_SIZE; // 4MiB
+        let flags = flags & TableEntry::FLAG_MASK;
 
-    pub fn map_mmio(pa: usize, size: usize, flags: usize) {}
+        let vpn_root = (virt_addr >> 22) & 0x3FF;
+        let vpn_leaf = (virt_addr >> 12) & 0x3FF;
+
+        // create 4KiB megatable if both phys and vpn0 are aligned
+        let root_entry = &mut self.pages[vpn_root as usize];
+
+        if (flags & Self::MEGAPAGE) != 0 {
+            if vpn_leaf == 0 && phys_addr.is_multiple_of(align) {
+                return Ok(root_entry.clear());
+            } else {
+                return Err(MemoryError::PageFault(
+                    "Specified megatable, but address not aligned",
+                ));
+            }
+        }
+
+        let ptr = root_entry.addr() as *mut Table;
+        unsafe {
+            let table = &mut *ptr;
+            let leaf = table.entry_mut(vpn_leaf);
+
+            table.valid_entries -= 1;
+
+            if table.valid_entries == 0 {
+                drop(table)
+            }
+            Ok(leaf.clear())
+        }
+    }
+    /// unmaps consecutive regions at a physical address spanning the regions size. returns the first physical address of the region
+    pub fn unmap_region(
+        &mut self,
+        virt_addr: usize,
+        region: &FDTRegion,
+    ) -> Result<(), MemoryError> {
+        let mut offset_size = LEAF_SIZE;
+        let page_count = region.size.div_ceil(offset_size);
+        for i in 0..page_count {
+            let offset = i * offset_size;
+            let vaddr = virt_addr + offset as usize;
+            let paddr = (region.base_address + offset) as usize;
+
+            self.unmap(virt_addr)?;
+        }
+
+        Ok(())
+    }
     /// Returns the physical address asscosiated with `virt_addr`, or 0 if `virt_addr` is invalid
     pub fn translate(&self, virt_addr: usize) -> usize {
         let vpn_root = (virt_addr >> 22) & 0x3FF;
@@ -134,206 +196,5 @@ impl Table {
 impl Default for Table {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-#[repr(transparent)]
-pub struct TableEntry(pub usize);
-
-impl TableEntry {
-    // Sv32 Page Table Entry Flag Bits (Bits 0-7)
-    pub const VALID: usize = 1 << 0;
-    pub const READ: usize = 1 << 1;
-    pub const WRITE: usize = 1 << 2;
-    pub const EXECUTE: usize = 1 << 3;
-    pub const USER: usize = 1 << 4;
-    pub const GLOBAL: usize = 1 << 5;
-    pub const ACCESSED: usize = 1 << 6;
-    pub const DIRTY: usize = 1 << 7;
-
-    /// Flag mask (bits 0-9 reserved)
-    const FLAG_MASK: usize = 0x3FF;
-    /// PNN 1 mask (20-31)
-    const PNN1_MASK: usize = 0xFFF0_0000;
-    /// PNN 0 mask (10-19)
-    const PNN0_MASK: usize = 0x000F_FC00;
-
-    // Raw Flag Getters and Setters
-    pub fn get_flags(&self) -> usize {
-        self.0 & Self::FLAG_MASK
-    }
-
-    pub fn set_flags(&mut self, flags: usize) {
-        self.0 = (self.0 & !Self::FLAG_MASK) | (flags & Self::FLAG_MASK);
-    }
-    /// initializes an entry. Sets flags to `flags` and sets `accessed`, `dirty`, and `valid` to `true`
-    pub fn init(&mut self, flags: usize) {
-        self.set_flags(flags);
-        self.set_ready();
-    }
-
-    pub fn set_ready(&mut self) {
-        self.set_valid(true);
-        self.set_accessed(true);
-        self.set_dirty(true);
-    }
-
-    pub fn set_addr(&mut self, phys_addr: usize) {
-        let ppn = phys_addr >> 12;
-        self.set_ppn0(ppn & 0x3FF); // low 10 bits
-        self.set_ppn1((ppn >> 10) & 0xFFF); // high 12 bits
-    }
-
-    pub fn addr(&self) -> usize {
-        let ppn = self.ppn0() | (self.ppn1() << 10);
-        ppn << 12
-    }
-
-    pub fn set_ppn0(&mut self, ppn0: usize) {
-        self.0 &= !Self::PNN0_MASK;
-        self.0 |= (ppn0 << 10) & Self::PNN0_MASK;
-    }
-    pub fn ppn0(&self) -> usize {
-        (self.0 & Self::PNN0_MASK) >> 10
-    }
-
-    pub fn set_ppn1(&mut self, ppn1: usize) {
-        self.0 &= !Self::PNN1_MASK;
-        self.0 |= (ppn1 << 20) & Self::PNN1_MASK;
-    }
-    pub fn ppn1(&self) -> usize {
-        (self.0 & Self::PNN1_MASK) >> 20
-    }
-
-    // Dirty
-    pub fn is_dirty(&self) -> bool {
-        self.0 & Self::DIRTY != 0
-    }
-
-    pub fn set_dirty(&mut self, v: bool) {
-        if v {
-            self.0 |= Self::DIRTY;
-        } else {
-            self.0 &= !Self::DIRTY;
-        }
-    }
-
-    // Accessed
-    pub fn is_accessed(&self) -> bool {
-        self.0 & Self::ACCESSED != 0
-    }
-
-    pub fn set_accessed(&mut self, v: bool) {
-        if v {
-            self.0 |= Self::ACCESSED;
-        } else {
-            self.0 &= !Self::ACCESSED;
-        }
-    }
-
-    // User Mode
-    pub fn is_user_mode(&self) -> bool {
-        self.0 & Self::USER != 0
-    }
-
-    pub fn set_user_mode(&mut self, v: bool) {
-        if v {
-            self.0 |= Self::USER;
-        } else {
-            self.0 &= !Self::USER;
-        }
-    }
-
-    // Executable
-    pub fn is_executable(&self) -> bool {
-        self.0 & Self::EXECUTE != 0
-    }
-
-    pub fn set_executable(&mut self, v: bool) {
-        if v {
-            self.0 |= Self::EXECUTE;
-        } else {
-            self.0 &= !Self::EXECUTE;
-        }
-    }
-
-    // Writable
-    pub fn is_writable(&self) -> bool {
-        self.0 & Self::WRITE != 0
-    }
-
-    pub fn set_writable(&mut self, v: bool) {
-        if v {
-            self.0 |= Self::WRITE;
-        } else {
-            self.0 &= !Self::WRITE;
-        }
-    }
-
-    // Readable
-    pub fn is_readable(&self) -> bool {
-        self.0 & Self::READ != 0
-    }
-
-    pub fn set_readable(&mut self, v: bool) {
-        if v {
-            self.0 |= Self::READ;
-        } else {
-            self.0 &= !Self::READ;
-        }
-    }
-
-    // Valid
-    pub fn is_valid(&self) -> bool {
-        self.0 & Self::VALID != 0
-    }
-
-    pub fn set_valid(&mut self, v: bool) {
-        if v {
-            self.0 |= Self::VALID;
-        } else {
-            self.0 &= !Self::VALID;
-        }
-    }
-
-    // valid entry with R, W, or X flags set is a megapage.
-    pub fn is_leaf(&self) -> bool {
-        self.is_valid() && (self.is_readable() || self.is_writable() || self.is_executable())
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0 == 0
-    }
-
-    pub fn clear(&mut self) {
-        self.0 = 0;
-    }
-
-    // static
-    pub fn ppn0_from_usize(virt_addr: usize) -> usize {
-        let mut te = Self(0);
-        te.set_addr(virt_addr);
-        te.ppn0()
-    }
-    pub fn ppn1_from_usize(virt_addr: usize) -> usize {
-        let mut te = Self(0);
-        te.set_addr(virt_addr);
-        te.ppn1()
-    }
-}
-
-impl Display for TableEntry {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_fmt(format_args!(
-            "addr: 0x{:x}, ppn1: {}, ppn0: {}, R: {}, W: {}, X: {}, V: {}",
-            self.addr(),
-            self.ppn1(),
-            self.ppn0(),
-            self.is_readable(),
-            self.is_writable(),
-            self.is_executable(),
-            self.is_valid()
-        ))
     }
 }

@@ -38,7 +38,7 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
     info!("Detected RAM: {} bytes", fdt.memory.size);
 
     mmio::probe_mmio_devices(fdt, |id, mmio_idx| match id {
-        // 1 => drivers::block::init(fdt, mmio_idx),
+        1 => drivers::net::ini,
         2 => drivers::block::init(fdt, mmio_idx),
         16 => drivers::gpu::init(fdt, mmio_idx),
         18 => drivers::input::init(fdt, mmio_idx),

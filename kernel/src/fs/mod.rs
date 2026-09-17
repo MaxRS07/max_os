@@ -9,7 +9,6 @@ use fs::{
     vfs::Vfs,
 };
 use log::{Level::Debug, debug, warn};
-use sync::once::Once;
 
 use crate::console::writer::println;
 
