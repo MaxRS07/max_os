@@ -7,6 +7,7 @@ use sdt::fdt::GLOBAL_FDT;
 use crate::{arch::riscv::csr::Csr::SATP, mm::heap::page_table::table::Table};
 
 pub mod address_space;
+pub mod asid;
 pub mod table;
 pub mod table_entry;
 

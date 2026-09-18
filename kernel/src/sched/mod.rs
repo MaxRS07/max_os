@@ -9,6 +9,7 @@ use log::{debug, info, warn};
 use crate::sched::{queue::RunQueue, thread::Thread};
 
 pub mod context;
+pub mod process;
 pub mod queue;
 pub mod thread;
 
