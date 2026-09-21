@@ -2,7 +2,7 @@ use crate::mm::error::MemoryError;
 
 #[derive(Clone, Copy, Debug)]
 #[repr(transparent)]
-pub struct TableEntry(pub usize);
+pub struct TableEntry(usize);
 
 impl TableEntry {
     // Sv32 Page Table Entry Flag Bits (Bits 0-7)
@@ -155,7 +155,7 @@ impl TableEntry {
         }
     }
 
-    // Valid
+    // True if the table entry is mapped. If the table entry is not mapped, mapping operations suck as translations will cause page faults.
     pub fn is_valid(&self) -> bool {
         self.0 & Self::VALID != 0
     }
@@ -166,6 +166,10 @@ impl TableEntry {
         } else {
             self.0 &= !Self::VALID;
         }
+    }
+
+    pub fn is_table(&self) -> bool {
+        !self.is_leaf()
     }
 
     // valid entry with R, W, or X flags set is a megapage.

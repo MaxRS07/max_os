@@ -7,10 +7,6 @@ use crate::{console::writer::println, println};
 
 const PAGE_SIZE: usize = 0x1000;
 
-pub static FREE_PAGES: AtomicUsize = AtomicUsize::new(0);
-
-static mut PAGE_HEAD: *mut PageHeader = null_mut();
-
 #[repr(C, align(0x1000))]
 #[derive(Clone, Copy, Default, Debug)]
 struct PageHeader {

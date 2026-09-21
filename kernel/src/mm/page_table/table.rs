@@ -5,7 +5,11 @@ use fs::collections::error::FSError;
 use sdt::region::{self, FDTRegion};
 use table_entry::TableEntry;
 
-use crate::mm::{error::MemoryError, heap::page_table::table_entry::TableEntry};
+use crate::mm::{
+    error::MemoryError,
+    heap::{PAGE_ALLOCATOR, page_table::table_entry::TableEntry, palloc::PageAllocator},
+    page_table::table_entry::TableEntry,
+};
 
 const TABLE_LEN: usize = 1024;
 const LEAF_SIZE: usize = 0x1000;
@@ -53,11 +57,9 @@ impl Table {
             }
         }
 
-        if !root_entry.is_valid() {
-            let table = Self::new();
-            let boxed = Box::new(table);
-            let addr = Box::into_raw(boxed).addr();
-            root_entry.set_addr(addr as usize);
+        if !root_entry.is_leaf() {
+            let table = unsafe { PAGE_ALLOCATOR.get_mut().unwrap().alloc() };
+            root_entry.set_addr(table as usize);
             root_entry.set_valid(true);
             self.valid_entries += 1;
         }
@@ -65,9 +67,12 @@ impl Table {
         unsafe {
             let table = &mut *ptr;
             let leaf = table.entry_mut(vpn_leaf);
-
-            leaf.set_addr(phys_addr);
-            leaf.init(flags);
+            if !leaf.is_valid() {
+                leaf.set_addr(phys_addr);
+                leaf.init(flags);
+            } else {
+                return Err(MemoryError::PageFault("Attempted to overwrite mapped leaf"));
+            }
             Ok(())
         }
     }
@@ -107,12 +112,11 @@ impl Table {
             let _ = self.map_region_identity(slot, flags);
         }
     }
-    /// unmaps a virtual address from a physical address, freeing the physical page
-    /// ## warning
-    /// megapages cannor be partially unmapped. unmapping a leaf inside a megatable probably wont do anything
+    /// Unmaps a virtual address from a physical address, freeing the physical page and returning the physical address. If [`virt_addr`] is an already unampped, returns 0
+    /// ## Warning!
+    /// Megapages cannot be partially unmapped. unmapping a leaf inside a megatable probably wont do anything but it might cause corruption
     pub fn unmap(&mut self, virt_addr: usize) -> Result<usize, MemoryError> {
         let align = MEGATABLE_SIZE; // 4MiB
-        let flags = flags & TableEntry::FLAG_MASK;
 
         let vpn_root = (virt_addr >> 22) & 0x3FF;
         let vpn_leaf = (virt_addr >> 12) & 0x3FF;
@@ -122,6 +126,7 @@ impl Table {
 
         if (flags & Self::MEGAPAGE) != 0 {
             if vpn_leaf == 0 && phys_addr.is_multiple_of(align) {
+                self.valid_entries -= 1;
                 return Ok(root_entry.clear());
             } else {
                 return Err(MemoryError::PageFault(
@@ -135,12 +140,15 @@ impl Table {
             let table = &mut *ptr;
             let leaf = table.entry_mut(vpn_leaf);
 
-            table.valid_entries -= 1;
-
+            /// invalidate a zero entry table in case a full entry is needed in later versions
             if table.valid_entries == 0 {
-                drop(table)
+                root_entry.clear();
             }
-            Ok(leaf.clear())
+            if leaf.is_valid() {
+                self.valid_entries -= 1;
+                return Ok(leaf.clear());
+            }
+            Ok(0)
         }
     }
     /// unmaps consecutive regions at a physical address spanning the regions size. returns the first physical address of the region

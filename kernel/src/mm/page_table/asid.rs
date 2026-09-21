@@ -7,6 +7,28 @@ use crate::mm::page_table::asid;
 pub const MAX_ASID: u16 = 512;
 /// Number of bytes in the bitmap
 const ASID_BYTES: u16 = MAX_ASID / 8;
+
+/// Represents a 32 bit ASID with `0 < Self::value < 512`
+pub struct ASID(u16);
+impl ASID {
+    /// Creates a new ASID from a value
+    pub fn new(value: u16) -> Self {
+        if value > MAX_ASID {
+            panic!("ASID cannot be greater than 512 on SV32")
+        }
+        ASID(value)
+    }
+    /// Returns the ASID value
+    pub fn value(&self) -> u16 {
+        self.0
+    }
+}
+trait ASIDAllocator {
+    /// Retuns the next unused ASID
+    fn alloc_id(&mut self) -> Option<u16>;
+    /// Frees an ASID
+    fn free_id(&mut self, id: u16);
+}
 pub struct ASIDBitmap {
     asids: [u8; ASID_BYTES],
     /// last free id is cached here
@@ -66,11 +88,4 @@ impl ASIDAllocator for ASIDBitmap {
     fn free_id(&mut self, id: u16) {
         self.free_id(id);
     }
-}
-
-trait ASIDAllocator {
-    /// Retuns the next unused ASID
-    fn alloc_id(&mut self) -> Option<u16>;
-    /// Frees an ASID
-    fn free_id(&mut self, id: u16);
 }

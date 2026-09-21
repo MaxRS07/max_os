@@ -13,7 +13,7 @@ pub mod boot;
 pub mod kalloc;
 pub mod palloc;
 
-pub(crate) static mut PAGE_ALLOCATOR: OnceCell<PageAllocator> = OnceCell::new();
+pub static mut PAGE_ALLOCATOR: OnceCell<PageAllocator> = OnceCell::new();
 
 unsafe extern "C" {
     // end of linker memory
