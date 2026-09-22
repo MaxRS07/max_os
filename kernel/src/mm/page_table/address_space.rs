@@ -2,6 +2,7 @@ use core::{default, ptr::read};
 
 use alloc::vec::{self, Vec};
 use fs::meta::permission::Permissions;
+use mem::align::align_down;
 use sdt::region::FDTRegion;
 
 use crate::mm::{
@@ -22,6 +23,10 @@ trait Addresser: Drop {
     fn unmap(&mut self, virt_addr: usize) -> Result<(), MemoryError>;
     /// Maps virtual addresses to this space, increasing this space's capacity by at least [`bytes`]
     fn map_size(&mut self, virt_addr: usize, size: usize, flags: usize) -> Result<(), MemoryError>;
+    /// Translates a virtual address within this space to its corresponding physical address
+    fn translate(&self, virt_addr: usize) -> Result<usize, MemoryError>;
+    /// Checks if this addresser contains a virtual address
+    fn contains(&self, virt_addr: usize) -> bool;
     /// Returns the address space identifier
     fn asid(&self) -> ASID;
     /// Returns the supervisor address translation and protection register (satp)
@@ -44,6 +49,8 @@ struct VirtualRegion {
     perms: Permissions,
     /// the virtual address of the start of the region
     pub virt_addr: usize,
+    /// the physical address of the first page in the region. If `size > 1`, then the following physical addresses will be offset by 0x1000 up to `size`
+    pub phys_addr: usize,
     /// the size of the region in pages.
     pub size: usize,
     /// whether this region is a megatable. If true, then `size` is the number of megatables in the region
@@ -53,10 +60,17 @@ struct VirtualRegion {
 }
 
 impl VirtualRegion {
-    pub fn new(perms: Permissions, virt_addr: usize, size: usize, backing: RegionBacking) -> Self {
+    pub fn new(
+        perms: Permissions,
+        virt_addr: usize,
+        phys_addr: usize,
+        size: usize,
+        backing: RegionBacking,
+    ) -> Self {
         Self {
             perms,
             virt_addr,
+            phys_addr,
             size,
             backing,
             // dont want to deal with this right now
@@ -65,6 +79,15 @@ impl VirtualRegion {
     }
     pub fn contains_virtual_address(&self, virt_addr: usize) -> bool {
         self.virt_addr <= virt_addr && self.virt_addr + self.size > virt_addr
+    }
+    /// Returns virtual address `virt_addr` to its corresponding physical address. Resturns `MemoryError` if the virtual address is not contained within the region
+    pub fn translate(&self, virt_addr: usize) -> Result<usize, MemoryError> {
+        if !self.contains_virtual_address(virt_addr) {
+            return Err(MemoryError::AccessViolation(
+                "Virtual address not contained in address space",
+            ));
+        }
+        Ok(virt_addr - self.virt_addr + self.phys_addr)
     }
 }
 
@@ -102,12 +125,12 @@ impl Addresser for AddressSpace {
 
     fn drop(&mut self) {
         for virt_reg in self.regions {
-            self.unmap(virt_reg.virt_addr)
+            self.unmap(virt_reg.virt_addr);
         }
     }
 
     fn unmap(&mut self, virt_addr: usize) -> Result<(), MemoryError> {
-        virt_addr = virt_addr.next_multiple_of(0x1000);
+        virt_addr = align_down(virt_addr, 0x1000);
         for index in 0..self.regions.len() {
             let region = self.regions[index];
             // need to split region
@@ -120,8 +143,10 @@ impl Addresser for AddressSpace {
                     size: region.size - 1,
                     ..region
                 };
+                let next_virt = virt_addr + 0x1000;
                 let r = VirtualRegion {
-                    virt_addr: virt_addr + 0x1000,
+                    virt_addr: next_virt,
+                    phys_addr: region.translate(next_virt)?,
                     size: region.size - 1,
                     ..region
                 };
@@ -152,8 +177,13 @@ impl Addresser for AddressSpace {
                 cur_size += 0x1000;
                 continue;
             }
-            let virt_region =
-                VirtualRegion::new(perms, virt_addr, cur_size, RegionBacking::Anonymous);
+            let virt_region = VirtualRegion::new(
+                perms,
+                virt_addr,
+                phys_addrs,
+                cur_size,
+                RegionBacking::Anonymous,
+            );
             self.regions.push(virt_region);
         }
         Ok(())
@@ -165,5 +195,20 @@ impl Addresser for AddressSpace {
 
     fn satp(&self) -> usize {
         0
+    }
+
+    fn translate(&self, virt_addr: usize) -> Result<usize, MemoryError> {
+        for region in self.regions {
+            if let Ok(paddr) = region.translate(virt_addr) {
+                return Ok(paddr);
+            }
+        }
+        Err(MemoryError::AccessViolation(
+            "virtual address not contained in address space",
+        ))
+    }
+
+    fn contains(&self, virt_addr: usize) -> bool {
+        todo!()
     }
 }
