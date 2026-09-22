@@ -7,13 +7,25 @@ use core::{
 use alloc::alloc::{GlobalAlloc, Layout};
 use log::{debug, info, warn};
 
-use crate::mm::heap::{boot::BootAllocator, kalloc::LinkedListAllocator, palloc::PageAllocator};
+use crate::mm::{
+    error::MemoryError,
+    heap::{boot::BootAllocator, kalloc::LinkedListAllocator, palloc::PageAllocator},
+};
 
 pub mod boot;
 pub mod kalloc;
 pub mod palloc;
 
 pub static mut PAGE_ALLOCATOR: OnceCell<PageAllocator> = OnceCell::new();
+
+/// Result wrapper for getting mutable ref of global page allocator
+pub fn page_allocator() -> Result<&mut PageAllocator, MemoryError> {
+    unsafe {
+        PAGE_ALLOCATOR
+            .get_mut()
+            .ok_or(MemoryError::NotInitialized("PAGE_ALLOCATOR"))
+    }
+}
 
 unsafe extern "C" {
     // end of linker memory
@@ -115,9 +127,9 @@ pub fn setup_system_mem(total_size: usize) {
         debug!("Intialized page allocator");
 
         match LinkedListAllocator::new(kmem_start) {
-            Some(_) => debug!("Intialized kernel allocator"),
+            Ok(_) => debug!("Intialized kernel allocator"),
             // if paging fails just crash
-            None => panic!("Paging failed, giving up"),
+            Err(err) => panic!(err),
         }
     }
     // hand the global allocator over to the linked-list heap now that RAM is mapped

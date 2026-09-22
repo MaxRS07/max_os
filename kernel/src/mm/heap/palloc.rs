@@ -3,7 +3,7 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering, fence},
 };
 
-use crate::{console::writer::println, println};
+use crate::{console::writer::println, mm::error::MemoryError, println};
 
 const PAGE_SIZE: usize = 0x1000;
 
@@ -49,15 +49,15 @@ impl PageAllocator {
             self.free_pages.fetch_add(1, Ordering::Relaxed);
         }
     }
-    pub fn alloc(&mut self) -> *mut u8 {
+    pub fn alloc(&mut self) -> Result<*mut u8, MemoryError> {
         unsafe {
             let page = self.page_head;
             if !page.is_null() {
                 self.page_head = (*page).next;
                 self.free_pages.fetch_sub(1, Ordering::Relaxed);
-                return page as *mut u8;
+                return Ok(page as *mut u8);
             }
-            null_mut()
         }
+        Err(MemoryError::OutOfMemory("No more pages"))
     }
 }

@@ -7,6 +7,7 @@ use core::{
 #[derive(Clone, Copy, Debug)]
 pub enum MemoryError {
     OutOfMemory(&'static str),
+    NotInitialized(&'static str),
     InvalidAddress(&'static str),
     AccessViolation(&'static str),
     PageFault(&'static str),
@@ -21,6 +22,7 @@ impl Display for MemoryError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::OutOfMemory(msg) => write!(f, "Out of memory error: {}", msg),
+            Self::NotInitialized(msg) => write!(f, "Value uninitialized {}", msg),
             Self::InvalidAddress(msg) => write!(f, "Invalid address: {}", msg),
             Self::AccessViolation(msg) => {
                 write!(f, "Insufficient permissions to access memory: {}", msg)

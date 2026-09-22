@@ -6,7 +6,7 @@ use crate::stream::FDTElement;
 
 #[derive(Clone, Default)]
 #[repr(C)]
-/// Represents a memeory region in the FDT, parsed from reg property
+/// A named memeory region in the FDT, parsed from reg
 pub struct FDTRegion<'a> {
     pub name: &'a str,
     pub base_address: usize,

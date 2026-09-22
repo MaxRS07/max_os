@@ -6,9 +6,12 @@ use core::{
 
 use log::{debug, error, info};
 
-use crate::mm::heap::{
-    PAGE_ALLOCATOR,
-    palloc::{self, FREE_PAGES},
+use crate::mm::{
+    error::MemoryError,
+    heap::{
+        PAGE_ALLOCATOR, page_allocator,
+        palloc::{self, FREE_PAGES},
+    },
 };
 
 static HEADER_SIZE: usize = size_of::<BlockHeader>();
@@ -52,8 +55,8 @@ impl LinkedListAllocator {
     /// # Safety
     ///
     /// .
-    pub unsafe fn new(mm_start: *const u8) -> Option<Self> {
-        let block_start_ptr = unsafe { PAGE_ALLOCATOR.get_mut() }?.alloc() as *mut BlockHeader;
+    pub unsafe fn new(mm_start: *const u8) -> Result<Self, MemoryError> {
+        let block_start_ptr = page_allocator()?.alloc()? as *mut BlockHeader;
         unsafe {
             let block_start = &mut *block_start_ptr;
             block_start.free = true;
@@ -62,7 +65,7 @@ impl LinkedListAllocator {
             block_start.next = null_mut();
             block_start.prev = null_mut();
         }
-        Some(Self {
+        Ok(Self {
             head: block_start_ptr,
             tail: block_start_ptr,
         })

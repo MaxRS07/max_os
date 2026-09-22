@@ -1,7 +1,8 @@
 use core::fmt::Display;
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, vec::Vec};
 use fs::collections::error::FSError;
+use mem::align::align_down;
 use sdt::region::{self, FDTRegion};
 use table_entry::TableEntry;
 
@@ -29,7 +30,9 @@ impl Table {
         }
     }
     pub const MEGAPAGE: usize = 1 << 8;
-    /// Maps a single virtual address to a physical leaf
+    /// Maps a single virtual address to a physical leaf.
+    ///  
+    /// **Note:** forces virtual alignment to 0x1000
     pub fn map(
         &mut self,
         virt_addr: usize,
@@ -37,7 +40,7 @@ impl Table {
         flags: usize,
     ) -> Result<(), MemoryError> {
         let align = MEGATABLE_SIZE; // 4MiB
-
+        virt_addr = align_down(value, LEAF_SIZE);
         let vpn_root = (virt_addr >> 22) & 0x3FF;
         let vpn_leaf = (virt_addr >> 12) & 0x3FF;
 
@@ -58,7 +61,7 @@ impl Table {
         }
 
         if !root_entry.is_leaf() {
-            let table = unsafe { PAGE_ALLOCATOR.get_mut().unwrap().alloc() };
+            let table = unsafe { PAGE_ALLOCATOR.get_mut().unwrap().alloc()? };
             root_entry.set_addr(table as usize);
             root_entry.set_valid(true);
             self.valid_entries += 1;
@@ -76,16 +79,51 @@ impl Table {
             Ok(())
         }
     }
-    pub fn map_region(
+    /// Maps virtual addresses `virt_addr` and consecutive addresses in page increments totaling `size` bytes to physical addresses, returning the physical address list in order.
+    pub fn map_size(
         &mut self,
         virt_addr: usize,
+        size: usize,
+        flags: usize,
+    ) -> Result<Vec<usize>, MemoryError> {
+        let offset_size = if flags & Table::MEGAPAGE != 0 {
+            MEGATABLE_SIZE
+        } else {
+            LEAF_SIZE
+        };
+        let page_count = size.div_ceil(offset_size as usize);
+        let mut phys_addrs = alloc::vec![0usize; page_count as usize];
+        for i in 0..page_count {
+            let offset = i * offset_size as usize;
+            let vaddr = virt_addr + offset as usize;
+
+            // grab a fresh page and give its address to the return
+            let paddr = unsafe {
+                PAGE_ALLOCATOR
+                    .get_mut()
+                    .ok_or(MemoryError::NotInitialized(
+                        "Failed to retrieve page allocator",
+                    ))?
+                    .alloc()?
+            } as usize;
+
+            self.map(virt_addr, paddr, flags)?;
+        }
+        Ok(phys_addrs)
+    }
+    /* Low level FDT map helpers */
+    /// Maps a virtual address to its respective contiguous physical region. For non-contiguous region mapping use `map_region`
+    pub fn map_region_identity(
+        &mut self,
         region: &FDTRegion,
         flags: usize,
     ) -> Result<(), MemoryError> {
-        let mut offset_size = LEAF_SIZE;
-        if flags & Table::MEGAPAGE != 0 {
-            offset_size = MEGATABLE_SIZE;
-        }
+        let virt_addr = region.base_address;
+        let offset_size = if flags & Table::MEGAPAGE != 0 {
+            MEGATABLE_SIZE
+        } else {
+            LEAF_SIZE
+        };
         let page_count = region.size.div_ceil(offset_size);
         for i in 0..page_count {
             let offset = i * offset_size;
@@ -96,15 +134,6 @@ impl Table {
         }
 
         Ok(())
-    }
-
-    /// Maps an FDT region to itself
-    pub fn map_region_identity(
-        &mut self,
-        region: &FDTRegion,
-        flags: usize,
-    ) -> Result<(), MemoryError> {
-        self.map_region(region.base_address as usize, region, flags)
     }
 
     pub fn map_mmio_identity(&mut self, mmio_slots: &[FDTRegion], flags: usize) {
