@@ -31,7 +31,7 @@ trait ASIDAllocator {
 }
 pub struct ASIDBitmap {
     asids: [u8; ASID_BYTES],
-    /// last free id is cached here
+    /// last free id cache
     hint: u16,
 }
 impl ASIDBitmap {

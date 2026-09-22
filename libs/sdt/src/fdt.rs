@@ -8,7 +8,7 @@ use crate::{
 use alloc::{borrow::ToOwned, format, string::String, vec::Vec};
 use collections::hashmap::HashMap;
 
-pub static GLOBAL_FDT: OnceCell<FDT> = OnceCell::new();
+pub static GLOBAL_FDT: <FDT> = OnceCell::new();
 
 #[derive(Clone, Default, Debug)]
 pub struct FDT<'a> {

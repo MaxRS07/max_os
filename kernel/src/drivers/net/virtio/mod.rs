@@ -90,7 +90,7 @@ impl VirtioNet {
             controlq,
         })
     }
-    pub fn send_packet(&mut self, data)
+    // pub fn send_packet(&mut self, data) {}
     fn populate_buffers(&mut self, cfg_flags: u64) -> Result<(), ()> {
         let min_size = if Self::has_flag(
             cfg_flags,
@@ -178,7 +178,5 @@ impl VirtioNet {
 }
 
 impl NetDevice for VirtioNet {
-    fn send_packet(&mut self) {
-
-    }
+    fn send_packet(&mut self) {}
 }

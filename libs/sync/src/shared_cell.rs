@@ -1,6 +1,7 @@
 use core::cell::UnsafeCell;
 
 /// A simple wrapper to force Sync for mutable cells
+/// TODO: fix and make atomic
 pub struct SharedCell<T>(UnsafeCell<T>)
 where
     T: Sized;

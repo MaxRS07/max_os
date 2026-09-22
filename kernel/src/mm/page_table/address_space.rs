@@ -1,20 +1,21 @@
 use core::{default, ptr::read};
 
-use alloc::vec::Vec;
+use alloc::vec::{self, Vec};
 use fs::meta::permission::Permissions;
 use sdt::region::FDTRegion;
 
 use crate::mm::{
     error::MemoryError,
-    heap::{PAGE_ALLOCATOR, page_table::table::Table, palloc::PageAllocator},
+    heap::{PAGE_ALLOCATOR, page_allocator, page_table::table::Table, palloc::PageAllocator},
     page_table::{asid::ASID, table::Table},
 };
 
 /// An address space for a process. Manages the process' virtual addresses for contiguity
 /// The address space must return ASID and free all tables on `Drop`
 trait Addresser: Drop {
-    /// Creates a new empty address space using an ASID. ASIDs must be between 0 and 511
-    fn new(asid: ASID) -> Self;
+    /// Creates a new empty address space using an ASID. ASIDs must be between 0 and 511. This method will `Err` if the page
+    /// allocator runs out of pages or fails to allocate
+    fn new(asid: ASID) -> Result<Self, MemoryError>;
     /// Force-unmaps this address space, freeing all of its owned regions
     fn drop(&mut self);
     /// Unmaps `virt_addr` from this space, freeing the physical page
@@ -69,8 +70,8 @@ impl VirtualRegion {
 
 /// Address space of a process. Groups memory by process and holds mapped regions that are accessed as contiguous chuncks by processes
 pub struct AddressSpace {
-    /// the root table
-    root_table: &'static mut Table,
+    /// Pointer to the in-memory root table, this lives on the root page
+    root_table: *mut Table,
     /// identifier of this address space
     asid: ASID,
     /// list of owned virtual regions
@@ -78,7 +79,7 @@ pub struct AddressSpace {
 }
 
 impl AddressSpace {
-    pub fn new(root_table: &'static mut Table, asid: ASID, regions: Vec<VirtualRegion>) -> Self {
+    pub fn new(root_table: *mut Table, asid: ASID, regions: Vec<VirtualRegion>) -> Self {
         Self {
             root_table,
             asid,
@@ -88,13 +89,20 @@ impl AddressSpace {
 }
 
 impl Addresser for AddressSpace {
-    fn new(asid: ASID) -> Self {
-        todo!()
+    fn new(asid: ASID) -> Result<Self, MemoryError> {
+        // create the root table. This table must be zerod
+        let root = Table::new();
+        let rt_ptr = page_allocator()?.alloc()? as *mut Table;
+        unsafe {
+            // write the empty table to the root page
+            rt_ptr.write(root);
+        }
+        Ok(Self::new(rt_ptr, asid, Vec::new()))
     }
 
     fn drop(&mut self) {
         for virt_reg in self.regions {
-            self.root_table.unmap(virt_reg.virt_addr);
+            self.unmap(virt_reg.virt_addr)
         }
     }
 
@@ -102,14 +110,12 @@ impl Addresser for AddressSpace {
         virt_addr = virt_addr.next_multiple_of(0x1000);
         for index in 0..self.regions.len() {
             let region = self.regions[index];
-            // easy
-            if region.virt_addr == virt_addr {
-                self.root_table.unmap(virt_addr);
-                self.regions.remove(index);
-                return Ok(());
-            }
             // need to split region
             if region.contains_virtual_address(virt_addr) {
+                self.regions.remove(index);
+                if region.size <= 1 {
+                    return Ok(());
+                }
                 let l = VirtualRegion {
                     size: region.size - 1,
                     ..region
@@ -119,7 +125,6 @@ impl Addresser for AddressSpace {
                     size: region.size - 1,
                     ..region
                 };
-                self.regions.remove(index);
                 self.regions.insert(index, r);
                 self.regions.insert(index, l);
             }
@@ -155,10 +160,10 @@ impl Addresser for AddressSpace {
     }
 
     fn asid(&self) -> ASID {
-        todo!()
+        self.asid
     }
 
     fn satp(&self) -> usize {
-        todo!()
+        0
     }
 }
