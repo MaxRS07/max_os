@@ -15,7 +15,7 @@ pub enum FsOp {
 }
 
 impl SysOp for FsOp {
-    fn call(&self, ktx: KernelContext, args: SyscallArgs) {
+    fn call(&mut self, ktx: KernelContext, args: SyscallArgs) {
         match self {
             Self::Open => {
                 let path = Self::get_path(args.0, args.1);

@@ -7,13 +7,13 @@ use sdt::region::FDTRegion;
 
 use crate::mm::{
     error::MemoryError,
-    heap::{PAGE_ALLOCATOR, page_allocator, page_table::table::Table, palloc::PageAllocator},
+    heap::{PAGE_ALLOCATOR, page_allocator, palloc::PageAllocator},
     page_table::{asid::ASID, table::Table},
 };
 
 /// An address space for a process. Manages the process' virtual addresses for contiguity
 /// The address space must return ASID and free all tables on `Drop`
-trait Addresser: Drop {
+trait Addresser {
     /// Creates a new empty address space using an ASID. ASIDs must be between 0 and 511. This method will `Err` if the page
     /// allocator runs out of pages or fails to allocate
     fn new(asid: ASID) -> Result<Self, MemoryError>;
@@ -170,7 +170,7 @@ impl Addresser for AddressSpace {
         let mut peekable_addrs = phys_addrs.iter().peekable();
         let mut cur_size = 0x1000;
         for addr in peekable_addrs {
-            /// save space by grouping contiguous virt regions. This will be a massive headache later on partial frees
+            // save space by grouping contiguous virt regions. This will be a massive headache later on partial frees
             if let Some(next) = peekable_addrs.peek()
                 && (addr + 0x1000).eq(*next)
             {

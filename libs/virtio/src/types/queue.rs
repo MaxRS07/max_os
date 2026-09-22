@@ -110,15 +110,15 @@ impl VirtQueue {
     }
     /// Pushes a single struct `T` to the descriptor queue. Increments available queue and noifies the device
     pub fn push_descriptor<T>(&mut self, idx: u16, value: T, flags: u16) {
-        let box_t = Box::new(T);
+        let box_t = Box::new(value);
         let t_ptr = Box::into_raw(box_t) as u64;
 
-        self.desc[idx as usize].addr = rx_buffer_addr;
-        self.desc[idx as usize].len = size_of::<RxBuffer>() as u32;
+        self.desc[idx as usize].addr = t_ptr;
+        self.desc[idx as usize].len = size_of::<T>() as u32;
         self.desc[idx as usize].flags = flags;
         self.desc[idx as usize].next = 0;
 
-        let avail_slot = queue.avail.idx % 256;
+        let avail_slot = self.avail.idx % 256;
         self.avail.ring[avail_slot as usize] = idx;
         self.avail_push(idx);
     }

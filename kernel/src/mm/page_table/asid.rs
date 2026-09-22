@@ -30,8 +30,8 @@ trait ASIDAllocator {
     fn free_id(&mut self, id: u16);
 }
 pub struct ASIDBitmap {
-    asids: [u8; ASID_BYTES],
-    /// last free id cache
+    asids: [u8; ASID_BYTES as usize],
+    /// last free id is cache
     hint: u16,
 }
 impl ASIDBitmap {
