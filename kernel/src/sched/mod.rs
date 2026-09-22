@@ -5,6 +5,7 @@ use core::{
 
 use alloc::boxed::Box;
 use log::{debug, info, warn};
+use sync::once::OnceLock;
 
 use crate::sched::{queue::RunQueue, thread::Thread};
 
@@ -13,7 +14,7 @@ pub mod process;
 pub mod queue;
 pub mod thread;
 
-pub static THREAD_QUEUE: OnceCell<RunQueue> = OnceCell::new();
+pub static THREAD_QUEUE: OnceLock<RunQueue> = OnceLock::new();
 
 /// intialize threading globals, setup main thread.
 pub fn init_run_queue(stack_top: *const u8, stack_bottom: *const u8) {
