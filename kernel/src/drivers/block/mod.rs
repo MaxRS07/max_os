@@ -4,7 +4,7 @@ use alloc::boxed::Box;
 use block::device::BlockDevice;
 use log::warn;
 use sdt::fdt::FDT;
-use sync::once::OnceLock;
+use sync::oncelock::OnceLock;
 
 use crate::{drivers::block::virtio::VirtioBlock, println};
 

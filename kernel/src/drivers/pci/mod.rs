@@ -11,7 +11,7 @@ use core::panic;
 use log::info;
 use log::warn;
 use sdt::fdt::FDT;
-use sync::once::OnceLock;
+use sync::oncelock::OnceLock;
 
 use virtio::VIRTIO_DEV_GPU;
 

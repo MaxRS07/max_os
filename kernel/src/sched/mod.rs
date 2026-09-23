@@ -5,7 +5,7 @@ use core::{
 
 use alloc::boxed::Box;
 use log::{debug, info, warn};
-use sync::once::OnceLock;
+use sync::oncelock::OnceLock;
 
 use crate::sched::{queue::RunQueue, thread::Thread};
 

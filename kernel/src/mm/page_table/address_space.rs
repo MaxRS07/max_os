@@ -209,6 +209,8 @@ impl Addresser for AddressSpace {
     }
 
     fn contains(&self, virt_addr: usize) -> bool {
-        todo!()
+        self.regions
+            .iter()
+            .any(VirtualRegion::contains_virtual_address)
     }
 }

@@ -1,4 +1,4 @@
 #![no_std]
 
-pub mod once;
+pub mod oncelock;
 pub mod shared_cell;

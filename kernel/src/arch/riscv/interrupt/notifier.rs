@@ -3,7 +3,7 @@ use core::cell::OnceCell;
 use alloc::boxed::Box;
 use collections::hashmap::HashMap;
 use log::info;
-use sync::once::OnceLock;
+use sync::oncelock::OnceLock;
 
 use crate::arch::riscv::interrupt::route::Trap;
 

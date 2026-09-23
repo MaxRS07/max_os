@@ -115,11 +115,11 @@ where
     T: Debug,
 {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("Once { ");
+        let _ = f.write_str("Once { ");
         if let Some(value) = self.get() {
-            f.write_fmt(format_args!("value: {:?} ", value));
+            let _ = f.write_fmt(format_args!("value: {:?} ", value));
         }
-        f.write_fmt(format_args!(
+        let _ = f.write_fmt(format_args!(
             "state: {:?} ",
             OnceState::from(self.state.load(Acquire))
         ));
