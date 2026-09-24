@@ -3,20 +3,17 @@ use core::{
     ptr::{null, null_mut},
 };
 
-use alloc::collections::binary_heap::IntoIter;
-use log::{info, warn};
+use alloc::borrow::ToOwned;
 
-use crate::{
-    sched::{
-        context::switch_context_impl,
-        thread::{State, Thread},
-    },
-    terminate,
+use crate::sched::{
+    error::ThreadError,
+    thread::{State, Thread},
 };
 
 /// Give thread 10k cycles (10ms) runtime before swapping
 pub static THREAD_INTERVAL: usize = 10_000;
 
+/// A priority queue for executable threads
 pub struct RunQueue {
     head: *mut Thread,
     tail: *mut Thread,
@@ -42,9 +39,9 @@ impl RunQueue {
     }
     /// Inserts a thread in the queue, ordered by `thread.priority`
     #[allow(clippy::not_unsafe_ptr_arg_deref)] // force safe. Not error handling this.
-    pub fn enque(&mut self, thread: *mut Thread) -> Result<(), &'static str> {
+    pub fn enque(&mut self, thread: *mut Thread) -> Result<(), ThreadError> {
         if thread.is_null() {
-            return Err("Thread ptr is null");
+            return Err(ThreadError::Other("Thread ptr is null".to_owned()));
         }
 
         unsafe {
@@ -94,9 +91,9 @@ impl RunQueue {
                 current_ptr = (*current_ptr).next;
             }
         }
-        Err("Failed to enqueue thread")
+        Err(ThreadError::Other("Failed to enqueue thread".to_owned()))
     }
-    // Removes and returns the highest priority thread
+    /// Removes and returns the highest priority thread from the run queue
     pub fn dequeue(&mut self) -> *mut Thread {
         if self.head.is_null() {
             return null_mut(); // Guard against empty queue
@@ -116,8 +113,19 @@ impl RunQueue {
         self.len -= 1;
         head_node
     }
+    /// Dequeues the highest priority thread in the ready state. Returns [`null_mut`] if there are no ready threads in the queue
+    pub fn dequeue_ready(&mut self) -> *mut Thread {
+        for thread in self.into_iter() {
+            if unsafe { *thread }.state == State::Ready
+                && let Ok(ready) = self.remove(thread)
+            {
+                return ready;
+            }
+        }
+        null_mut()
+    }
     // Removes the pointed thread from the queue, returning it's pointee
-    fn remove(&mut self, thread: *mut Thread) -> Result<&mut Thread, &'static str> {
+    pub fn remove(&mut self, thread: *mut Thread) -> Result<&mut Thread, &'static str> {
         if thread.is_null() {
             return Err("Failed to dequeue thread: null");
         }

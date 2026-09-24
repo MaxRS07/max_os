@@ -1,75 +1,81 @@
-use core::ptr::{null, null_mut};
+use core::ptr::null_mut;
 
+use alloc::{borrow::ToOwned, format};
 use log::{debug, warn};
 
 use crate::sched::{
     context::switch_context_impl,
+    error::ThreadError,
     queue::RunQueue,
     thread::{State, Thread},
 };
 
-/// Ochestrates multiple thread queues, schedules CPU time per thread
+/// Ochestrates multiple thread queues, schedules CPU time per process
 pub struct Scheduler {
     running: *mut Thread,
     queue: RunQueue,
 }
 
 impl Scheduler {
+    pub fn new() -> Self {
+        Self {
+            running: null_mut(),
+            queue: RunQueue::new(),
+        }
+    }
     /// Manually pauses the running thread
     pub fn yield_thread() {}
     pub fn set_running(&mut self, thread: *mut Thread) {
         self.running = thread;
     }
-    /// Starts the next thread and returns it's mutable pointer
-    pub fn run_next(&mut self) -> *mut Thread {
+    /// Interrupts the running thread and attempts to requeue it with the next available thread.
+    ///
+    /// If there is no next thread available to run, returns [`Err`] and does not interrupt the current thread. Returns [`Ok`] containing a pointer to the next available thread if the exchange was successful.
+    pub fn run_next(&mut self) -> Result<*mut Thread, ThreadError> {
+        // check next thread
+        let next_ready = self.queue.dequeue_ready();
+        if next_ready.is_null() {
+            return Err(ThreadError::Other(format!("No available threads to run")));
+        }
+        // TODO: This condition should always be true; make exchanges atomic
         if !self.running.is_null() {
             unsafe {
-                // if the thread is not terminated requeue it
+                // if the thread is not terminated, requeue it
                 if (*self.running).state != State::Terminated {
                     (*self.running).state = State::Ready;
-                    if let Err(error) = self.enque(self.running) {
-                        warn!("Failed to reque active thread: {}", error);
-                    }
+                    self.queue.enque(self.running)?
                 }
+
+                (*next_ready).state = State::Running;
+
+                // Switch context from old running thread to new
+                let old_sp_ptr = &mut (*self.running).context.stack_pointer as *mut *mut usize;
+                let new_sp = (*next_ready).context.stack_pointer;
+
+                self.running = next_ready;
+
+                switch_context_impl(old_sp_ptr, new_sp);
             }
         }
-        let next = self.dequeue();
-        if next.is_null() {
-            return null_mut();
-        }
-        unsafe {
-            if (*next).state == State::Ready {
-                (*next).state = State::Running;
-                if !self.running.is_null() {
-                    // Switch context from old running thread to new
-                    let old_sp_ptr = &mut (*self.running).context.stack_pointer as *mut *mut usize;
-                    let new_sp = (*next).context.stack_pointer;
-
-                    self.running = next;
-
-                    debug!(
-                        "Running {}, Queue: {:?}",
-                        &*self.running,
-                        self.queue.into_iter()
-                    );
-
-                    switch_context_impl(old_sp_ptr, new_sp);
-                } else {
-                    // There is no running thread, should not happen
-                    return null_mut();
-                }
-            }
-        }
-        null_mut()
+        Ok(next_ready)
     }
-    /// Removes and deallocates `Thread` pointed to by `thread`
-    pub fn canel_thread(&mut self, thread: *mut Thread) -> Result<(), &'static str> {
-        if self.remove(thread).is_ok() {
+    /// Removes and deallocates the `Thread` pointed to by `thread`. Cancelling the running thread is effectively identical to [`Self::run_next`] but discards [`Self::running`] instead of requeuing it
+    pub fn canel_thread(&mut self, thread: *mut Thread) -> Result<(), ThreadError> {
+        if self.running == thread {
+            let next = self.queue.dequeue_ready();
+            if !next.is_null() {
+                self.set_running(next);
+                return Ok(());
+            }
+        }
+        if self.queue.remove(thread).is_ok() {
             return Ok(());
         }
-        Err("Failed to canel thread")
+        Err(ThreadError::Other("Failed to canel thread".to_owned()))
     }
-    /// Terminates the current thread, runs the next ready thread. It cannot terminate the main thread.
+    /// Terminates the current thread, runs the next ready thread.
+    ///
+    /// **NOTE:** Cannot terminate the main thread
     pub fn terminate_running(&mut self) {
         if self.running.is_null() {
             warn!("Attempted to terminate a null thread");
@@ -97,3 +103,6 @@ impl Scheduler {
         Err("Failed to find thread with the specified id")
     }
 }
+
+unsafe impl Send for Scheduler {}
+unsafe impl Sync for Scheduler {}

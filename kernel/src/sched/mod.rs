@@ -7,30 +7,37 @@ use alloc::boxed::Box;
 use log::{debug, info, warn};
 use sync::oncelock::OnceLock;
 
-use crate::sched::{queue::RunQueue, thread::Thread};
+use crate::sched::{scheduler::Scheduler, thread::Thread};
 
 pub mod context;
+pub mod error;
 pub mod process;
 pub mod queue;
 pub mod scheduler;
 pub mod thread;
 
-pub static THREAD_QUEUE: OnceLock<RunQueue> = OnceLock::new();
+/// This is the global thread scheduler
+pub static SCHEDULER: OnceLock<Scheduler> = OnceLock::new();
 
 /// intialize threading globals, setup main thread.
 pub fn init_run_queue(stack_top: *const u8, stack_bottom: *const u8) {
-    unsafe { THREAD_QUEUE.init(|| RunQueue::new()) };
+    unsafe { SCHEDULER.init(|| Scheduler::new()) };
     if let Err(error) = Thread::main(stack_top, stack_bottom) {
         warn!("Failed to setup main thread: {}", error);
     }
     info!("Created main thread");
 }
 /// Manually terminates the current thread
+///
+/// Panics if the global scheduler has not been initialized
 #[macro_export]
 macro_rules! terminate {
     () => {
         unsafe {
-            THREAD_QUEUE.get_mut().unwrap().terminate_running();
+            crate::sched::SCHEDULER
+                .get_mut()
+                .unwrap()
+                .terminate_running();
         }
     };
 }
@@ -40,7 +47,7 @@ macro_rules! terminate {
 macro_rules! yield_thread {
     () => {
         unsafe {
-            THREAD_QUEUE.get_mut().unwrap().terminate_running();
+            crate::sched::SCHEDULER.get_mut().unwrap().yeild_thread();
         }
     };
 }

@@ -4,7 +4,7 @@ use sdt::fdt::FDT;
 
 use crate::{
     console::writer::println,
-    sched::{THREAD_QUEUE, thread},
+    sched::{SCHEDULER, thread},
 };
 use core::{
     alloc::Layout,
@@ -118,7 +118,7 @@ impl Thread {
         let main_box = Box::new(main);
         let main_ptr = Box::into_raw(main_box);
         unsafe {
-            THREAD_QUEUE.get_mut().unwrap().set_running(main_ptr);
+            SCHEDULER.get_mut().unwrap().set_running(main_ptr);
             return Ok(());
         }
 
@@ -158,7 +158,7 @@ impl Thread {
         let box_ptr = Box::into_raw(boxed);
 
         LAST_ID.store(last_id + 1, Ordering::Release);
-        if unsafe { THREAD_QUEUE.get_mut().unwrap().enque(box_ptr).is_err() } {
+        if unsafe { SCHEDULER.get_mut().unwrap().enque(box_ptr).is_err() } {
             warn!(
                 "Failed to queue thread: '{}'",
                 str::from_utf8(&name).unwrap_or("")
@@ -222,6 +222,7 @@ impl Thread {
     pub fn id(&self) -> u32 {
         self.id
     }
+    /// Whether this thread is the main thread with id 0.
     pub fn is_main(&self) -> bool {
         self.id == 0
     }
