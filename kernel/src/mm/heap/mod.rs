@@ -1,10 +1,10 @@
 use core::{
     cell::{OnceCell, UnsafeCell},
     fmt::Debug,
-    ptr::{addr_of, null_mut},
+    ptr::{addr_of, null, null_mut},
 };
 
-use alloc::alloc::{GlobalAlloc, Layout};
+use alloc::alloc::{GlobalAlloc, Layout, alloc};
 use log::{debug, info, warn};
 
 use crate::mm::{
@@ -17,9 +17,17 @@ pub mod kalloc;
 pub mod palloc;
 
 pub static mut PAGE_ALLOCATOR: OnceCell<PageAllocator> = OnceCell::new();
+pub static mut KERNEL_ALLOCATOR: OnceCell<LinkedListAllocator> = OnceCell::new();
 
-/// Result wrapper for getting mutable ref of global page allocator
-pub fn page_allocator() -> Result<&mut PageAllocator, MemoryError> {
+// Result wrappers for getting mutable ref of global allocators
+pub fn kernel_allocator() -> Result<&'static mut LinkedListAllocator, MemoryError> {
+    unsafe {
+        KERNEL_ALLOCATOR
+            .get_mut()
+            .ok_or(MemoryError::NotInitialized("KERNEL_ALLOCATOR"))
+    }
+}
+pub fn page_allocator() -> Result<&'static mut PageAllocator, MemoryError> {
     unsafe {
         PAGE_ALLOCATOR
             .get_mut()
@@ -95,7 +103,10 @@ unsafe impl GlobalAlloc for AllocatorState {
                 null_mut()
             }
             Self::Boot => unsafe { BootAllocator.alloc(layout) },
-            Self::LinkedList => unsafe { LinkedListAllocator.alloc(layout) },
+            Self::LinkedList => match kernel_allocator() {
+                Ok(ka) => ka.alloc(layout),
+                _ => null_mut(),
+            },
         }
     }
 
@@ -105,7 +116,7 @@ unsafe impl GlobalAlloc for AllocatorState {
                 warn!("dealloc failed: GlobalAlloc is not yet initialized");
             }
             Self::Boot => unsafe { BootAllocator.dealloc(ptr, layout) },
-            Self::LinkedList => unsafe { LinkedListAllocator.dealloc(ptr, layout) },
+            Self::LinkedList => unsafe { ALLOCATOR.dealloc(ptr, layout) },
         }
     }
 }
@@ -129,7 +140,7 @@ pub fn setup_system_mem(total_size: usize) {
         match LinkedListAllocator::new(kmem_start) {
             Ok(_) => debug!("Intialized kernel allocator"),
             // if paging fails just crash
-            Err(err) => panic!(err),
+            Err(err) => panic!("{err}"),
         }
     }
     // hand the global allocator over to the linked-list heap now that RAM is mapped

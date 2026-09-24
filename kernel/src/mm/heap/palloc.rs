@@ -16,7 +16,7 @@ struct PageHeader {
 pub struct PageAllocator {
     /// Pointer to the page head
     page_head: *mut PageHeader,
-    free_pages: AtomicUsize = AtomicUsize::new(0),
+    free_pages: AtomicUsize,
 }
 impl PageAllocator {
     pub fn new(kram_start: *const u8, kram_end: *const u8) -> Self {

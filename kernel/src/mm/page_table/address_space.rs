@@ -16,7 +16,7 @@ use crate::mm::{
 trait Addresser {
     /// Creates a new empty address space using an ASID. ASIDs must be between 0 and 511. This method will `Err` if the page
     /// allocator runs out of pages or fails to allocate
-    fn new(asid: ASID) -> Result<Self, MemoryError>;
+    // fn new(asid: ASID) -> Result<Self, MemoryError>;
     /// Force-unmaps this address space, freeing all of its owned regions
     fn drop(&mut self) -> Result<(), MemoryError>;
     /// Unmaps `virt_addr` from this space, freeing the physical page
@@ -38,7 +38,7 @@ trait Addresser {
     /// Returns the supervisor address translation and protection register (satp)
     fn satp(&self) -> usize;
 }
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 enum RegionBacking {
     #[default]
     /// Anon space is fully freed and reclaimed on teardown
@@ -108,6 +108,9 @@ pub struct AddressSpace {
 }
 
 impl AddressSpace {
+    // pub fn kernel() -> Self {
+    //     Self::new(, 0, regions);
+    // }
     pub fn new(root_table: *mut Table, asid: ASID, regions: Vec<VirtualRegion>) -> Self {
         Self {
             root_table,
@@ -115,10 +118,7 @@ impl AddressSpace {
             regions,
         }
     }
-}
-
-impl Addresser for AddressSpace {
-    fn new(asid: ASID) -> Result<Self, MemoryError> {
+    fn from_asid(asid: ASID) -> Result<Self, MemoryError> {
         // create the root table. This table must be zerod
         let root = Table::new();
         let rt_ptr = page_allocator()?.alloc()? as *mut Table;
@@ -128,10 +128,12 @@ impl Addresser for AddressSpace {
         }
         Ok(Self::new(rt_ptr, asid, Vec::new()))
     }
+}
 
+impl Addresser for AddressSpace {
     fn drop(&mut self) -> Result<(), MemoryError> {
-        for virt_reg in self.regions {
-            self.unmap(virt_reg.virt_addr);
+        while let Some(virt_addr) = self.regions.first().map(|region| region.virt_addr) {
+            self.unmap(virt_addr)?;
         }
         let root_table_ptr = self.root_table as *mut u8;
         page_allocator()?.free(root_table_ptr);
@@ -139,7 +141,7 @@ impl Addresser for AddressSpace {
     }
 
     fn unmap(&mut self, virt_addr: usize) -> Result<(), MemoryError> {
-        virt_addr = align_down(virt_addr, 0x1000);
+        let virt_addr = align_down(virt_addr, 0x1000);
         for index in 0..self.regions.len() {
             let region = self.regions[index];
             // need to split region
@@ -175,10 +177,10 @@ impl Addresser for AddressSpace {
         flags: usize,
         perms: Permissions,
     ) -> Result<(), MemoryError> {
-        let phys_addrs = self.root_table.map_size(virt_addr, size, flags)?;
+        let phys_addrs = unsafe { &mut *self.root_table }.map_size(virt_addr, size, flags)?;
         let mut peekable_addrs = phys_addrs.iter().peekable();
         let mut cur_size = 0x1000;
-        for addr in peekable_addrs {
+        for addr in peekable_addrs.next() {
             // save space by grouping contiguous virt regions. This will be a massive headache later on partial frees
             if let Some(next) = peekable_addrs.peek()
                 && (addr + 0x1000).eq(*next)
@@ -186,13 +188,8 @@ impl Addresser for AddressSpace {
                 cur_size += 0x1000;
                 continue;
             }
-            let virt_region = VirtualRegion::new(
-                perms,
-                virt_addr,
-                phys_addrs,
-                cur_size,
-                RegionBacking::Anonymous,
-            );
+            let virt_region =
+                VirtualRegion::new(perms, virt_addr, *addr, cur_size, RegionBacking::Anonymous);
             self.regions.push(virt_region);
         }
         Ok(())
@@ -207,7 +204,7 @@ impl Addresser for AddressSpace {
     }
 
     fn translate(&self, virt_addr: usize) -> Result<usize, MemoryError> {
-        for region in self.regions {
+        for region in self.regions.iter() {
             if let Ok(paddr) = region.translate(virt_addr) {
                 return Ok(paddr);
             }
@@ -220,6 +217,6 @@ impl Addresser for AddressSpace {
     fn contains(&self, virt_addr: usize) -> bool {
         self.regions
             .iter()
-            .any(VirtualRegion::contains_virtual_address)
+            .any(|region| region.contains_virtual_address(virt_addr))
     }
 }

@@ -110,7 +110,7 @@ impl LinkedListAllocator {
                             ab.size = size;
 
                             if (*th).next.is_null() {
-                                BLOCK_TAIL = th;
+                                self.tail = th;
                             }
                         } else {
                             ab.size = block_end - payload;
@@ -134,9 +134,9 @@ impl LinkedListAllocator {
             error!("Out of pages");
             return null_mut();
         }
-        let new_page = palloc::alloc();
+        let new_page = page_allocator()?.alloc()?;
         for _ in 0..pages_needed - 1 {
-            palloc::alloc();
+            page_allocator()?.alloc()?;
         }
 
         if !new_page.is_null() {
@@ -147,13 +147,13 @@ impl LinkedListAllocator {
                 (*new_block).prev = null_mut();
                 (*new_block).next = null_mut();
 
-                if !BLOCK_TAIL.is_null() {
-                    (*BLOCK_TAIL).next = new_block;
-                    (*new_block).prev = BLOCK_TAIL;
-                    BLOCK_TAIL = new_block;
+                if !self.tail.is_null() {
+                    (*&self.tail).next = new_block;
+                    (*new_block).prev = self.tail;
+                    self.tail = new_block;
                 } else {
-                    BLOCK_HEAD = new_block;
-                    BLOCK_TAIL = new_block;
+                    self.head = new_block;
+                    self.tail = new_block;
                 }
             }
             return self.alloc(layout);
@@ -188,7 +188,7 @@ impl LinkedListAllocator {
     /// Frees your memory
     /// # Safety
     /// Only pass the start address of a payload
-    pub fn free(block_ptr: *mut u8) {
+    pub fn free(&mut self, block_ptr: *mut u8) {
         if block_ptr.is_null() {
             return;
         }
@@ -207,8 +207,8 @@ impl LinkedListAllocator {
                 let current_block_end = (header_ptr as usize) + HEADER_SIZE + header_ref.size;
                 if current_block_end == (next_block_ptr as usize) {
                     // if the right block was the tail, this is now the tail
-                    if BLOCK_TAIL == next_block_ptr {
-                        BLOCK_TAIL = header_ptr;
+                    if self.tail == next_block_ptr {
+                        self.tail = header_ptr;
                     }
 
                     header_ref.size += (*next_block_ptr).size + HEADER_SIZE;
@@ -229,8 +229,8 @@ impl LinkedListAllocator {
                     (prev_block_ptr as usize) + HEADER_SIZE + (*prev_block_ptr).size;
                 if prev_block_end == (header_ptr as usize) {
                     // if this is the tail the entire block is the tail now
-                    if BLOCK_TAIL == header_ptr {
-                        BLOCK_TAIL = prev_block_ptr;
+                    if self.tail == header_ptr {
+                        self.tail = prev_block_ptr;
                     }
 
                     (*prev_block_ptr).size += HEADER_SIZE + header_ref.size;

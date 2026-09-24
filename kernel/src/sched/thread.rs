@@ -4,6 +4,7 @@ use sdt::fdt::FDT;
 
 use crate::{
     console::writer::println,
+    mm::page_table::address_space::AddressSpace,
     sched::{SCHEDULER, thread},
 };
 use core::{
@@ -60,7 +61,8 @@ impl Default for State {
 const THREAD_STACK_SIZE: usize = 0x3000;
 
 #[derive(Debug, Clone, Default)]
-pub struct Thread {
+pub struct Thread<'a> {
+    address_space: &'a AddressSpace,
     /// information about the stack goes here. Contains both the stack pointer and thread pointer
     pub context: Context,
 
@@ -90,19 +92,20 @@ pub struct Thread {
     stack_top: *const u8,
 
     /// Pointer to next thread in priority queue
-    pub next: *mut Thread,
+    pub next: *mut Thread<'a>,
     /// Pointer to previous thread in priority queue
-    pub prev: *mut Thread,
+    pub prev: *mut Thread<'a>,
 }
 /// records the last used thread id. IDs are assigned incrementally, every id greater than `LAST_ID` is unused
 static LAST_ID: AtomicU32 = AtomicU32::new(0);
 
-impl Thread {
+impl<'a> Thread<'a> {
     /// Returns a preconfigured main thread. Does not have an entry point. Does not allocate stack or tls in memory.
     pub fn main(stack_top: *const u8, stack_bottom: *const u8) -> Result<(), &'static str> {
         let main = Self {
             id: 0,
             name: Self::name_from_str("main"),
+            address_space: AddressSpace::
             state: State::Running, // The main thread creates itself, hence it is running
             stack_top,
             stack_bottom,

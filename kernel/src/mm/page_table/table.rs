@@ -1,16 +1,11 @@
 use core::fmt::Display;
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 use fs::collections::error::FSError;
 use mem::align::align_down;
 use sdt::region::{self, FDTRegion};
-use table_entry::TableEntry;
 
-use crate::mm::{
-    error::MemoryError,
-    heap::{PAGE_ALLOCATOR, page_table::table_entry::TableEntry, palloc::PageAllocator},
-    page_table::table_entry::TableEntry,
-};
+use crate::mm::{error::MemoryError, heap::PAGE_ALLOCATOR, page_table::table_entry::TableEntry};
 
 const TABLE_LEN: usize = 1024;
 const LEAF_SIZE: usize = 0x1000;
@@ -26,10 +21,14 @@ impl Table {
     pub const fn new() -> Self {
         Self {
             valid_entries: 0,
-            pages: [TableEntry(0); TABLE_LEN],
+            pages: [TableEntry::empty(); TABLE_LEN],
         }
     }
     pub const MEGAPAGE: usize = 1 << 8;
+
+    pub fn has_valid_entries(&self) -> bool {
+        self.valid_entries != 0
+    }
     /// Maps a single virtual address to a physical leaf.
     ///  
     /// **Note:** forces virtual alignment to 0x1000
@@ -40,7 +39,7 @@ impl Table {
         flags: usize,
     ) -> Result<(), MemoryError> {
         let align = MEGATABLE_SIZE; // 4MiB
-        virt_addr = align_down(value, LEAF_SIZE);
+        let virt_addr = align_down(virt_addr, LEAF_SIZE);
         let vpn_root = (virt_addr >> 22) & 0x3FF;
         let vpn_leaf = (virt_addr >> 12) & 0x3FF;
 
@@ -106,8 +105,9 @@ impl Table {
                     ))?
                     .alloc()?
             } as usize;
+            phys_addrs.push(paddr);
 
-            self.map(virt_addr, paddr, flags)?;
+            self.map(vaddr, paddr, flags)?;
         }
         Ok(phys_addrs)
     }
@@ -144,8 +144,8 @@ impl Table {
     /// Unmaps a virtual address from a physical address, freeing the physical page and returning the physical address. If [`virt_addr`] is an already unampped, returns 0
     /// ## Warning!
     /// Megapages cannot be partially unmapped. unmapping a leaf inside a megatable probably wont do anything but it might cause corruption
-    pub fn unmap(&mut self, virt_addr: usize) -> Result<usize, MemoryError> {
-        let align = MEGATABLE_SIZE; // 4MiB
+    pub fn unmap(&mut self, virt_addr: usize, is_megatable: bool) -> Result<usize, MemoryError> {
+        let virt_addr = align_down(virt_addr, LEAF_SIZE);
 
         let vpn_root = (virt_addr >> 22) & 0x3FF;
         let vpn_leaf = (virt_addr >> 12) & 0x3FF;
@@ -153,8 +153,8 @@ impl Table {
         // create 4KiB megatable if both phys and vpn0 are aligned
         let root_entry = &mut self.pages[vpn_root as usize];
 
-        if (flags & Self::MEGAPAGE) != 0 {
-            if vpn_leaf == 0 && phys_addr.is_multiple_of(align) {
+        if is_megatable {
+            if vpn_leaf == 0 && virt_addr.is_multiple_of(MEGATABLE_SIZE) {
                 self.valid_entries -= 1;
                 return Ok(root_entry.clear());
             } else {
@@ -167,15 +167,20 @@ impl Table {
         let ptr = root_entry.addr() as *mut Table;
         unsafe {
             let table = &mut *ptr;
-            let leaf = table.entry_mut(vpn_leaf);
+            let (leaf_was_valid, physical_address, table_is_empty) = {
+                let leaf = table.entry_mut(vpn_leaf);
+                let leaf_was_valid = leaf.is_valid();
+                let physical_address = if leaf_was_valid { leaf.clear() } else { 0 };
+                (leaf_was_valid, physical_address, !table.has_valid_entries())
+            };
 
-            /// invalidate a zero entry table in case a full entry is needed in later versions
-            if table.valid_entries == 0 {
+            // Invalidate an empty entry table so it can be reused later.
+            if table_is_empty {
                 root_entry.clear();
             }
-            if leaf.is_valid() {
+            if leaf_was_valid {
                 self.valid_entries -= 1;
-                return Ok(leaf.clear());
+                return Ok(physical_address);
             }
             Ok(0)
         }
@@ -186,14 +191,13 @@ impl Table {
         virt_addr: usize,
         region: &FDTRegion,
     ) -> Result<(), MemoryError> {
-        let mut offset_size = LEAF_SIZE;
+        let offset_size = LEAF_SIZE;
         let page_count = region.size.div_ceil(offset_size);
         for i in 0..page_count {
             let offset = i * offset_size;
             let vaddr = virt_addr + offset as usize;
-            let paddr = (region.base_address + offset) as usize;
 
-            self.unmap(virt_addr)?;
+            self.unmap(vaddr, false)?;
         }
 
         Ok(())

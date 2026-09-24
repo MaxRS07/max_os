@@ -1,7 +1,4 @@
 // TODO: THREAD SAFETY: Exchanges need to be atomic; Implement teardown
-use core::panicking::panic;
-
-use crate::mm::page_table::asid;
 
 /// This is the maximum ASID value on SV32
 pub const MAX_ASID: u16 = 512;
@@ -9,6 +6,7 @@ pub const MAX_ASID: u16 = 512;
 const ASID_BYTES: u16 = MAX_ASID / 8;
 
 /// Represents a 32 bit ASID with `0 < Self::value < 512`
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ASID(u16);
 impl ASID {
     /// Creates a new ASID from a value
@@ -39,7 +37,7 @@ impl ASIDBitmap {
     pub const RESERVED: u16 = 0;
 
     pub const fn new() -> Self {
-        let mut asids = [0u8; 512];
+        let mut asids = [0u8; ASID_BYTES as usize];
         asids[0] = 1;
         Self { asids, hint: 0 }
     }
@@ -58,7 +56,7 @@ impl ASIDBitmap {
     }
     pub fn free_id(&mut self, id: u16) {
         if id == Self::RESERVED {
-            panic("Attempted to free kernel page")
+            panic!("Attempted to free kernel page")
         }
         self.hint = id;
         self.free_asid(id);
@@ -67,17 +65,17 @@ impl ASIDBitmap {
     fn acid_used(&self, id: u16) -> bool {
         let byte = id / ASID_BYTES;
         let bit = id % 8;
-        self.asids[byte] & (1 << bit)
+        self.asids[byte as usize] & (1 << bit) == 1
     }
     fn use_asid(&mut self, id: u16) {
         let byte = id / ASID_BYTES;
         let bit = id % 8;
-        self.asids[byte] |= (1 << bit)
+        self.asids[byte as usize] |= 1 << bit
     }
     fn free_asid(&mut self, id: u16) {
         let byte = id / ASID_BYTES;
         let bit = id % 8;
-        self.asids[byte] &= !(1 << bit)
+        self.asids[byte as usize] &= !(1 << bit)
     }
 }
 

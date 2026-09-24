@@ -6,7 +6,7 @@ use log::{debug, info, warn};
 
 use sdt::fdt::{FDT, GLOBAL_FDT};
 
-use crate::mm::heap::{page_table, setup_boot_mem};
+use crate::mm::heap::setup_boot_mem;
 use crate::{console, println};
 
 pub mod error;
@@ -27,7 +27,6 @@ pub fn init(fdt_ptr: *const u8) {
             debug!("Intialized FDT");
             sdt::fdt::GLOBAL_FDT.init(|| mmap);
             if let Some(fdt) = GLOBAL_FDT.get() {
-                page_table::init_root_table();
                 heap::setup_system_mem(fdt.memory.size);
             } else {
                 warn!("Failed to set global device tree");

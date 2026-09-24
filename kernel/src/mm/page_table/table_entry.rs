@@ -1,6 +1,8 @@
+use core::fmt::Display;
+
 use crate::mm::error::MemoryError;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[repr(transparent)]
 pub struct TableEntry(usize);
 
@@ -22,6 +24,9 @@ impl TableEntry {
     /// PNN 0 mask (10-19)
     const PNN0_MASK: usize = 0x000F_FC00;
 
+    pub const fn empty() -> Self {
+        Self(0)
+    }
     // Raw Flag Getters and Setters
     pub fn get_flags(&self) -> usize {
         self.0 & Self::FLAG_MASK

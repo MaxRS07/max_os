@@ -4,27 +4,12 @@ use log::debug;
 
 use sdt::fdt::GLOBAL_FDT;
 
-use crate::{arch::riscv::csr::Csr::SATP, mm::heap::page_table::table::Table};
+use crate::{arch::riscv::csr::Csr::SATP, mm::page_table::table::Table};
 
 pub mod address_space;
 pub mod asid;
 pub mod table;
 pub mod table_entry;
-
-static mut ROOT_TABLE: Table = Table::new();
-
-/// Creates global page table root, maps 0x8000_0000 to itself
-pub fn init_root_table() {
-    unsafe {
-        let root_ptr = &raw mut ROOT_TABLE;
-        let root_addr = root_ptr.addr();
-        debug!("Created root table at 0x{:x}", root_addr);
-        match map_boot_pages(root_ptr) {
-            Ok(()) => pack_satp(root_addr),
-            Err(error) => panic!("{}", error),
-        }
-    }
-}
 
 // read + write
 const RW: usize = 0b111;
