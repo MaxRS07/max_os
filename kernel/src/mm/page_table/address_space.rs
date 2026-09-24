@@ -18,11 +18,17 @@ trait Addresser {
     /// allocator runs out of pages or fails to allocate
     fn new(asid: ASID) -> Result<Self, MemoryError>;
     /// Force-unmaps this address space, freeing all of its owned regions
-    fn drop(&mut self);
+    fn drop(&mut self) -> Result<(), MemoryError>;
     /// Unmaps `virt_addr` from this space, freeing the physical page
     fn unmap(&mut self, virt_addr: usize) -> Result<(), MemoryError>;
     /// Maps virtual addresses to this space, increasing this space's capacity by at least [`bytes`]
-    fn map_size(&mut self, virt_addr: usize, size: usize, flags: usize) -> Result<(), MemoryError>;
+    fn map_size(
+        &mut self,
+        virt_addr: usize,
+        size: usize,
+        flags: usize,
+        perms: Permissions,
+    ) -> Result<(), MemoryError>;
     /// Translates a virtual address within this space to its corresponding physical address
     fn translate(&self, virt_addr: usize) -> Result<usize, MemoryError>;
     /// Checks if this addresser contains a virtual address
@@ -123,10 +129,13 @@ impl Addresser for AddressSpace {
         Ok(Self::new(rt_ptr, asid, Vec::new()))
     }
 
-    fn drop(&mut self) {
+    fn drop(&mut self) -> Result<(), MemoryError> {
         for virt_reg in self.regions {
             self.unmap(virt_reg.virt_addr);
         }
+        let root_table_ptr = self.root_table as *mut u8;
+        page_allocator()?.free(root_table_ptr);
+        Ok(())
     }
 
     fn unmap(&mut self, virt_addr: usize) -> Result<(), MemoryError> {

@@ -1,14 +1,8 @@
 use core::arch::naked_asm;
 
-// unsafe extern "C" {
-//     /// Swaps hardware context, allowing the new thread to run. Must pass stack pointers directly to load them into a0, a1 registers
-//     /// 1. `old_sp`: `*mut *mut usize` of the old threads context.stack_pointer (`a0`).
-//     /// 2. `new_sp`: The raw address of the incoming thread's saved stack pointer (`a1`).
-//     pub unsafe fn switch_context(old_sp: *mut *mut usize, new_sp: *mut usize);
-// }
-
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
+/// Switches context between threads by moving the stack pointer to the last executed instruction on the new thread
 pub unsafe extern "C" fn switch_context_impl(old_sp: *mut *mut usize, new_sp: *mut usize) {
     naked_asm!(
         // shift stack pointer by 56 bytes, make room for registers
@@ -29,7 +23,7 @@ pub unsafe extern "C" fn switch_context_impl(old_sp: *mut *mut usize, new_sp: *m
         "sw s1,  4(sp)",
         "sw s0,  0(sp)",
         // save outgoing sp in thread
-        // a0 contains `old_thread.context.stack_pointer``
+        // a0 contains `old_thread.context.stack_pointer`
         "sw sp, 0(a0)",
         // switch stack pointer to new thread (a1)
         "mv sp, a1",

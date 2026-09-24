@@ -12,6 +12,7 @@ use crate::sched::{queue::RunQueue, thread::Thread};
 pub mod context;
 pub mod process;
 pub mod queue;
+pub mod scheduler;
 pub mod thread;
 
 pub static THREAD_QUEUE: OnceLock<RunQueue> = OnceLock::new();
