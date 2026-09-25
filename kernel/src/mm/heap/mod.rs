@@ -6,6 +6,7 @@ use core::{
 
 use alloc::alloc::{GlobalAlloc, Layout, alloc};
 use log::{debug, info, warn};
+use sync::spinmutex::Mutex;
 
 use crate::mm::{
     error::MemoryError,
@@ -16,8 +17,8 @@ pub mod boot;
 pub mod kalloc;
 pub mod palloc;
 
-pub static mut PAGE_ALLOCATOR: OnceCell<PageAllocator> = OnceCell::new();
-pub static mut KERNEL_ALLOCATOR: OnceCell<LinkedListAllocator> = OnceCell::new();
+pub static mut PAGE_ALLOCATOR: Mutex<PageAllocator> = Mutex::new();
+pub static mut KERNEL_ALLOCATOR: Mutex<LinkedListAllocator> = Mutex::new();
 
 // Result wrappers for getting mutable ref of global allocators
 pub fn kernel_allocator() -> Result<&'static mut LinkedListAllocator, MemoryError> {

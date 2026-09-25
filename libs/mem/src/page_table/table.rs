@@ -1,11 +1,8 @@
 use core::fmt::Display;
 
 use alloc::vec::Vec;
-use fs::collections::error::FSError;
-use mem::align::align_down;
-use sdt::region::{self, FDTRegion};
 
-use crate::mm::{error::MemoryError, heap::PAGE_ALLOCATOR, page_table::table_entry::TableEntry};
+use crate::{align::align_down, error::MemoryError, page_table::table_entry::TableEntry};
 
 const TABLE_LEN: usize = 1024;
 const LEAF_SIZE: usize = 0x1000;

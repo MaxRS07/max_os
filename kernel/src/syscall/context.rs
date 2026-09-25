@@ -9,7 +9,7 @@ pub struct KernelContext<'a> {
 }
 
 impl<'a> KernelContext<'a> {
-    pub fn new(vfs: &'static mut Vfs) -> Self {
+    pub fn new(vfs: &'static mut Vfs<'a>) -> Self {
         Self { vfs }
     }
 }

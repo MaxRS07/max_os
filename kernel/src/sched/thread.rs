@@ -105,7 +105,7 @@ impl<'a> Thread<'a> {
         let main = Self {
             id: 0,
             name: Self::name_from_str("main"),
-            address_space: AddressSpace::
+            address_space: &AddressSpace::default(),
             state: State::Running, // The main thread creates itself, hence it is running
             stack_top,
             stack_bottom,
@@ -124,8 +124,6 @@ impl<'a> Thread<'a> {
             SCHEDULER.get_mut().unwrap().set_running(main_ptr);
             return Ok(());
         }
-
-        Err("Failed to queue main thread")
     }
     /// Creates and enques a thread. Returns the unique ID of the thread or None if queing failed.
     pub fn spawn(name: &str, priority: Priority, entry: usize) -> Option<u32> {

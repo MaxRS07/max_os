@@ -1,14 +1,14 @@
-use core::{default, ptr::read};
+use core::{
+    default,
+    ptr::{null_mut, read},
+};
 
 use alloc::vec::{self, Vec};
-use fs::meta::permission::Permissions;
-use mem::align::align_down;
-use sdt::region::FDTRegion;
 
-use crate::mm::{
+use crate::{
+    align::align_down,
     error::MemoryError,
-    heap::{PAGE_ALLOCATOR, page_allocator, palloc::PageAllocator},
-    page_table::{asid::ASID, table::Table},
+    page_table::{asid::ASID, permissions::PagePermissions, table::Table},
 };
 
 /// An address space for a process. Manages the process' virtual addresses for contiguity
@@ -27,7 +27,7 @@ trait Addresser {
         virt_addr: usize,
         size: usize,
         flags: usize,
-        perms: Permissions,
+        perms: PagePermissions,
     ) -> Result<(), MemoryError>;
     /// Translates a virtual address within this space to its corresponding physical address
     fn translate(&self, virt_addr: usize) -> Result<usize, MemoryError>;
@@ -52,7 +52,7 @@ enum RegionBacking {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 /// A virtual region held by an address space
 struct VirtualRegion {
-    perms: Permissions,
+    perms: PagePermissions,
     /// the virtual address of the start of the region
     pub virt_addr: usize,
     /// the physical address of the first page in the region. If `size > 1`, then the following physical addresses will be offset by 0x1000 up to `size`
@@ -67,7 +67,7 @@ struct VirtualRegion {
 
 impl VirtualRegion {
     pub fn new(
-        perms: Permissions,
+        perms: PagePermissions,
         virt_addr: usize,
         phys_addr: usize,
         size: usize,
@@ -98,6 +98,7 @@ impl VirtualRegion {
 }
 
 /// Address space of a process. Groups memory by process and holds mapped regions that are accessed as contiguous chuncks by processes
+#[derive(Clone, Debug)]
 pub struct AddressSpace {
     /// Pointer to the in-memory root table, this lives on the root page
     root_table: *mut Table,
@@ -105,6 +106,16 @@ pub struct AddressSpace {
     asid: ASID,
     /// list of owned virtual regions
     regions: Vec<VirtualRegion>,
+}
+
+impl Default for AddressSpace {
+    fn default() -> Self {
+        Self {
+            root_table: null_mut(),
+            asid: ASID::new(0),
+            regions: alloc::vec![],
+        }
+    }
 }
 
 impl AddressSpace {
@@ -175,7 +186,7 @@ impl Addresser for AddressSpace {
         virt_addr: usize,
         size: usize,
         flags: usize,
-        perms: Permissions,
+        perms: PagePermissions,
     ) -> Result<(), MemoryError> {
         let phys_addrs = unsafe { &mut *self.root_table }.map_size(virt_addr, size, flags)?;
         let mut peekable_addrs = phys_addrs.iter().peekable();

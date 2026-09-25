@@ -17,5 +17,5 @@ pub fn align_down(value: usize, align: usize) -> usize {
 #[must_use]
 pub fn aligned_up(value: usize, align: usize) -> usize {
     debug_assert!(align.is_power_of_two());
-    value + (align - 1) & !(align - 1)
+    (value + (align - 1)) & !(align - 1)
 }

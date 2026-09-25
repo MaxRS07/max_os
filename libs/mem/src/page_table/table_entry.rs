@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use crate::mm::error::MemoryError;
+use crate::error::MemoryError;
 
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(transparent)]
