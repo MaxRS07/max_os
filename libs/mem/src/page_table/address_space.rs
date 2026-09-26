@@ -6,7 +6,7 @@ use core::{
 use alloc::vec::{self, Vec};
 
 use crate::{
-    align::align_down,
+    align::aligned_down,
     error::MemoryError,
     page_table::{asid::ASID, page_alloc::Pager, permissions::PagePermissions, table::Table},
 };
@@ -51,7 +51,7 @@ enum RegionBacking {
 
 #[derive(Clone, Copy)]
 /// A virtual region held by an address space
-struct VirtualRegion {
+pub struct VirtualRegion {
     perms: PagePermissions,
     /// the virtual address of the start of the region
     pub virt_addr: usize,
@@ -128,13 +128,8 @@ impl AddressSpace {
     }
     fn from_asid(page_allocator: &'static dyn Pager, asid: ASID) -> Result<Self, MemoryError> {
         // create the root table. This table must be zerod
-        let root = Table::new();
-        let rt_ptr = page_allocator.alloc()? as *mut Table;
-        unsafe {
-            // write the empty table to the root page
-            rt_ptr.write(root);
-        }
-        Ok(Self::new(page_allocator, rt_ptr, asid, Vec::new()))
+        let root_ptr = Table::alloc_empty(page_allocator)?;
+        Ok(Self::new(page_allocator, root_ptr, asid, Vec::new()))
     }
 }
 
@@ -148,7 +143,7 @@ impl Addresser for AddressSpace {
     }
 
     fn unmap(&mut self, virt_addr: usize) -> Result<(), MemoryError> {
-        let virt_addr = align_down(virt_addr, 0x1000);
+        let virt_addr = aligned_down(virt_addr, 0x1000);
         for index in 0..self.regions.len() {
             let region = self.regions[index];
             // need to split region
@@ -184,7 +179,12 @@ impl Addresser for AddressSpace {
         flags: usize,
         perms: PagePermissions,
     ) -> Result<(), MemoryError> {
-        let phys_addrs = unsafe { &mut *self.root_table }.map_size(virt_addr, size, flags)?;
+        let phys_addrs = unsafe { &mut *self.root_table }.map_size(
+            self.page_allocator,
+            virt_addr,
+            size,
+            flags,
+        )?;
         let mut peekable_addrs = phys_addrs.iter().peekable();
         let mut cur_size = 0x1000;
         for addr in peekable_addrs.next() {

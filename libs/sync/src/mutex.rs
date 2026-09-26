@@ -37,3 +37,9 @@ impl<T> Mutex<T> {
         }
     }
 }
+
+impl<T> AsRef<T> for Mutex<T> {
+    fn as_ref(&self) -> &T {
+        unsafe { &*self.value.get() }
+    }
+}

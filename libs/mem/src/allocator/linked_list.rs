@@ -1,9 +1,10 @@
 use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::null_mut,
+    sync::atomic::Ordering,
 };
 
-use crate::{allocator::HeapAllocator, error::MemoryError};
+use crate::{allocator::HeapAllocator, error::MemoryError, page_table::page_alloc::Pager};
 
 static HEADER_SIZE: usize = size_of::<BlockHeader>();
 
@@ -17,13 +18,14 @@ pub struct BlockHeader {
 }
 
 pub struct LinkedListAllocator {
+    page_allocator: &'static dyn Pager,
     head: *mut BlockHeader,
     tail: *mut BlockHeader,
 }
 
 impl HeapAllocator for LinkedListAllocator {
     fn alloc(&mut self, layout: Layout) -> Result<*mut u8, MemoryError> {
-        self.l_alloc(layout)
+        self.alloc(layout)
     }
     fn free(&mut self, ptr: *mut u8, layout: Layout) -> Result<(), MemoryError> {
         self.free(ptr)
@@ -36,8 +38,11 @@ impl LinkedListAllocator {
     /// # Safety
     ///
     /// .
-    pub unsafe fn new(mm_start: *const u8) -> Result<Self, MemoryError> {
-        let block_start_ptr = page_allocator()?.alloc()? as *mut BlockHeader;
+    pub unsafe fn new(
+        page_allocator: &'static dyn Pager,
+        mm_start: *const u8,
+    ) -> Result<Self, MemoryError> {
+        let block_start_ptr = page_allocator.alloc()? as *mut BlockHeader;
         unsafe {
             let block_start = &mut *block_start_ptr;
             block_start.free = true;
@@ -47,16 +52,17 @@ impl LinkedListAllocator {
             block_start.prev = null_mut();
         }
         Ok(Self {
+            page_allocator,
             head: block_start_ptr,
             tail: block_start_ptr,
         })
     }
-    pub fn l_alloc(&self, layout: Layout) -> Result<*mut u8, MemoryError> {
+    pub fn alloc(&mut self, layout: Layout) -> Result<*mut u8, MemoryError> {
         // put next header at an unaligned address; prevent overlap
         let size = layout.size().max(1).next_multiple_of(HEADER_SIZE);
         let align = layout.align().max(HEADER_SIZE);
 
-        let mut cur = unsafe { self.head };
+        let mut cur = self.head;
         while !cur.is_null() {
             if let Some((block, payload, base, block_end)) = Self::block_fits(cur, size, align) {
                 let alloc_hdr = payload - HEADER_SIZE;
@@ -111,17 +117,10 @@ impl LinkedListAllocator {
         // Out of space. Allocate new pages.
 
         let pages_needed: usize = (size + HEADER_SIZE).div_ceil(0x1000);
-        if pages_needed > self.free_pages.load(Ordering::Acquire) {
-            return Err(MemoryError::OutOfMemory("Out of pages"));
-        }
-        let Ok(page_alloc) = page_allocator() else {
-            return null_mut();
-        };
-        let Ok(new_page) = page_alloc.alloc() else {
-            return null_mut();
-        };
+
+        let new_page = self.page_allocator.alloc()?;
         for _ in 0..pages_needed - 1 {
-            page_alloc.alloc()?;
+            self.page_allocator.alloc()?;
         }
 
         if !new_page.is_null() {

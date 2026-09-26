@@ -187,7 +187,7 @@ impl TableEntry {
     }
     /// resets the table entry, returning the address before the clear
     pub fn clear(&mut self) -> usize {
-        let phys = self.0;
+        let phys = self.addr();
         self.0 = 0;
         self.set_flags(0);
         phys

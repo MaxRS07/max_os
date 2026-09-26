@@ -5,7 +5,7 @@
 /// Panics if align is not a power of 2
 #[inline]
 #[must_use]
-pub fn align_down(value: usize, align: usize) -> usize {
+pub fn aligned_down(value: usize, align: usize) -> usize {
     debug_assert!(align.is_power_of_two());
     value & !(align - 1)
 }

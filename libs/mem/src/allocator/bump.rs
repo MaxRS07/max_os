@@ -12,7 +12,8 @@ pub struct BumpAllocator {
 }
 
 impl BumpAllocator {
-    pub fn bump_alloc(&mut self, layout: Layout) -> Result<*mut u8, MemoryError> {
+    /// Allocates a memory block with the specified layout and increments [`Self::current`] to the next specified alignment
+    pub fn bump(&mut self, layout: Layout) -> Result<*mut u8, MemoryError> {
         let alloc_size = layout.size();
         let align = layout.align();
 
@@ -20,7 +21,7 @@ impl BumpAllocator {
 
         if bump_pos + alloc_size > self.size {
             return Err(MemoryError::OutOfMemory(
-                "Allocation of size cannot fit in bump allocator",
+                "Allocation of specified size/layout cannot fit in bump allocator",
             ));
         }
         self.current = bump_pos + alloc_size;
@@ -31,7 +32,7 @@ impl BumpAllocator {
 
 impl HeapAllocator for BumpAllocator {
     fn alloc(&mut self, layout: Layout) -> Result<*mut u8, MemoryError> {
-        self.bump_alloc(layout)
+        self.bump(layout)
     }
     /// This free does nothing
     fn free(&mut self, _ptr: *mut u8, _layout: Layout) -> Result<(), MemoryError> {
