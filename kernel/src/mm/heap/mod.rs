@@ -5,125 +5,37 @@ use core::{
 };
 
 use alloc::alloc::{GlobalAlloc, Layout, alloc};
-use log::{debug, info, warn};
-use sync::mutex::Mutex;
+use log::{debug, error, info, warn};
+use mem::{
+    allocator::{bump::BumpAllocator, linked_list::LinkedListAllocator},
+    error::MemoryError,
+    page_table::page_alloc::PageAllocator,
+};
+use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use crate::mm::{
-    error::MemoryError,
-    heap::{boot::BootAllocator, kalloc::LinkedListAllocator, palloc::PageAllocator},
+    BOOT_HEAP_SIZE,
+    heap::{kalloc::ALLOCATOR, state::AllocatorState},
 };
 
-pub mod boot;
 pub mod kalloc;
-pub mod palloc;
+pub mod state;
 
-pub static mut PAGE_ALLOCATOR: Mutex<PageAllocator> = Mutex::new();
-pub static mut KERNEL_ALLOCATOR: Mutex<LinkedListAllocator> = Mutex::new();
+/// Pre-boot kernel allocator
+pub static BOOT_ALLOCATOR: OnceLock<Mutex<BumpAllocator>> = OnceLock::new();
+
+pub static PAGE_ALLOCATOR: OnceLock<Mutex<PageAllocator>> = OnceLock::new();
+pub static KERNEL_ALLOCATOR: OnceLock<Mutex<LinkedListAllocator>> = OnceLock::new();
 
 // Result wrappers for getting mutable ref of global allocators
-pub fn kernel_allocator() -> Result<&'static mut LinkedListAllocator, MemoryError> {
-    unsafe {
-        KERNEL_ALLOCATOR
-            .get_mut()
-            .ok_or(MemoryError::NotInitialized("KERNEL_ALLOCATOR"))
-    }
-}
-pub fn page_allocator() -> Result<&'static mut PageAllocator, MemoryError> {
-    unsafe {
-        PAGE_ALLOCATOR
-            .get_mut()
-            .ok_or(MemoryError::NotInitialized("PAGE_ALLOCATOR"))
-    }
-}
-
 unsafe extern "C" {
     // end of linker memory
     unsafe static _end: usize;
 }
 
-static BOOT_HEAP_SIZE: usize = 0x20000; // 128 KiB
-
-#[global_allocator]
-pub static ALLOCATOR: StatefulAllocator = StatefulAllocator::new();
-
-pub struct StatefulAllocator {
-    s: UnsafeCell<AllocatorState>,
-}
-impl StatefulAllocator {
-    pub const fn new() -> Self {
-        Self {
-            s: UnsafeCell::new(AllocatorState::Uninitialized),
-        }
-    }
-    pub fn change_state(&self, new: AllocatorState) {
-        unsafe {
-            info!("Changed allocator state to {:?}", new);
-            let allocator_state = ALLOCATOR.s.get();
-            (*allocator_state) = new;
-        }
-    }
-}
-impl Debug for StatefulAllocator {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let state = unsafe { *self.s.get() };
-        f.debug_struct("StatefulAllocator")
-            .field("s", &state)
-            .finish()
-    }
-}
-
-impl Default for StatefulAllocator {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-unsafe impl Sync for StatefulAllocator {}
-unsafe impl Send for StatefulAllocator {}
-unsafe impl GlobalAlloc for StatefulAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        unsafe { (*self.s.get()).alloc(layout) }
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        unsafe { (*self.s.get()).dealloc(ptr, layout) }
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-pub enum AllocatorState {
-    Uninitialized,
-    Boot,
-    LinkedList,
-}
-
-unsafe impl GlobalAlloc for AllocatorState {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        match self {
-            Self::Uninitialized => {
-                warn!("alloc failed: GlobalAlloc is not yet initialized");
-                null_mut()
-            }
-            Self::Boot => unsafe { BootAllocator.alloc(layout) },
-            Self::LinkedList => match kernel_allocator() {
-                Ok(ka) => ka.alloc(layout),
-                _ => null_mut(),
-            },
-        }
-    }
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        match self {
-            Self::Uninitialized => {
-                warn!("dealloc failed: GlobalAlloc is not yet initialized");
-            }
-            Self::Boot => unsafe { BootAllocator.dealloc(ptr, layout) },
-            Self::LinkedList => unsafe { ALLOCATOR.dealloc(ptr, layout) },
-        }
-    }
-}
-
 pub fn setup_boot_mem() {
-    boot::init_boot_allocator();
+    // I HAve no idea how big this is supposed to be yet
+    BOOT_ALLOCATOR.set(Mutex::new(BumpAllocator::new(unsafe { _end }, 0x20_000)));
     ALLOCATOR.change_state(AllocatorState::Boot);
 }
 
@@ -135,11 +47,14 @@ pub fn setup_system_mem(total_size: usize) {
         let kmem_start = addr_of!(_end).add(BOOT_HEAP_SIZE) as *const u8;
         let kmem_end = (RAM_BASE + total_size) as *const u8;
         // `total_size` is the whole RAM region
-        PAGE_ALLOCATOR.set(PageAllocator::new(kmem_start, kmem_end));
+        PAGE_ALLOCATOR.set(Mutex::new(PageAllocator::new(kmem_start, kmem_end)));
         debug!("Intialized page allocator");
 
-        match LinkedListAllocator::new(kmem_start) {
-            Ok(_) => debug!("Intialized kernel allocator"),
+        match LinkedListAllocator::new(PAGE_ALLOCATOR.wait(), kmem_start) {
+            Ok(lla) => {
+                KERNEL_ALLOCATOR.set(Mutex::new(lla));
+                debug!("Intialized kernel allocator")
+            }
             // if paging fails just crash
             Err(err) => panic!("{err}"),
         }

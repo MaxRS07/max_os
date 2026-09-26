@@ -4,6 +4,8 @@ use core::{
     sync::atomic::Ordering,
 };
 
+use sync::mutex::Mutex;
+
 use crate::{allocator::HeapAllocator, error::MemoryError, page_table::page_alloc::Pager};
 
 static HEADER_SIZE: usize = size_of::<BlockHeader>();
@@ -23,12 +25,12 @@ pub struct LinkedListAllocator {
     tail: *mut BlockHeader,
 }
 
-impl HeapAllocator for LinkedListAllocator {
-    fn alloc(&mut self, layout: Layout) -> Result<*mut u8, MemoryError> {
-        self.alloc(layout)
+impl HeapAllocator for Mutex<LinkedListAllocator> {
+    fn alloc(&self, layout: Layout) -> Result<*mut u8, MemoryError> {
+        self.lock().alloc(layout)
     }
-    fn free(&mut self, ptr: *mut u8, layout: Layout) -> Result<(), MemoryError> {
-        self.free(ptr)
+    fn free(&self, ptr: *mut u8, _layout: Layout) -> Result<(), MemoryError> {
+        self.lock().free(ptr)
     }
 }
 

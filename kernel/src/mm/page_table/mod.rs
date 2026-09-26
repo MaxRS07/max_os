@@ -2,14 +2,10 @@ use core::{arch::asm, panic, ptr::addr_of_mut};
 
 use log::debug;
 
-use sdt::fdt::GLOBAL_FDT;
+use mem::{error::MemoryError, page_table::page_alloc::Pager};
+use sdt::{fdt::GLOBAL_FDT, region::FDTRegion};
 
-use crate::{arch::riscv::csr::Csr::SATP, mm::page_table::table::Table};
-
-pub mod address_space;
-pub mod asid;
-pub mod table;
-pub mod table_entry;
+use crate::{arch::riscv::csr::Csr::SATP, mm::heap::PAGE_ALLOCATOR};
 
 // read + write
 const RW: usize = 0b111;
@@ -26,32 +22,75 @@ fn map_boot_pages(root_ptr: *mut Table) -> Result<(), &'static str> {
         // identity mappings
         if let Some(fdt) = GLOBAL_FDT.get() {
             // RAM
-            let _ = (*root_ptr).map_region_identity(&fdt.memory, RWX | Table::MEGAPAGE);
+            map_region_identity(
+                *root_ptr,
+                PAGE_ALLOCATOR,
+                &fdt.memory,
+                RWX | Table::MEGAPAGE,
+            );
             debug!("Mapped RAM");
             // CLINT
-            let _ = (*root_ptr).map_region_identity(&fdt.clint, RW);
+            map_region_identity(*root_ptr, &fdt.clint, RW);
             debug!("Mapped CLINT");
             // PLIC
-            let _ = (*root_ptr).map_region_identity(&fdt.plic, RW);
+            map_region_identity(*root_ptr, &fdt.plic, RW);
             debug!("Mapped PLIC");
             // MMIO
-            let _ = (*root_ptr).map_mmio_identity(&fdt.virtio_mmio, RW);
+            map_mmio_identity(*root_ptr, &fdt.virtio_mmio, RW);
             debug!("Mapped MMIO");
             // Test
-            let _ = (*root_ptr).map_region_identity(&fdt.test, RW);
+            map_region_identity(*root_ptr, &fdt.test, RW);
             debug!("Mapped Test");
             // RTC
-            let _ = (*root_ptr).map_region_identity(&fdt.rtc, RW);
+            map_region_identity(*root_ptr, &fdt.rtc, RW);
             debug!("Mapped RTC");
             // serial (uart)
-            let _ = (*root_ptr).map_region_identity(&fdt.serial, RW);
+            map_region_identity(*root_ptr, &fdt.serial, RW);
             debug!("Mapped Serial");
             // fw-cfg
-            let _ = (*root_ptr).map_region_identity(&fdt.fw_cfg, RW);
+            map_region_identity(*root_ptr, &fdt.fw_cfg, RW);
             debug!("Mapped FW-CFG");
         }
         Ok(())
     }
+}
+
+/* Low level FDT map helpers */
+/// Maps a virtual address to its respective contiguous physical region. For non-contiguous region mapping use `map_region`
+pub fn map_region_identity(
+    table: &mut Table,
+    page_allocator: &dyn Pager,
+    region: &FDTRegion,
+    flags: usize,
+) -> Result<(), MemoryError> {
+    let virt_addr = region.base_address;
+    let offset_size = if flags & Table::MEGAPAGE != 0 {
+        0 // MEGATABLE_SIZE
+    } else {
+        0 // LEAF_SIZE
+    };
+    let page_count = region.size.div_ceil(offset_size);
+    for i in 0..page_count {
+        let offset = i * offset_size;
+        let vaddr = virt_addr + offset as usize;
+        let paddr = (region.base_address + offset) as usize;
+
+        table.map(vaddr, paddr, flags)?;
+    }
+
+    Ok(())
+}
+
+pub fn map_mmio_identity(
+    table: &mut Table,
+    page_allocator: &dyn Pager,
+    mmio_slots: &[FDTRegion],
+    flags: usize,
+) -> Result<(), MemoryError> {
+    for slot in mmio_slots {
+        map_region_identity(table, page_allocator, slot, flags)?;
+    }
+    Ok(())
 }
 
 unsafe fn pack_satp(root_addr: usize) {

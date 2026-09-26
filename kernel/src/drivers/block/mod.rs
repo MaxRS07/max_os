@@ -17,7 +17,7 @@ pub fn init(fdt: &FDT, mmio_idx: usize) {
         let boxed = Box::new(blk_drv);
         let raw_box = Box::into_raw(boxed);
         unsafe {
-            BLOCK_DEVICE.init(|| &mut *raw_box);
+            BLOCK_DEVICE.set(|| &mut *raw_box);
         }
     } else {
         warn!("Failed to intialize VirtIO BLK")

@@ -9,7 +9,6 @@ use sdt::fdt::{FDT, GLOBAL_FDT};
 use crate::mm::heap::setup_boot_mem;
 use crate::{console, println};
 
-pub mod error;
 pub mod heap;
 pub mod page_table;
 
@@ -19,13 +18,15 @@ unsafe extern "C" {
     pub unsafe static _boot_stack_bottom: usize;
 }
 
+pub const BOOT_HEAP_SIZE: usize = 0x20_000;
+
 pub fn init(fdt_ptr: *const u8) {
     setup_boot_mem();
     match FDT::from_ptr(fdt_ptr) {
         Ok(mmap) => {
             console::init(mmap.get_arg("debug"));
             debug!("Intialized FDT");
-            sdt::fdt::GLOBAL_FDT.init(|| mmap);
+            sdt::fdt::GLOBAL_FDT.set(mmap);
             if let Some(fdt) = GLOBAL_FDT.get() {
                 heap::setup_system_mem(fdt.memory.size);
             } else {

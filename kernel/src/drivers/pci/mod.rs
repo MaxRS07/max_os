@@ -39,7 +39,7 @@ static ALLOCATOR: OnceLock<pci_bump::PciAllocator> = OnceLock::new();
 
 pub fn init(map: FDT) {
     let pci_alloc = pci_bump::PciAllocator::new(map);
-    ALLOCATOR.init(|| pci_alloc);
+    ALLOCATOR.set(|| pci_alloc);
     fence(SeqCst);
     info!("PCI allocator initialized")
 }

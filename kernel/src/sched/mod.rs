@@ -21,7 +21,7 @@ pub static SCHEDULER: OnceLock<Scheduler> = OnceLock::new();
 
 /// intialize threading globals, setup main thread.
 pub fn init_run_queue(stack_top: *const u8, stack_bottom: *const u8) {
-    unsafe { SCHEDULER.init(|| Scheduler::new()) };
+    unsafe { SCHEDULER.set(|| Scheduler::new()) };
     if let Err(error) = Thread::main(stack_top, stack_bottom) {
         warn!("Failed to setup main thread: {}", error);
     }
