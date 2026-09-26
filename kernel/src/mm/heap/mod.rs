@@ -6,7 +6,7 @@ use core::{
 
 use alloc::alloc::{GlobalAlloc, Layout, alloc};
 use log::{debug, info, warn};
-use sync::spinmutex::Mutex;
+use sync::mutex::Mutex;
 
 use crate::mm::{
     error::MemoryError,

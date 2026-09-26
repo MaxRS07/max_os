@@ -3,9 +3,25 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering, fence},
 };
 
-use crate::{console::writer::println, mm::error::MemoryError, println};
+use sync::mutex::{self, Mutex};
+
+use crate::error::MemoryError;
 
 const PAGE_SIZE: usize = 0x1000;
+
+/// Page allocator trait, responsible for freeing and allocating 4kib pages. Expects types with thread safe interior mutability only.
+///
+/// **NOTE** Propagates [`MemoryError`]s at the libs level.
+/// ## Example
+/// ```
+/// impl Pager for sync::Mutex<T> {
+///     ...
+/// }
+/// ```
+pub trait Pager {
+    fn alloc(&self) -> Result<*mut u8, MemoryError>;
+    fn free(&self, ptr: *mut u8) -> Result<(), MemoryError>;
+}
 
 #[repr(C, align(0x1000))]
 #[derive(Clone, Copy, Default, Debug)]
@@ -39,16 +55,7 @@ impl PageAllocator {
         }
         new
     }
-
     /// allocates a 4KiB page
-    pub fn free(&mut self, phys_addr: *const u8) {
-        unsafe {
-            let mut page = phys_addr as *mut PageHeader;
-            (*page).next = self.page_head;
-            self.page_head = page;
-            self.free_pages.fetch_add(1, Ordering::Relaxed);
-        }
-    }
     pub fn alloc(&mut self) -> Result<*mut u8, MemoryError> {
         unsafe {
             let page = self.page_head;
@@ -59,5 +66,29 @@ impl PageAllocator {
             }
         }
         Err(MemoryError::OutOfMemory("No more pages"))
+    }
+    /// frees the page at physical address
+    pub fn free(&mut self, page: *mut u8) -> Result<(), MemoryError> {
+        if page.is_null() {
+            return Err(MemoryError::InvalidAddress("Attempt to free null page"));
+        }
+        unsafe {
+            let page = page as *mut PageHeader;
+            (*page).next = self.page_head;
+            self.page_head = page;
+            self.free_pages.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(())
+    }
+}
+
+impl Pager for Mutex<PageAllocator> {
+    fn alloc(&self) -> Result<*mut u8, MemoryError> {
+        // TODO: MAke sure this doesnt spin forever
+        self.lock().alloc()
+    }
+    fn free(&self, ptr: *mut u8) -> Result<(), MemoryError> {
+        // TODO: this also should break at some point
+        self.lock().free(ptr)
     }
 }

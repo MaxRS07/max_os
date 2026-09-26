@@ -1,4 +1,9 @@
-use core::alloc::{GlobalAlloc, Layout};
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    ptr::null_mut,
+};
+
+use crate::{allocator::HeapAllocator, error::MemoryError};
 
 static HEADER_SIZE: usize = size_of::<BlockHeader>();
 
@@ -16,18 +21,12 @@ pub struct LinkedListAllocator {
     tail: *mut BlockHeader,
 }
 
-unsafe impl GlobalAlloc for LinkedListAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {}
-
-    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        self.free(ptr);
+impl HeapAllocator for LinkedListAllocator {
+    fn alloc(&mut self, layout: Layout) -> Result<*mut u8, MemoryError> {
+        self.l_alloc(layout)
     }
-    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
-        let ptr = unsafe { self.alloc(layout) };
-        if !ptr.is_null() {
-            unsafe { core::ptr::write_bytes(ptr, 0, layout.size()) };
-        }
-        ptr
+    fn free(&mut self, ptr: *mut u8, layout: Layout) -> Result<(), MemoryError> {
+        self.free(ptr)
     }
 }
 
@@ -52,7 +51,7 @@ impl LinkedListAllocator {
             tail: block_start_ptr,
         })
     }
-    pub fn l_alloc(&self, layout: Layout) -> *mut u8 {
+    pub fn l_alloc(&self, layout: Layout) -> Result<*mut u8, MemoryError> {
         // put next header at an unaligned address; prevent overlap
         let size = layout.size().max(1).next_multiple_of(HEADER_SIZE);
         let align = layout.align().max(HEADER_SIZE);
@@ -103,7 +102,7 @@ impl LinkedListAllocator {
                         if ab.next.is_null() {
                             self.tail = alloc_hdr as *mut BlockHeader;
                         }
-                        return payload as *mut u8;
+                        return Ok(payload as *mut u8);
                     }
                 }
             }
@@ -113,8 +112,7 @@ impl LinkedListAllocator {
 
         let pages_needed: usize = (size + HEADER_SIZE).div_ceil(0x1000);
         if pages_needed > self.free_pages.load(Ordering::Acquire) {
-            error!("Out of pages");
-            return null_mut();
+            return Err(MemoryError::OutOfMemory("Out of pages"));
         }
         let Ok(page_alloc) = page_allocator() else {
             return null_mut();
@@ -145,7 +143,7 @@ impl LinkedListAllocator {
             }
             return self.alloc(layout);
         }
-        null_mut()
+        Err(MemoryError::InvalidAddress("Freed page has null pointer"))
     }
 
     fn block_fits(
@@ -175,9 +173,11 @@ impl LinkedListAllocator {
     /// Frees your memory
     /// # Safety
     /// Only pass the start address of a payload
-    pub fn free(&mut self, block_ptr: *mut u8) {
+    pub fn free(&mut self, block_ptr: *mut u8) -> Result<(), MemoryError> {
         if block_ptr.is_null() {
-            return;
+            return Err(MemoryError::InvalidAddress(
+                "Attempted to free null pointer",
+            ));
         }
 
         unsafe {
@@ -229,5 +229,6 @@ impl LinkedListAllocator {
                 }
             }
         }
+        Ok(())
     }
 }

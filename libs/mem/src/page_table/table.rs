@@ -1,8 +1,13 @@
 use core::fmt::Display;
 
 use alloc::vec::Vec;
+use sync::mutex::Mutex;
 
-use crate::{align::align_down, error::MemoryError, page_table::table_entry::TableEntry};
+use crate::{
+    align::align_down,
+    error::MemoryError,
+    page_table::{page_alloc::Pager, table_entry::TableEntry},
+};
 
 const TABLE_LEN: usize = 1024;
 const LEAF_SIZE: usize = 0x1000;

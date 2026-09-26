@@ -8,7 +8,7 @@ use alloc::vec::{self, Vec};
 use crate::{
     align::align_down,
     error::MemoryError,
-    page_table::{asid::ASID, permissions::PagePermissions, table::Table},
+    page_table::{asid::ASID, page_alloc::Pager, permissions::PagePermissions, table::Table},
 };
 
 /// An address space for a process. Manages the process' virtual addresses for contiguity
@@ -49,7 +49,7 @@ enum RegionBacking {
     Shared,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy)]
 /// A virtual region held by an address space
 struct VirtualRegion {
     perms: PagePermissions,
@@ -98,8 +98,9 @@ impl VirtualRegion {
 }
 
 /// Address space of a process. Groups memory by process and holds mapped regions that are accessed as contiguous chuncks by processes
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct AddressSpace {
+    page_allocator: &'static dyn Pager,
     /// Pointer to the in-memory root table, this lives on the root page
     root_table: *mut Table,
     /// identifier of this address space
@@ -108,36 +109,32 @@ pub struct AddressSpace {
     regions: Vec<VirtualRegion>,
 }
 
-impl Default for AddressSpace {
-    fn default() -> Self {
-        Self {
-            root_table: null_mut(),
-            asid: ASID::new(0),
-            regions: alloc::vec![],
-        }
-    }
-}
-
 impl AddressSpace {
     // pub fn kernel() -> Self {
     //     Self::new(, 0, regions);
     // }
-    pub fn new(root_table: *mut Table, asid: ASID, regions: Vec<VirtualRegion>) -> Self {
+    pub fn new(
+        page_allocator: &'static dyn Pager,
+        root_table: *mut Table,
+        asid: ASID,
+        regions: Vec<VirtualRegion>,
+    ) -> Self {
         Self {
+            page_allocator,
             root_table,
             asid,
             regions,
         }
     }
-    fn from_asid(asid: ASID) -> Result<Self, MemoryError> {
+    fn from_asid(page_allocator: &'static dyn Pager, asid: ASID) -> Result<Self, MemoryError> {
         // create the root table. This table must be zerod
         let root = Table::new();
-        let rt_ptr = page_allocator()?.alloc()? as *mut Table;
+        let rt_ptr = page_allocator.alloc()? as *mut Table;
         unsafe {
             // write the empty table to the root page
             rt_ptr.write(root);
         }
-        Ok(Self::new(rt_ptr, asid, Vec::new()))
+        Ok(Self::new(page_allocator, rt_ptr, asid, Vec::new()))
     }
 }
 
@@ -147,8 +144,7 @@ impl Addresser for AddressSpace {
             self.unmap(virt_addr)?;
         }
         let root_table_ptr = self.root_table as *mut u8;
-        page_allocator()?.free(root_table_ptr);
-        Ok(())
+        self.page_allocator.free(root_table_ptr)
     }
 
     fn unmap(&mut self, virt_addr: usize) -> Result<(), MemoryError> {
