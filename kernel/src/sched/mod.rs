@@ -5,9 +5,9 @@ use core::{
 
 use alloc::boxed::Box;
 use log::{debug, info, warn};
-use sync::oncelock::OnceLock;
+use sync::{mutex::Mutex, oncelock::OnceLock};
 
-use crate::sched::{scheduler::Scheduler, thread::Thread};
+use crate::sched::{process::ProcessTable, scheduler::Scheduler, thread::Thread};
 
 pub mod context;
 pub mod error;
@@ -17,11 +17,14 @@ pub mod scheduler;
 pub mod thread;
 
 /// This is the global thread scheduler
-pub static SCHEDULER: OnceLock<Scheduler> = OnceLock::new();
+pub static SCHEDULER: OnceLock<Mutex<Scheduler>> = OnceLock::new();
+/// Global process table
+pub static PROCESS_TABLE: OnceLock<Mutex<ProcessTable>> = OnceLock::new();
 
 /// intialize threading globals, setup main thread.
 pub fn init_run_queue(stack_top: *const u8, stack_bottom: *const u8) {
-    unsafe { SCHEDULER.set(|| Scheduler::new()) };
+    SCHEDULER.set(Mutex::new(Scheduler::new()));
+    PROCESS_TABLE.set(Mutex::new(ProcessTable::new()));
     if let Err(error) = Thread::main(stack_top, stack_bottom) {
         warn!("Failed to setup main thread: {}", error);
     }

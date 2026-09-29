@@ -11,7 +11,7 @@ pub static INTERRUPT_NOTIFIER: OnceLock<InterruptNotifier> = OnceLock::new();
 
 pub fn init_notifier() {
     let global_notifier = InterruptNotifier::default();
-    INTERRUPT_NOTIFIER.set(|| global_notifier);
+    INTERRUPT_NOTIFIER.set(global_notifier);
 }
 
 pub trait InterruptListener: Send + Sync {

@@ -5,7 +5,6 @@ use core::{
 };
 
 use log::info;
-use sync::mutex::Mutex;
 
 use crate::mm::heap::AllocatorState;
 

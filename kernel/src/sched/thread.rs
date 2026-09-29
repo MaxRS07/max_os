@@ -4,7 +4,6 @@ use sdt::fdt::FDT;
 
 use crate::{
     console::writer::println,
-    mm::page_table::address_space::AddressSpace,
     sched::{SCHEDULER, thread},
 };
 use core::{
@@ -61,8 +60,9 @@ impl Default for State {
 const THREAD_STACK_SIZE: usize = 0x3000;
 
 #[derive(Debug, Clone, Default)]
-pub struct Thread<'a> {
-    address_space: &'a AddressSpace,
+pub struct Thread {
+    /// The id of the owning process. This can be
+    pub pid: u32,
     /// information about the stack goes here. Contains both the stack pointer and thread pointer
     pub context: Context,
 
@@ -92,20 +92,20 @@ pub struct Thread<'a> {
     stack_top: *const u8,
 
     /// Pointer to next thread in priority queue
-    pub next: *mut Thread<'a>,
+    pub next: *mut Thread,
     /// Pointer to previous thread in priority queue
-    pub prev: *mut Thread<'a>,
+    pub prev: *mut Thread,
 }
 /// records the last used thread id. IDs are assigned incrementally, every id greater than `LAST_ID` is unused
 static LAST_ID: AtomicU32 = AtomicU32::new(0);
 
-impl<'a> Thread<'a> {
+impl Thread {
     /// Returns a preconfigured main thread. Does not have an entry point. Does not allocate stack or tls in memory.
     pub fn main(stack_top: *const u8, stack_bottom: *const u8) -> Result<(), &'static str> {
         let main = Self {
-            id: 0,
+            pid: 0, // kernel process
+            id: 0,  // main thread
             name: Self::name_from_str("main"),
-            address_space: &AddressSpace::default(),
             state: State::Running, // The main thread creates itself, hence it is running
             stack_top,
             stack_bottom,
@@ -121,15 +121,16 @@ impl<'a> Thread<'a> {
         let main_box = Box::new(main);
         let main_ptr = Box::into_raw(main_box);
         unsafe {
-            SCHEDULER.get_mut().unwrap().set_running(main_ptr);
+            SCHEDULER.wait().lock().set_running(main_ptr);
             return Ok(());
         }
     }
     /// Creates and enques a thread. Returns the unique ID of the thread or None if queing failed.
-    pub fn spawn(name: &str, priority: Priority, entry: usize) -> Option<u32> {
+    pub fn spawn(pid: u32, name: &str, priority: Priority, entry: usize) -> Option<u32> {
         let name = Self::name_from_str(name);
         let last_id = LAST_ID.load(Ordering::Acquire);
         let mut new = Self {
+            pid,
             context: Context::empty(),
             id: last_id + 1,
             name,
@@ -159,7 +160,7 @@ impl<'a> Thread<'a> {
         let box_ptr = Box::into_raw(boxed);
 
         LAST_ID.store(last_id + 1, Ordering::Release);
-        if unsafe { SCHEDULER.get_mut().unwrap().enque(box_ptr).is_err() } {
+        if unsafe { SCHEDULER.wait().lock().schedule(box_ptr).is_err() } {
             warn!(
                 "Failed to queue thread: '{}'",
                 str::from_utf8(&name).unwrap_or("")
@@ -167,10 +168,7 @@ impl<'a> Thread<'a> {
             let _ = unsafe { Box::from_raw(box_ptr) };
             return None;
         }
-        return Some(last_id + 1);
-
-        let _ = unsafe { Box::from_raw(box_ptr) };
-        None
+        Some(last_id + 1)
     }
     /// Allocates memory and assigns region addresses to self
     fn alloc(&mut self) -> Result<(), &'static str> {

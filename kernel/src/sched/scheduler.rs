@@ -1,11 +1,15 @@
 use core::ptr::null_mut;
 
-use alloc::{borrow::ToOwned, format};
+use alloc::{borrow::ToOwned, boxed::Box, collections::btree_map::IterMut, format};
 use log::{debug, warn};
+use mem::page_table::address_space::Addresser;
+use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use crate::sched::{
+    PROCESS_TABLE,
     context::switch_context_impl,
     error::ThreadError,
+    process::Process,
     queue::RunQueue,
     thread::{State, Thread},
 };
@@ -23,6 +27,11 @@ impl Scheduler {
             queue: RunQueue::new(),
         }
     }
+    /// called on timer interrupt
+    pub fn handle_interrupt(&mut self) {
+        // if there is only the running, dont interrupt
+        self.run_next();
+    }
     /// Manually pauses the running thread
     pub fn yield_thread() {}
     pub fn set_running(&mut self, thread: *mut Thread) {
@@ -37,13 +46,14 @@ impl Scheduler {
         if next_ready.is_null() {
             return Err(ThreadError::Other(format!("No available threads to run")));
         }
-        // TODO: This condition should always be true; make exchanges atomic
         if !self.running.is_null() {
             unsafe {
                 // if the thread is not terminated, requeue it
                 if (*self.running).state != State::Terminated {
                     (*self.running).state = State::Ready;
                     self.queue.enque(self.running)?
+                } else {
+                    drop(Box::from_raw(self.running))
                 }
 
                 (*next_ready).state = State::Running;
@@ -52,12 +62,16 @@ impl Scheduler {
                 let old_sp_ptr = &mut (*self.running).context.stack_pointer as *mut *mut usize;
                 let new_sp = (*next_ready).context.stack_pointer;
 
-                self.running = next_ready;
+                let new_satp = Self::get_process(thread)?.address_space().satp();
 
-                switch_context_impl(old_sp_ptr, new_sp);
+                switch_context_impl(old_sp_ptr, new_sp, new_satp);
             }
         }
         Ok(next_ready)
+    }
+    /// Enqueues `thread`, scheduling it to be run
+    pub fn schedule(&mut self, thread: *mut Thread) -> Result<(), ThreadError> {
+        self.queue.enque(thread)
     }
     /// Removes and deallocates the `Thread` pointed to by `thread`. Cancelling the running thread is effectively identical to [`Self::run_next`] but discards [`Self::running`] instead of requeuing it
     pub fn canel_thread(&mut self, thread: *mut Thread) -> Result<(), ThreadError> {
@@ -87,20 +101,41 @@ impl Scheduler {
                 return;
             }
             (*self.running).state = State::Terminated;
+            drop(Box::from_raw(self.running));
         }
         self.run_next();
     }
-    pub fn canel_id(&mut self, id: u32) -> Result<(), &'static str> {
-        let mut current_ptr = self.head;
-        while !current_ptr.is_null() {
-            unsafe {
-                if (*current_ptr).id() == id {
-                    self.canel_thread(current_ptr)?
-                }
-                current_ptr = (*current_ptr).next;
-            }
+    pub fn canel_id(&mut self, id: u32) -> Result<(), ThreadError> {
+        if unsafe { &*self.running }.id() == id {
+            return self.canel_thread(self.running);
         }
-        Err("Failed to find thread with the specified id")
+        self.queue
+            .remove_where(|thread| thread.id() == id)
+            .ok_or(ThreadError::Other(
+                "Failed to find thread with the specified id".to_owned(),
+            ))
+    }
+    /// Returns the process that owns the current thread
+    pub fn get_process(thread: *mut Thread) -> Result<&Process, ThreadError> {
+        PROCESS_TABLE
+            .wait()
+            .get()
+            .get(unsafe { &*thread.pid })
+            .map(|ptr| unsafe { &*ptr })
+            .ok_or(ThreadError::Other(
+                "Failed to retrive parent process, invalid PID".to_owned(),
+            ))
+    }
+    /// Mutable ref to the process that owns the thread. This operation is locking.
+    pub fn process_mut(thread: *mut Thread) -> Result<&mut Process, ThreadError> {
+        PROCESS_TABLE
+            .wait()
+            .lock()
+            .get(unsafe { &*thread.pid })
+            .map(|ptr| unsafe { &mut *ptr })
+            .ok_or(ThreadError::Other(
+                "Failed to retrive parent process, invalid PID".to_owned(),
+            ))
     }
 }
 

@@ -1,5 +1,6 @@
 use core::{
     cell::UnsafeCell,
+    fmt::Debug,
     sync::atomic::{AtomicBool, Ordering},
 };
 
@@ -36,10 +37,25 @@ impl<T> Mutex<T> {
             }
         }
     }
+    pub fn get(&self) -> &T {
+        unsafe { &*self.value.get() }
+    }
 }
 
 impl<T> AsRef<T> for Mutex<T> {
     fn as_ref(&self) -> &T {
         unsafe { &*self.value.get() }
+    }
+}
+
+impl<T> Debug for Mutex<T>
+where
+    T: Debug,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Mutex")
+            .field("locked", &self.locked.load(Ordering::Acquire))
+            .field("value", unsafe { &*self.value.get() })
+            .finish()
     }
 }

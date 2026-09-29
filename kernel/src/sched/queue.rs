@@ -3,14 +3,15 @@ use core::{
     ptr::{null, null_mut},
 };
 
-use alloc::borrow::ToOwned;
+use alloc::{borrow::ToOwned, collections::LinkedList};
 
 use crate::sched::{
     error::ThreadError,
+    process::ProcessTable,
     thread::{State, Thread},
 };
 
-/// Give thread 10k cycles (10ms) runtime before swapping
+/// Give thread 10k cycles (10ms i think) of runtime before swapping
 pub static THREAD_INTERVAL: usize = 10_000;
 
 /// A priority queue for executable threads
@@ -29,14 +30,6 @@ impl RunQueue {
             len: 0,
         }
     }
-    /// called on timer interrupt
-    pub fn handle_interrupt(&mut self) {
-        // if there is only the running, dont interrupt
-        if self.head.is_null() {
-            return;
-        }
-        self.run_next();
-    }
     /// Inserts a thread in the queue, ordered by `thread.priority`
     #[allow(clippy::not_unsafe_ptr_arg_deref)] // force safe. Not error handling this.
     pub fn enque(&mut self, thread: *mut Thread) -> Result<(), ThreadError> {
@@ -53,9 +46,6 @@ impl RunQueue {
                 self.head = thread;
                 self.tail = thread;
                 self.len = 1;
-                if (*thread).state == State::Ready {
-                    self.run_next();
-                }
                 return Ok(());
             }
 
@@ -115,8 +105,8 @@ impl RunQueue {
     }
     /// Dequeues the highest priority thread in the ready state. Returns [`null_mut`] if there are no ready threads in the queue
     pub fn dequeue_ready(&mut self) -> *mut Thread {
-        for thread in self.into_iter() {
-            if unsafe { *thread }.state == State::Ready
+        for thread in self.iter() {
+            if unsafe { &*thread }.state == State::Ready
                 && let Ok(ready) = self.remove(thread)
             {
                 return ready;
@@ -156,6 +146,23 @@ impl RunQueue {
         self.len -= 1;
         unsafe { Ok(&mut *thread) }
     }
+    /// removes the first entry matching the predicate
+    pub fn remove_where<F>(&mut self, predicate: F) -> Option<()>
+    where
+        F: Fn(&Thread) -> bool,
+    {
+        for thread in self.iter() {
+            unsafe {
+                if predicate(&*thread) {
+                    return self.remove(thread).ok().map(|_| ());
+                }
+            }
+        }
+        None
+    }
+    pub fn iter(&mut self) -> QueueIterator {
+        QueueIterator { next: self.head }
+    }
     pub fn len(&self) -> usize {
         self.len
     }
@@ -183,9 +190,6 @@ impl Debug for RunQueue {
         let mut binding = f.debug_struct("RunQueue");
         let w = binding.field("len", &self.len);
 
-        if !self.running.is_null() {
-            w.field("running", unsafe { &*self.running });
-        }
         if !self.head.is_null() {
             w.field("head", unsafe { &*self.head });
         }

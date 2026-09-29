@@ -1,6 +1,7 @@
 use core::{
     cell::UnsafeCell,
     fmt::Debug,
+    hint::spin_loop,
     sync::atomic::{
         self, AtomicU8,
         Ordering::{self, Acquire, Release},
@@ -93,6 +94,15 @@ impl<T> OnceLock<T> {
     #[allow(clippy::mut_from_ref)]
     pub unsafe fn get_mut(&self) -> Option<&mut T> {
         unsafe { self.get_mut_ptr().map(|ptr| &mut *ptr) }
+    }
+    /// Spins until the cell is initialized
+    pub fn wait_mut(&self) -> &mut T {
+        loop {
+            if self.state.load(Ordering::Acquire) == EXECUTED {
+                return unsafe { (*self.value.get()).as_mut().unwrap_unchecked() };
+            }
+            spin_loop();
+        }
     }
 }
 

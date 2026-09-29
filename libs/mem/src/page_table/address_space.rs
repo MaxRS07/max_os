@@ -1,5 +1,6 @@
 use core::{
     default,
+    fmt::Debug,
     ptr::{null_mut, read},
 };
 
@@ -13,10 +14,10 @@ use crate::{
 
 /// An address space for a process. Manages the process' virtual addresses for contiguity
 /// The address space must return ASID and free all tables on `Drop`
-trait Addresser {
+pub trait Addresser {
     /// Creates a new empty address space using an ASID. ASIDs must be between 0 and 511. This method will `Err` if the page
     /// allocator runs out of pages or fails to allocate
-    // fn new(asid: ASID) -> Result<Self, MemoryError>;
+    fn new(asid: ASID) -> Result<Self, MemoryError>;
     /// Force-unmaps this address space, freeing all of its owned regions
     fn drop(&mut self) -> Result<(), MemoryError>;
     /// Unmaps `virt_addr` from this space, freeing the physical page
@@ -49,7 +50,7 @@ enum RegionBacking {
     Shared,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 /// A virtual region held by an address space
 pub struct VirtualRegion {
     perms: PagePermissions,
@@ -134,6 +135,9 @@ impl AddressSpace {
 }
 
 impl Addresser for AddressSpace {
+    fn new(asid: ASID) -> Result<Self, MemoryError> {
+        AddressSpace::new(page_allocator, root_table, asid, regions)
+    }
     fn drop(&mut self) -> Result<(), MemoryError> {
         while let Some(virt_addr) = self.regions.first().map(|region| region.virt_addr) {
             self.unmap(virt_addr)?;
@@ -205,9 +209,12 @@ impl Addresser for AddressSpace {
     fn asid(&self) -> ASID {
         self.asid
     }
-
     fn satp(&self) -> usize {
-        0
+        const MODE_SV32: usize = 1 << 31; // select first bit
+        let ppn = (self.root_table as usize) >> 12;
+        let asid = self.asid.value() as usize;
+
+        MODE_SV32 | asid << 22 | ppn & 0x3FFFFF
     }
 
     fn translate(&self, virt_addr: usize) -> Result<usize, MemoryError> {
@@ -225,5 +232,15 @@ impl Addresser for AddressSpace {
         self.regions
             .iter()
             .any(|region| region.contains_virtual_address(virt_addr))
+    }
+}
+
+impl Debug for AddressSpace {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("AddressSpace")
+            .field("root_table", &self.root_table)
+            .field("asid", &self.asid)
+            .field("regions", &self.regions)
+            .finish()
     }
 }

@@ -1,4 +1,5 @@
 use core::{
+    fmt::Debug,
     ptr::{null, null_mut},
     sync::atomic::{AtomicUsize, Ordering, fence},
 };
@@ -36,6 +37,7 @@ struct PageHeader {
     next: *mut PageHeader,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct PageAllocator {
     /// Pointer to the page head
     page_head: *mut PageHeader,

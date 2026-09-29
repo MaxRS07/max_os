@@ -3,7 +3,11 @@ use core::arch::naked_asm;
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 /// Switches context between threads by moving the stack pointer to the last executed instruction on the new thread
-pub unsafe extern "C" fn switch_context_impl(old_sp: *mut *mut usize, new_sp: *mut usize) {
+pub unsafe extern "C" fn switch_context_impl(
+    old_sp: *mut *mut usize,
+    new_sp: *mut usize,
+    new_satp: usize,
+) {
     naked_asm!(
         // shift stack pointer by 56 bytes, make room for registers
         "addi sp, sp, -56",
@@ -23,7 +27,7 @@ pub unsafe extern "C" fn switch_context_impl(old_sp: *mut *mut usize, new_sp: *m
         "sw s1,  4(sp)",
         "sw s0,  0(sp)",
         // save outgoing sp in thread
-        // a0 contains `old_thread.context.stack_pointer`
+        // a0 contains old_thread.context.stack_pointer
         "sw sp, 0(a0)",
         // switch stack pointer to new thread (a1)
         "mv sp, a1",
@@ -44,6 +48,9 @@ pub unsafe extern "C" fn switch_context_impl(old_sp: *mut *mut usize, new_sp: *m
         "lw ra,  52(sp)",
         // reset stack pointer back, can overwrite these registers
         "addi sp, sp, 56",
+        // set satp and flush tlb to use new mappign :)
+        "csrw satp, a2",
+        "sfence.vma x0, x0",
         // jump to next intruction
         "ret"
     );
