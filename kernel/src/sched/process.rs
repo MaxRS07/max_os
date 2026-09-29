@@ -20,8 +20,12 @@ pub struct Process {
 }
 
 impl Process {
-    pub fn new(pid: u32, asid: AddressSpace, threads: Vec<u32>) -> *mut Self {
-        let raw_process = Box::into_raw(Box::new(Self { pid, asid, threads }));
+    pub fn new(pid: u32, address_space: AddressSpace, threads: Vec<u32>) -> *mut Self {
+        let raw_process = Box::into_raw(Box::new(Self {
+            pid,
+            address_space,
+            threads,
+        }));
         PROCESS_TABLE.wait().lock().insert(pid, raw_process);
         raw_process
     }

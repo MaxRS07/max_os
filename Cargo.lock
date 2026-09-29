@@ -48,6 +48,7 @@ dependencies = [
  "net",
  "sdt",
  "sync",
+ "time",
  "virtio",
 ]
 
@@ -83,6 +84,13 @@ dependencies = [
 
 [[package]]
 name = "sync"
+version = "0.1.0"
+dependencies = [
+ "time",
+]
+
+[[package]]
+name = "time"
 version = "0.1.0"
 
 [[package]]

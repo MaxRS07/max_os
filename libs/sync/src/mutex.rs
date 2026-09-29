@@ -4,6 +4,8 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use time::global_time::GlobalTimer;
+
 pub struct Mutex<T> {
     locked: AtomicBool,
     value: UnsafeCell<T>,
@@ -34,6 +36,25 @@ impl<T> Mutex<T> {
             match self.try_lock() {
                 Some(value) => return value,
                 None => core::hint::spin_loop(),
+            }
+        }
+    }
+    /// attempts to lock for
+    pub fn lock_timeout(
+        &self,
+        timer: &dyn GlobalTimer,
+        max_time: u64,
+    ) -> Result<&mut T, &'static str> {
+        let start = timer.now_ms();
+        loop {
+            match self.try_lock() {
+                Some(value) => return Ok(value),
+                None => {
+                    core::hint::spin_loop();
+                }
+            }
+            if timer.elapsed(start, max_time) {
+                return Err("Failed to get instace, lock timeout");
             }
         }
     }

@@ -4,4 +4,4 @@ get_raw_time:
     rdtime  a0   # lower
     rdtimeh t0   # read upper again
     bne a1, t0, 1b # go to 1 if upper changed (lower flowed over)
-    ret # return u64 (a1 << 32) | a0)
+    ret # return u64 (a1 << 32) | a0

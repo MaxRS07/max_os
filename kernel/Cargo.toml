@@ -17,7 +17,7 @@ mem = { path = "../libs/mem" }
 fs = { path = "../libs/fs" }
 block = { path = "../libs/block" }
 net = { path = "../libs/net" }
-
+time = { path = "../libs/time" }
 [[bin]]
 name = "maxos"
 path = "src/main.rs"
