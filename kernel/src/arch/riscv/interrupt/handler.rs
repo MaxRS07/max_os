@@ -123,7 +123,9 @@ pub extern "C" fn rust_trap_handler() {
                     match int {
                         InterruptCode::MachineExternal => handle_plic_interrupt(notifier),
                         InterruptCode::MachineTimer => {
-                            SCHEDULER.wait().lock().handle_interrupt();
+                            if let Some(mut sched) = SCHEDULER.wait().try_lock() {
+                                sched.handle_interrupt()
+                            }
                             schedule_interrupt_timer(QTICK);
                         }
                         // match int {

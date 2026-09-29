@@ -6,7 +6,7 @@ pub struct SystemClock;
 
 impl GlobalTimer for SystemClock {
     fn ticks(&self) -> u64 {
-        timer::mtime_ticks()
+        timer::get_upticks()
     }
     fn freq(&self) -> u64 {
         // this is constant for QEMU

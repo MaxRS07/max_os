@@ -10,6 +10,10 @@ unsafe extern "C" {
     unsafe fn get_raw_time() -> u64;
 }
 
+pub(crate) fn get_upticks() -> u64 {
+    unsafe { get_raw_time() }
+}
+
 pub(crate) fn get_uptime_ms() -> u64 {
     let raw_time = unsafe { get_raw_time() };
     raw_time * 1000 / TIMER_FREQUENCY

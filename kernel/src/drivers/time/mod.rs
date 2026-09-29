@@ -9,5 +9,5 @@ pub mod timer;
 pub static GLOBAL_TIME: OnceLock<SystemClock> = OnceLock::new();
 
 pub fn start_system_clock() {
-    GLOBAL_TIME.set(SystemClock);
+    GLOBAL_TIME.set(SystemClock {});
 }
