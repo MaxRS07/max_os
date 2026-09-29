@@ -31,6 +31,9 @@ pub unsafe extern "C" fn switch_context_impl(
         "sw sp, 0(a0)",
         // switch stack pointer to new thread (a1)
         "mv sp, a1",
+        // set satp and flush tlb to use new mappign :)
+        "csrw satp, a2",
+        "sfence.vma x0, x0",
         // load the new threads registers back
         "lw s0,  0(sp)",
         "lw s1,  4(sp)",
@@ -48,9 +51,6 @@ pub unsafe extern "C" fn switch_context_impl(
         "lw ra,  52(sp)",
         // reset stack pointer back, can overwrite these registers
         "addi sp, sp, 56",
-        // set satp and flush tlb to use new mappign :)
-        "csrw satp, a2",
-        "sfence.vma x0, x0",
         // jump to next intruction
         "ret"
     );
