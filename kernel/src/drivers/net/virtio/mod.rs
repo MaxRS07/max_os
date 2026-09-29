@@ -4,7 +4,7 @@ use alloc::{
 };
 use log::warn;
 use mmio::mmio_read;
-use net::device::NetDevice;
+use net::{device::NetDevice, error::NetError};
 use sdt::fdt::FDT;
 use virtio::{
     ALL_FEATURES, VIRTIO_MMIO_QUEUE_NUM,
@@ -91,7 +91,7 @@ impl VirtioNet {
         })
     }
     // pub fn send_packet(&mut self, data) {}
-    fn populate_buffers(&mut self, cfg_flags: u64) -> Result<(), ()> {
+    fn populate_buffers(&mut self, cfg_flags: u64) -> Result<(), NetError> {
         let min_size = if Self::has_flag(
             cfg_flags,
             VIRTIO_NET_F_GUEST_UFO | VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6,
@@ -106,7 +106,7 @@ impl VirtioNet {
             // make writable
             queue.push_descriptor(idx, rx_buffer, 0x2);
         }
-        Err(())
+        Err()
     }
     /// access a queue reference by index
     fn get_queue(&mut self, index: usize) -> Option<&mut VirtQueue> {

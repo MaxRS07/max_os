@@ -1,5 +1,3 @@
-const BUCKET_COUNT: usize = 64;
-
 use core::{
     alloc::Layout,
     fmt::Debug,
@@ -7,6 +5,7 @@ use core::{
     option::Iter,
     ptr::null_mut,
     sync::atomic::{Ordering, fence},
+    usize,
 };
 
 use alloc::alloc;
@@ -33,15 +32,20 @@ impl<K, V: Clone> Iterator for BucketIterator<K, V> {
         None
     }
 }
-pub struct HashMap<K: Hash + Eq + Clone, V: Clone, S: BuildHasher = FnvBuildHasher> {
+pub struct HashMap<
+    K: Hash + Eq + Clone,
+    V: Clone,
+    const B: usize = 64,
+    S: BuildHasher = FnvBuildHasher,
+> {
     hasher: S,
     len: usize,
-    buckets: [*mut HashNode<K, V>; BUCKET_COUNT],
+    buckets: [*mut HashNode<K, V>; B],
     current_bucket: usize,
     current_node: *mut HashNode<K, V>,
 }
 
-impl<K, V> HashMap<K, V>
+impl<K, V, const B: usize> HashMap<K, V, B>
 where
     K: Hash + Eq + Clone,
     V: Clone,
@@ -50,14 +54,14 @@ where
         Self {
             hasher: FnvBuildHasher,
             len: 0,
-            buckets: [null_mut(); BUCKET_COUNT],
+            buckets: [null_mut(); B],
             current_bucket: 0,
             current_node: null_mut(),
         }
     }
 }
 
-impl<K, V, S> HashMap<K, V, S>
+impl<K, V, const B: usize, S> HashMap<K, V, B, S>
 where
     K: Hash + Eq + Clone,
     V: Clone,
@@ -70,14 +74,14 @@ where
         Self {
             hasher: S::default(),
             len: 0,
-            buckets: [null_mut(); BUCKET_COUNT],
+            buckets: [null_mut(); B],
             current_bucket: 0,
             current_node: null_mut(),
         }
     }
     /// gets a value from the map, returning it's value or `None` if the key is not present
     pub fn get(&self, key: &K) -> Option<V> {
-        let idx = (self.hasher.hash_one(key) % BUCKET_COUNT as u64) as usize;
+        let idx = (self.hasher.hash_one(key) % B as u64) as usize;
         let mut current_ptr = self.buckets[idx];
         while !current_ptr.is_null() {
             unsafe {
@@ -90,12 +94,12 @@ where
         None
     }
     pub fn get_iter(&self, key: K) -> BucketIterator<K, V> {
-        let idx = self.hasher.hash_one(&key) as usize % BUCKET_COUNT;
+        let idx = self.hasher.hash_one(&key) as usize % B;
         let current_ptr = self.buckets[idx];
         BucketIterator { next: current_ptr }
     }
     pub fn get_iter_idx(&self, bucket: usize) -> BucketIterator<K, V> {
-        if bucket > BUCKET_COUNT {
+        if bucket > B {
             panic!("index out of range")
         }
         let head = self.buckets[bucket];
@@ -103,7 +107,7 @@ where
     }
     /// Inserts a value into the map. If the key already exists, the value is updated and `Some(old_value)` is returned. Returns `None` otherwise.
     pub fn insert(&mut self, key: K, value: V) -> Option<V> {
-        let idx = self.hasher.hash_one(&key) as usize % BUCKET_COUNT;
+        let idx = self.hasher.hash_one(&key) as usize % B;
         let head = self.buckets[idx];
         let mut current_ptr = self.buckets[idx];
 
@@ -147,7 +151,7 @@ where
     }
     /// Removes a entry from the map. Returns `Some(value)` asscosiated with `key` if `key` is present, otherwise `None`
     pub fn remove(&mut self, key: &K) -> Option<V> {
-        let idx = self.hasher.hash_one(&key) as usize % BUCKET_COUNT;
+        let idx = self.hasher.hash_one(&key) as usize % B;
         let mut current_ptr = self.buckets[idx];
         unsafe {
             while !current_ptr.is_null() {
@@ -216,12 +220,12 @@ impl<K: Debug + Hash + Eq + Clone, V: Debug + Clone> Debug for HashMap<K, V> {
         Ok(())
     }
 }
-impl<K: Hash + Eq + Clone, V: Clone> Iterator for HashMap<K, V> {
+impl<K: Hash + Eq + Clone, V: Clone, const B: usize> Iterator for HashMap<K, V, B> {
     type Item = (K, V);
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current_node.is_null() {
-            if self.current_bucket >= BUCKET_COUNT {
+            if self.current_bucket >= B {
                 return None; // We've exhausted every bucket.
             }
             // Move to the next bucket head
@@ -244,7 +248,7 @@ impl<K: Hash + Eq + Clone, V: Clone> Iterator for HashMap<K, V> {
     }
 }
 
-impl<K, V, S> Default for HashMap<K, V, S>
+impl<K, V, const B: usize, S> Default for HashMap<K, V, B, S>
 where
     K: Hash + Eq + Clone,
     V: Clone,
@@ -254,7 +258,7 @@ where
         Self::empty()
     }
 }
-impl<K, V> Clone for HashMap<K, V>
+impl<K, V, const B: usize> Clone for HashMap<K, V, B>
 where
     K: core::hash::Hash + Eq + Clone,
     V: Clone,
@@ -262,7 +266,7 @@ where
     fn clone(&self) -> Self {
         let mut new_map = HashMap::new();
 
-        for i in 0..BUCKET_COUNT {
+        for i in 0..B {
             let mut current_node = self.buckets[i];
 
             while !current_node.is_null() {
@@ -278,8 +282,9 @@ where
 impl<
     K: core::cmp::Eq + core::hash::Hash + core::clone::Clone,
     V: core::clone::Clone,
+    const B: usize,
     S: core::hash::BuildHasher,
-> Drop for HashMap<K, V, S>
+> Drop for HashMap<K, V, B, S>
 {
     fn drop(&mut self) {
         self.clear()
@@ -316,13 +321,13 @@ impl BuildHasher for FnvBuildHasher {
     }
 }
 
-struct ValuesIter<'a, K: Hash + Eq + Clone, V: Clone, S: BuildHasher> {
-    map: &'a HashMap<K, V, S>,
+struct ValuesIter<'a, K: Hash + Eq + Clone, V: Clone, const B: usize, S: BuildHasher> {
+    map: &'a HashMap<K, V, B, S>,
     bucket: usize,
     current: *mut HashNode<K, V>,
 }
 
-impl<'a, K, V, S> Iterator for ValuesIter<'a, K, V, S>
+impl<'a, K, V, const B: usize, S> Iterator for ValuesIter<'a, K, V, B, S>
 where
     K: Hash + Eq + Clone,
     V: Clone,
@@ -332,7 +337,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         while self.current.is_null() {
-            if self.bucket >= BUCKET_COUNT {
+            if self.bucket >= B {
                 return None;
             }
 
@@ -348,7 +353,7 @@ where
     }
 }
 
-impl<K, V, S> HashMap<K, V, S>
+impl<K, V, const B: usize, S> HashMap<K, V, B, S>
 where
     K: Hash + Eq + Clone,
     V: Clone,
