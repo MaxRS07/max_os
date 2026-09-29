@@ -203,7 +203,7 @@ unsafe impl Send for RunQueue {}
 unsafe impl Sync for RunQueue {}
 
 #[derive(Clone, Copy)]
-struct QueueIterator {
+pub struct QueueIterator {
     next: *mut Thread,
 }
 

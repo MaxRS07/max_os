@@ -35,7 +35,10 @@ unsafe extern "C" {
 
 pub fn setup_boot_mem() {
     // I HAve no idea how big this is supposed to be yet
-    BOOT_ALLOCATOR.set(Mutex::new(BumpAllocator::new(unsafe { _end }, 0x20_000)));
+    BOOT_ALLOCATOR.set(Mutex::new(BumpAllocator::new(
+        &raw const _end as usize,
+        BOOT_HEAP_SIZE,
+    )));
     ALLOCATOR.change_state(AllocatorState::Boot);
 }
 

@@ -37,10 +37,7 @@ pub fn init_run_queue(stack_top: *const u8, stack_bottom: *const u8) {
 macro_rules! terminate {
     () => {
         unsafe {
-            crate::sched::SCHEDULER
-                .get_mut()
-                .unwrap()
-                .terminate_running();
+            crate::sched::SCHEDULER.wait().lock().terminate_running();
         }
     };
 }
@@ -50,7 +47,7 @@ macro_rules! terminate {
 macro_rules! yield_thread {
     () => {
         unsafe {
-            crate::sched::SCHEDULER.get_mut().unwrap().yeild_thread();
+            crate::sched::SCHEDULER.wait().lock().yeild_thread();
         }
     };
 }

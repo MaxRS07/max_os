@@ -3,6 +3,7 @@ use core::arch::asm;
 use log::warn;
 
 use crate::{
+    drivers::time::GLOBAL_TIME,
     fs::GLOBAL_FS,
     syscall::{com::ComOp, context::KernelContext, error::SyscallError, fs::FsOp, op::SysOp},
 };
@@ -36,7 +37,7 @@ enum Syscall {
 }
 
 impl SysOp for Syscall {
-    fn call(&mut self, ktx: KernelContext, args: SyscallArgs) {
+    fn call(&self, ktx: KernelContext, args: SyscallArgs) {
         match self {
             _ => (),
         }
@@ -62,16 +63,16 @@ fn route_call(value: usize) -> Result<Syscall, SyscallError> {
 }
 
 pub fn handle_ecall() {
-    let Some(fs) = GLOBAL_FS.get_mut() else {
+    let Ok(mut fs) = GLOBAL_FS.wait().lock_timeout(GLOBAL_TIME.wait(), 1_000) else {
         warn!("Failed to get GLOBAL_FS instance");
         return;
     };
-    let mut ktx = KernelContext::new(fs);
+    let ktx = KernelContext::new(&mut fs);
     let mut id = 0usize;
     let args = load_args(&mut id);
     match route_call(id) {
         Ok(op) => op.call(ktx, args),
-        Err(msg) => warn!(msg),
+        Err(msg) => warn!("{msg}"),
     }
 }
 /// Loads the syscall registers and returns them

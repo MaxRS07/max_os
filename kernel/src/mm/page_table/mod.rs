@@ -2,7 +2,10 @@ use core::{arch::asm, panic, ptr::addr_of_mut};
 
 use log::debug;
 
-use mem::{error::MemoryError, page_table::page_alloc::Pager};
+use mem::{
+    error::MemoryError,
+    page_table::{page_alloc::Pager, table::Table},
+};
 use sdt::{fdt::GLOBAL_FDT, region::FDTRegion};
 
 use crate::{arch::riscv::csr::Csr::SATP, mm::heap::PAGE_ALLOCATOR};
@@ -21,34 +24,35 @@ fn map_boot_pages(root_ptr: *mut Table) -> Result<(), &'static str> {
         debug!("Mapping regions");
         // identity mappings
         if let Some(fdt) = GLOBAL_FDT.get() {
+            let mut_root = unsafe { &mut *root_ptr };
             // RAM
             map_region_identity(
-                *root_ptr,
-                PAGE_ALLOCATOR,
+                mut_root,
+                PAGE_ALLOCATOR.wait(),
                 &fdt.memory,
                 RWX | Table::MEGAPAGE,
             );
             debug!("Mapped RAM");
             // CLINT
-            map_region_identity(*root_ptr, &fdt.clint, RW);
+            map_region_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.clint, RW);
             debug!("Mapped CLINT");
             // PLIC
-            map_region_identity(*root_ptr, &fdt.plic, RW);
+            map_region_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.plic, RW);
             debug!("Mapped PLIC");
             // MMIO
-            map_mmio_identity(*root_ptr, &fdt.virtio_mmio, RW);
+            map_mmio_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.virtio_mmio, RW);
             debug!("Mapped MMIO");
             // Test
-            map_region_identity(*root_ptr, &fdt.test, RW);
+            map_region_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.test, RW);
             debug!("Mapped Test");
             // RTC
-            map_region_identity(*root_ptr, &fdt.rtc, RW);
+            map_region_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.rtc, RW);
             debug!("Mapped RTC");
             // serial (uart)
-            map_region_identity(*root_ptr, &fdt.serial, RW);
+            map_region_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.serial, RW);
             debug!("Mapped Serial");
             // fw-cfg
-            map_region_identity(*root_ptr, &fdt.fw_cfg, RW);
+            map_region_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.fw_cfg, RW);
             debug!("Mapped FW-CFG");
         }
         Ok(())
@@ -75,7 +79,7 @@ pub fn map_region_identity(
         let vaddr = virt_addr + offset as usize;
         let paddr = (region.base_address + offset) as usize;
 
-        table.map(vaddr, paddr, flags)?;
+        table.map(PAGE_ALLOCATOR.wait(), vaddr, paddr, flags)?;
     }
 
     Ok(())

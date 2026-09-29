@@ -2,10 +2,11 @@ use core::fmt::Write;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::write;
 
+use ::time::global_time::GlobalTimer;
 use alloc::fmt;
 use log::Level;
 
-use crate::drivers::time;
+use crate::drivers::time::{self, GLOBAL_TIME};
 
 pub mod writer;
 
@@ -31,7 +32,7 @@ pub fn init(debug: bool) {
     });
 }
 pub fn write_hhmmss(w: &mut dyn Write) -> fmt::Result {
-    let time = time::mtime_ms();
+    let time = GLOBAL_TIME.wait().now_ms();
     let seconds = time / 1000 % 60;
     let mins = seconds / 60 % 60;
     let hours = mins / 60;

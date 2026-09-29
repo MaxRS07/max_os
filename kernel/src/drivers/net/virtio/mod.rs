@@ -177,6 +177,6 @@ impl VirtioNet {
     }
 }
 
-impl NetDevice for VirtioNet {
-    fn send_packet(&mut self) {}
-}
+// impl NetDevice for VirtioNet {
+//     fn send_packet(&mut self) {}
+// }

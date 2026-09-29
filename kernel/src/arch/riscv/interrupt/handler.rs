@@ -1,5 +1,6 @@
 use core::arch::naked_asm;
 
+use ::time::global_time::GlobalTimer;
 use log::{debug, info, warn};
 use sdt::fdt::{self, FDT, GLOBAL_FDT};
 
@@ -11,8 +12,8 @@ use crate::{
             route::{ExceptionCode, InterruptCode, Trap, parse_scause},
         },
     },
-    drivers::{power::sys_poweroff, time},
-    sched::THREAD_QUEUE,
+    drivers::time::GLOBAL_TIME,
+    sched::SCHEDULER,
     syscall::handle_ecall,
 };
 
@@ -122,7 +123,7 @@ pub extern "C" fn rust_trap_handler() {
                     match int {
                         InterruptCode::MachineExternal => handle_plic_interrupt(notifier),
                         InterruptCode::MachineTimer => {
-                            THREAD_QUEUE.get_mut().unwrap().handle_interrupt();
+                            SCHEDULER.wait().lock().handle_interrupt();
                             schedule_interrupt_timer(QTICK);
                         }
                         // match int {
@@ -181,7 +182,7 @@ const MTIME_CMP_OFFSET: usize = 0x4000;
 pub fn schedule_interrupt_timer(interval: u64) {
     if let Some(fdt) = GLOBAL_FDT.get() {
         let addr = fdt.clint.base_address + MTIME_CMP_OFFSET;
-        let cur = time::mtime_raw(fdt.clint.base_address);
+        let cur = GLOBAL_TIME.wait().ticks();
         let irq_time = interval + cur;
 
         let interval_low = (irq_time >> 32) as u32;

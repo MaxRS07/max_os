@@ -17,7 +17,7 @@ use crate::{
 pub trait Addresser {
     /// Creates a new empty address space using an ASID. ASIDs must be between 0 and 511. This method will `Err` if the page
     /// allocator runs out of pages or fails to allocate
-    fn new(asid: ASID) -> Result<Self, MemoryError>;
+    fn new(page_allocator: &'static dyn Pager, root_table: *mut Table, asid: ASID) -> Self;
     /// Force-unmaps this address space, freeing all of its owned regions
     fn drop(&mut self) -> Result<(), MemoryError>;
     /// Unmaps `virt_addr` from this space, freeing the physical page
@@ -135,8 +135,8 @@ impl AddressSpace {
 }
 
 impl Addresser for AddressSpace {
-    fn new(asid: ASID) -> Result<Self, MemoryError> {
-        AddressSpace::new(page_allocator, root_table, asid, regions)
+    fn new(page_allocator: &'static dyn Pager, root_table: *mut Table, asid: ASID) -> Self {
+        AddressSpace::new(page_allocator, root_table, asid, Vec::new())
     }
     fn drop(&mut self) -> Result<(), MemoryError> {
         while let Some(virt_addr) = self.regions.first().map(|region| region.virt_addr) {

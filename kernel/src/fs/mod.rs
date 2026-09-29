@@ -9,15 +9,14 @@ use fs::{
     vfs::Vfs,
 };
 use log::{Level::Debug, debug, warn};
-
-use crate::console::writer::println;
+use sync::{mutex::Mutex, oncelock::OnceLock};
 
 pub mod call;
 
-pub const GLOBAL_FS: OnceCell<Vfs> = OnceCell::new();
+pub static GLOBAL_FS: OnceLock<Mutex<Vfs<'static>>> = OnceLock::new();
 
-pub fn fs_init(blk_dev: &mut (dyn BlockDevice + 'static), remount: bool) -> Result<(), FSError> {
-    let mut vfs = Vfs::new();
+pub fn fs_init(blk_dev: &'static mut dyn BlockDevice, remount: bool) -> Result<(), FSError> {
+    let mut vfs: Vfs = Vfs::new();
     let capacity = blk_dev.capacity();
     if remount {
         FSVolume::<FSPathCache>::format(
@@ -34,27 +33,6 @@ pub fn fs_init(blk_dev: &mut (dyn BlockDevice + 'static), remount: bool) -> Resu
     vfs.mount(FSPath::new("/"), blk_dev)?;
     debug!("Primary drive mounted");
 
-    if let Err(error) = GLOBAL_FS.set(vfs) {
-        warn!("Failed to set FS")
-    }
-
-    let permissions = Permissions::from_raw(0);
-    let context = CreationContext::new(0, 0, permissions, 0);
-    let path = FSPath::new("/file.txt");
-    vfs.create_file(path, context, permissions)?;
-    debug!("created file.txt");
-
-    let mut fo = vfs.open(path, OpenMode::Write)?;
-    let buffer = b"Welcome to my file";
-    debug!("Opened root");
-    fo.write_buffer(buffer)?;
-    debug!("Wrote bytes");
-
-    let mut fo = vfs.open(FSPath::new("/file.txt"), OpenMode::Read)?;
-    let mut read_buf = [0u8; 20];
-    fo.read(&mut read_buf)?;
-    let text = str::from_utf8(&read_buf).unwrap_or("READ ERROR");
-    debug!("{text}");
-    // vfs.get_file(path)?.read(&mut buf)?;
+    GLOBAL_FS.set(Mutex::new(vfs));
     Ok(())
 }

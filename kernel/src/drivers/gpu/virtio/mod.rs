@@ -6,6 +6,7 @@ use alloc::{
 };
 use graphics::{device::GpuDevice, types::Brga};
 use log::{debug, error, warn};
+use mem::error::MemoryError;
 use sdt::fdt::FDT;
 use virtio::{
     ALL_FEATURES,
@@ -20,17 +21,14 @@ use virtio::{
     },
 };
 
-use crate::{
-    drivers::gpu::{
-        error::GpuError,
-        virtio::cmd::{
-            VIRTIO_GPU_CMD_GET_DISPLAY_INFO, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
-            VIRTIO_GPU_CMD_RESOURCE_CREATE_2D, VIRTIO_GPU_CMD_RESOURCE_FLUSH,
-            VIRTIO_GPU_CMD_SET_SCANOUT, VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D,
-            VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM,
-        },
+use crate::drivers::gpu::{
+    error::GpuError,
+    virtio::cmd::{
+        VIRTIO_GPU_CMD_GET_DISPLAY_INFO, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
+        VIRTIO_GPU_CMD_RESOURCE_CREATE_2D, VIRTIO_GPU_CMD_RESOURCE_FLUSH,
+        VIRTIO_GPU_CMD_SET_SCANOUT, VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D,
+        VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM,
     },
-    mm::error::MemoryError,
 };
 
 // Mostly adapted from specification here: https://docs.oasis-open.org/virtio/virtio/v1.3/csd01/virtio-v1.3-csd01.html#x1-3960007

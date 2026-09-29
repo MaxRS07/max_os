@@ -1,5 +1,6 @@
 use core::{
     cell::OnceCell,
+    ops::{Deref, DerefMut},
     sync::atomic::{
         Ordering::{Acquire, SeqCst},
         fence,
@@ -11,9 +12,11 @@ use core::panic;
 use log::info;
 use log::warn;
 use sdt::fdt::FDT;
-use sync::oncelock::OnceLock;
+use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use virtio::VIRTIO_DEV_GPU;
+
+use crate::drivers::time::GLOBAL_TIME;
 
 pub mod config;
 pub mod pci_bump;
@@ -35,11 +38,11 @@ pub const PCI_CMD_IO_SPACE: u16 = (1 << 0);
 pub const PCI_CMD_MEM_SPACE: u16 = (1 << 1);
 pub const PCI_CMD_BUS_MASTER: u16 = (1 << 2);
 
-static ALLOCATOR: OnceLock<pci_bump::PciAllocator> = OnceLock::new();
+static ALLOCATOR: OnceLock<Mutex<pci_bump::PciAllocator>> = OnceLock::new();
 
 pub fn init(map: FDT) {
     let pci_alloc = pci_bump::PciAllocator::new(map);
-    ALLOCATOR.set(pci_alloc);
+    ALLOCATOR.set(Mutex::new(pci_alloc));
     fence(SeqCst);
     info!("PCI allocator initialized")
 }
@@ -62,9 +65,7 @@ pub fn probe_devices(ecam: usize) -> Option<(u8, u8)> {
     None
 }
 pub fn ping_virtio(ecam: usize, bus: u8, dev: u8, func: u8, offset: u16) {
-    if unsafe { !ALLOCATOR.is_executed() } {
-        return;
-    };
+    ALLOCATOR.wait();
     let vendor = pci_read::<u16>(ecam, bus, dev, 0, PCI_CFG_VENDOR_ID);
     // 0xFFF is an empty vendor marker
     if vendor == PCI_VENDOR_NONE {
@@ -100,8 +101,8 @@ pub fn ping_virtio(ecam: usize, bus: u8, dev: u8, func: u8, offset: u16) {
         let size = (!(size_mask & PCI_BAR_ADDR_MASK)).wrapping_add(1) as usize;
 
         if size > 0
-            && let Some(alloc) = ALLOCATOR.get_mut_ptr()
-            && let Some(addr) = unsafe { (*alloc).alloc_non_pref(size) }
+            && let Ok(mut alloc) = ALLOCATOR.wait().lock_timeout(GLOBAL_TIME.wait(), 1000)
+            && let Some(addr) = alloc.alloc_non_pref(size)
         {
             pci_write::<u32>(ecam, bus, dev, 0, offset, addr as u32);
         } else {

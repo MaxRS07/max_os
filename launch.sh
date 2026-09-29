@@ -21,7 +21,7 @@ done
 
 JOIN_ARGS=$(IFS=,; echo "${ARGS[*]}")
 
-if (RUSTFLAGS="-Awarnings" cargo build --release) then
+if (RUSTFLAGS="-A warnings" cargo build --release) then
   cargo objcopy --release -- -O binary os.bin
   qemu-system-riscv32 \
     -m 1G \

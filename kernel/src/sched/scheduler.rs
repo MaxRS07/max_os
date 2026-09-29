@@ -62,7 +62,7 @@ impl Scheduler {
                 let old_sp_ptr = &mut (*self.running).context.stack_pointer as *mut *mut usize;
                 let new_sp = (*next_ready).context.stack_pointer;
 
-                let new_satp = Self::get_process(thread)?.address_space().satp();
+                let new_satp = Self::get_process(next_ready)?.address_space().satp();
 
                 switch_context_impl(old_sp_ptr, new_sp, new_satp);
             }
@@ -116,22 +116,22 @@ impl Scheduler {
             ))
     }
     /// Returns the process that owns the current thread
-    pub fn get_process(thread: *mut Thread) -> Result<&Process, ThreadError> {
+    pub fn get_process<'a>(thread: *mut Thread) -> Result<&'a Process, ThreadError> {
         PROCESS_TABLE
             .wait()
             .get()
-            .get(unsafe { &*thread.pid })
+            .get(unsafe { &(*thread).pid })
             .map(|ptr| unsafe { &*ptr })
             .ok_or(ThreadError::Other(
                 "Failed to retrive parent process, invalid PID".to_owned(),
             ))
     }
     /// Mutable ref to the process that owns the thread. This operation is locking.
-    pub fn process_mut(thread: *mut Thread) -> Result<&mut Process, ThreadError> {
+    pub fn process_mut<'a>(thread: *mut Thread) -> Result<&'a mut Process, ThreadError> {
         PROCESS_TABLE
             .wait()
             .lock()
-            .get(unsafe { &*thread.pid })
+            .get(unsafe { &(*thread).pid })
             .map(|ptr| unsafe { &mut *ptr })
             .ok_or(ThreadError::Other(
                 "Failed to retrive parent process, invalid PID".to_owned(),

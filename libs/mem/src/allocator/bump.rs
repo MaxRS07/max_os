@@ -17,7 +17,7 @@ impl BumpAllocator {
     pub fn new(start: usize, size: usize) -> Self {
         return Self {
             start,
-            current: 0,
+            current: start,
             size,
         };
     }

@@ -6,6 +6,8 @@ use core::{
 
 use time::global_time::GlobalTimer;
 
+use crate::mutex_guard::MutexGuard;
+
 pub struct Mutex<T> {
     locked: AtomicBool,
     value: UnsafeCell<T>,
@@ -23,15 +25,15 @@ impl<T> Mutex<T> {
     }
     #[allow(clippy::mut_from_ref)]
     /// attempts to acquire a lock, returning [`Some`] containing a mutable ref to the inner value if successful. returns [`None`] otherwise.
-    pub fn try_lock(&self) -> Option<&mut T> {
+    pub fn try_lock(&self) -> Option<MutexGuard<T>> {
         self.locked
             .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
             .ok()
-            .map(|_| unsafe { &mut *self.value.get() })
+            .map(|_| MutexGuard::new(&self))
     }
     /// spins until a lock is accuired, returning a mutable ref to the interior value T
     #[allow(clippy::mut_from_ref)]
-    pub fn lock(&self) -> &mut T {
+    pub fn lock(&self) -> MutexGuard<'_, T> {
         loop {
             match self.try_lock() {
                 Some(value) => return value,
@@ -44,7 +46,7 @@ impl<T> Mutex<T> {
         &self,
         timer: &dyn GlobalTimer,
         max_time: u64,
-    ) -> Result<&mut T, &'static str> {
+    ) -> Result<MutexGuard<'_, T>, &'static str> {
         let start = timer.now_ms();
         loop {
             match self.try_lock() {
@@ -57,6 +59,13 @@ impl<T> Mutex<T> {
                 return Err("Failed to get instace, lock timeout");
             }
         }
+    }
+    /// unlocks this mutex
+    pub fn unlock(&self) {
+        self.locked.store(false, Ordering::Release);
+    }
+    pub fn value_ptr(&self) -> *mut T {
+        self.value.get()
     }
     pub fn get(&self) -> &T {
         unsafe { &*self.value.get() }
