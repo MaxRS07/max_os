@@ -125,11 +125,10 @@ impl Thread {
             return Ok(());
         }
     }
-    /// Creates and enques a thread. Returns the unique ID of the thread or None if queing failed.
-    pub fn spawn(pid: u32, name: &str, priority: Priority, entry: usize) -> Option<u32> {
+    pub fn new(pid: u32, name: &str, priority: Priority, entry: usize) -> Self {
         let name = Self::name_from_str(name);
         let last_id = LAST_ID.load(Ordering::Acquire);
-        let mut new = Self {
+        Self {
             pid,
             context: Context::empty(),
             id: last_id + 1,
@@ -144,7 +143,11 @@ impl Thread {
             prev: null_mut(),
             stack_bottom: null(),
             stack_top: null(),
-        };
+        }
+    }
+    /// Creates and enques a thread. Returns the unique ID of the thread or None if queing failed.
+    pub fn spawn(pid: u32, name: &str, priority: Priority, entry: usize) -> Option<u32> {
+        let mut new = Self::new(pid, name, priority, entry);
         if let Err(error) = new.alloc() {
             warn!("Failed to construct thread: {}", error);
             drop(new); // deallocate the memory on fail
@@ -161,10 +164,7 @@ impl Thread {
 
         LAST_ID.store(last_id + 1, Ordering::Release);
         if unsafe { SCHEDULER.wait().lock().schedule(box_ptr).is_err() } {
-            warn!(
-                "Failed to queue thread: '{}'",
-                str::from_utf8(&name).unwrap_or("")
-            );
+            warn!("Failed to queue thread: '{name}'");
             let _ = unsafe { Box::from_raw(box_ptr) };
             return None;
         }

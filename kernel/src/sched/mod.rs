@@ -25,7 +25,7 @@ pub static SCHEDULER: OnceLock<Mutex<Scheduler>> = OnceLock::new();
 pub static PROCESS_TABLE: OnceLock<Mutex<ProcessTable>> = OnceLock::new();
 
 /// intialize threading globals, setup main thread.
-pub fn init_run_queue(stack_top: *const u8, stack_bottom: *const u8) {
+pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) {
     SCHEDULER.set(Mutex::new(Scheduler::new()));
     PROCESS_TABLE.set(Mutex::new(ProcessTable::new()));
     if let Err(error) = Thread::main(stack_top, stack_bottom) {

@@ -60,8 +60,8 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
         let stack_top = _boot_stack_top as *const u8;
         let stack_bottom = _boot_stack_bottom as *const u8;
         info!("Loaded stack");
-        sched::init_run_queue(stack_top, stack_bottom);
-        info!("Run queue initialized");
+        sched::init_scheduler(stack_top, stack_bottom);
+        info!("Scheduler initialized");
     }
     // enable hardware timer
     loop {

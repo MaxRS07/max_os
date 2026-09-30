@@ -2,15 +2,20 @@
 
 use core::sync::atomic::{AtomicU32, Ordering};
 
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{boxed::Box, fmt::format, format, string::String, vec::Vec};
 use collections::hashmap::HashMap;
-use mem::page_table::{address_space::AddressSpace, asid::ASID, table::Table};
+use mem::page_table::{
+    address_space::AddressSpace,
+    asid::{ASID, ASIDAllocator},
+    table::Table,
+};
 
 use crate::{
     drivers::time::GLOBAL_TIME,
     mm::heap::PAGE_ALLOCATOR,
     sched::{
         ASID_ALLOCATOR, PROCESS_TABLE, SCHEDULER,
+        error::ThreadError,
         thread::{Priority, Thread},
     },
 };
@@ -32,25 +37,37 @@ pub struct Process {
 
 impl Process {
     fn new(name: String, pid: u32, address_space: AddressSpace, threads: Vec<u32>) -> *mut Self {
-        let raw_process = Box::into_raw(Box::new(Self {
+        Box::into_raw(Box::new(Self {
             name,
             pid,
             address_space,
             threads,
-        }));
-        PROCESS_TABLE.wait().lock().insert(pid, raw_process);
-        raw_process
+        }))
     }
     /// creates a new proces
-    pub fn spawn(name: String, entry: fn()) -> u32 {
-        let asid_num = ASID_ALLOCATOR.wait().lock().next_free().unwrap(); // TODO Make this not unwrap
-        let asid = ASID::new(asid_num as u16);
-        let table = Table::alloc_empty(PAGE_ALLOCATOR.wait());
-        let addr_space = AddressSpace::new(PAGE_ALLOCATOR.wait(), table.unwrap(), asid, Vec::new());
+    pub fn spawn(name: String, entry: fn()) -> Result<u32, ThreadError> {
+        let asid = ASID_ALLOCATOR
+            .wait()
+            .lock()
+            .alloc_id()
+            .ok_or(ThreadError::Other(format!("No free ASIDs")))?; // TODO Make this not unwrap
+        let table = Table::alloc_empty(PAGE_ALLOCATOR.wait())
+            .map_err(|err| ThreadError::Other(format!("{err}")))?;
+        let addr_space = AddressSpace::new(PAGE_ALLOCATOR.wait(), table, asid, Vec::new());
+
         let pid = PID_ALLOCATOR.fetch_add(1, Ordering::Relaxed);
-        let thread = Thread::spawn(pid, &name, Priority::Normal, entry as usize).unwrap();
-        Self::new(name, pid, addr_space, alloc::vec![thread]);
-        pid
+
+        let thread = Box::into_raw(Box::new(Thread::new(
+            pid,
+            &name,
+            Priority::Normal,
+            entry as usize,
+        )));
+        let process = Self::new(name, pid, addr_space, alloc::vec![thread.id()]);
+
+        PROCESS_TABLE.wait().lock().insert(pid, process);
+        SCHEDULER.wait().lock().schedule(thread);
+        Ok(pid)
     }
     pub fn address_space(&self) -> &AddressSpace {
         &self.address_space
