@@ -3,7 +3,7 @@ resolver = "2"
 members = [
     "kernel",
     "libs/block",
-    "libs/collections",
+    "libs/collections", "libs/corevec",
     "libs/fs",
     "libs/graphics",
     "libs/input",

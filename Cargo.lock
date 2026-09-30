@@ -14,6 +14,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "corevec"
+version = "0.1.0"
+
+[[package]]
 name = "fs"
 version = "0.1.0"
 dependencies = [
