@@ -96,8 +96,8 @@ pub struct Thread {
     /// Pointer to previous thread in priority queue
     pub prev: *mut Thread,
 }
-/// records the last used thread id. IDs are assigned incrementally, every id greater than `LAST_ID` is unused
-static TID_ALLOCATOR: AtomicU32 = AtomicU32::new(0);
+/// Records the last used thread id. IDs are assigned incrementally, every id this value or greater is unused
+static TID_ALLOCATOR: AtomicU32 = AtomicU32::new(1);
 
 impl Thread {
     /// Returns a preconfigured main thread. Does not have an entry point. Does not allocate stack or tls in memory.

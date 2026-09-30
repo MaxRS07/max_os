@@ -6,7 +6,7 @@ pub trait GlobalTimer {
     fn freq(&self) -> u64;
 
     fn now_ms(&self) -> u64 {
-        self.ticks() / self.freq() * 1000
+        self.ticks() * 1000 / self.freq()
     }
     /// Converts microseconds to ticks
     #[inline(always)]

@@ -115,6 +115,8 @@ impl Scheduler {
                 "Failed to find thread with the specified id".to_owned(),
             ))
     }
+    /// Pauses the current thread for `ms` milliseconds
+    // pub fn sleep(&mut self, ms: u64) {} TODO
     /// Returns the process that owns the current thread
     pub fn get_process<'a>(thread: *mut Thread) -> Result<&'a Process, ThreadError> {
         PROCESS_TABLE

@@ -56,13 +56,7 @@ impl Process {
             address_space,
             alloc::vec![main_tid],
         );
-        PROCESS_TABLE
-            .wait()
-            .lock()
-            .insert(0, process)
-            .ok_or(ThreadError::Other(format!(
-                "Failed to insert main process into table"
-            )))?;
+        PROCESS_TABLE.wait().lock().insert(0, process);
         Ok(0)
     }
     /// creates a new proces
