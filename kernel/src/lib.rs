@@ -15,10 +15,11 @@ use core::{arch::global_asm, panic};
 
 use log::{Level::Debug, debug, error, info, warn};
 use sdt::fdt::GLOBAL_FDT;
+use time::global_time::GlobalTimer;
 
 use crate::{
     arch::riscv::{self, interrupt::handler::schedule_interrupt_timer},
-    drivers::block::BLOCK_DEVICE,
+    drivers::{block::BLOCK_DEVICE, time::GLOBAL_TIME},
     mm::{_boot_stack_bottom, _boot_stack_top},
     sched::{process::Process, thread::Thread},
 };
@@ -65,8 +66,8 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
             error!("{msg}");
         }
         info!("Scheduler initialized");
-        if Thread::spawn_local("Thread_A", thread_a_entry as *const fn() as usize).is_some()
-            && Thread::spawn_local("Thread_B", thread_b_entry as *const fn() as usize).is_some()
+        if Thread::spawn_local("Thread_B", thread_b_entry as *const fn() as usize).is_some()
+            && Thread::spawn_local("Thread_A", thread_a_entry as *const fn() as usize).is_some()
         {
             info!("starting threads A and B")
         } else {
@@ -82,19 +83,27 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
 }
 
 fn thread_a_entry() {
-    info!("Thread A: Counting to 1 million!");
-    for i in 0..1_000_000 {
-        if i % 100_000 == 0 {
-            info!("Thread A at {i}")
+    info!("Thread A: Counting to 10 seconds!");
+    let mut total = 0;
+    let mut start = GLOBAL_TIME.wait().now_ms();
+    while total < 10 {
+        if GLOBAL_TIME.wait().elapsed_ms(start, 1_000) {
+            total += 1;
+            start = GLOBAL_TIME.wait().now_ms();
+            info!("Thread A: {total}s");
         }
     }
     info!("Thread A: Done!");
 }
 fn thread_b_entry() {
-    info!("Thread B: Counting to 1 million!");
-    for i in 0..1_000_000 {
-        if i % 100_000 == 0 {
-            info!("Thread B at {i}")
+    info!("Thread B: Counting to 10 seconds!");
+    let mut total = 0;
+    let mut start = GLOBAL_TIME.wait().now_ms();
+    while total < 10 {
+        if GLOBAL_TIME.wait().elapsed_ms(start, 1_000) {
+            total += 1;
+            start = GLOBAL_TIME.wait().now_ms();
+            info!("Thread B: {total}s");
         }
     }
     info!("Thread B: Done!");

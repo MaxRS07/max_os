@@ -1,7 +1,7 @@
 use core::ptr::null_mut;
 
 use alloc::{borrow::ToOwned, boxed::Box, collections::btree_map::IterMut, format};
-use log::{debug, warn};
+use log::{debug, info, warn};
 use mem::page_table::address_space::Addresser;
 use sync::{mutex::Mutex, oncelock::OnceLock};
 
@@ -28,9 +28,13 @@ impl Scheduler {
         }
     }
     /// called on timer interrupt
-    pub fn handle_interrupt(&mut self) {
+    pub fn handle_interrupt(
+        &mut self,
+    ) -> Result<(*mut *mut usize, *mut usize, usize), ThreadError> {
+        let runqueue = &self.queue;
+        debug!("interrupt detected, switching threads: {runqueue:?}");
         // if there is only the running, dont interrupt
-        self.run_next();
+        self.run_next()
     }
     /// Manually pauses the running thread
     pub fn yield_thread() {}
@@ -40,7 +44,7 @@ impl Scheduler {
     /// Interrupts the running thread and attempts to requeue it with the next available thread.
     ///
     /// If there is no next thread available to run, returns [`Err`] and does not interrupt the current thread. Returns [`Ok`] containing a pointer to the next available thread if the exchange was successful.
-    pub fn run_next(&mut self) -> Result<*mut Thread, ThreadError> {
+    pub fn run_next(&mut self) -> Result<(*mut *mut usize, *mut usize, usize), ThreadError> {
         // check next thread
         let next_ready = self.queue.dequeue_ready();
         if next_ready.is_null() {
@@ -64,10 +68,10 @@ impl Scheduler {
 
                 let new_satp = Self::get_process(next_ready)?.address_space().satp();
 
-                switch_context_impl(old_sp_ptr, new_sp, new_satp);
+                return Ok((old_sp_ptr, new_sp, new_satp));
             }
         }
-        Ok(next_ready)
+        Err(ThreadError::Other(format!("What the fuck")))
     }
     /// Enqueues `thread`, scheduling it to be run
     pub fn schedule(&mut self, thread: *mut Thread) -> Result<(), ThreadError> {

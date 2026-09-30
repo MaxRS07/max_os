@@ -7,7 +7,6 @@ use crate::{
         csr::Csr::{MEPC, MIE, MIP, MSTATUS, MTVAL, MTVEC},
         interrupt::{
             handler::{QTICK, schedule_interrupt_timer},
-            notifier::INTERRUPT_NOTIFIER,
             route::{ExceptionCode, InterruptCode, Trap, parse_mcause},
         },
     },
@@ -16,16 +15,16 @@ use crate::{
 };
 
 pub fn init_m_trap_handler() {
-    let mstatus_mie = 1 << 3;
     let mie_stie = 1 << 7;
-    let mie_meie = 1 << 11;
-    let mie_mask = mie_stie | mie_meie;
+    let mie_mask = mie_stie;
+
+    set_mtimecmp(u64::MAX);
 
     let trap_target = (m_trap_entry as *const () as usize) & !0x3;
 
     unsafe {
         MTVEC.write(trap_target);
-        MSTATUS.read_set(mstatus_mie);
+        // MSTATUS.read_set(mstatus_mie);
         MIE.read_set(mie_mask);
     }
 }
@@ -69,7 +68,7 @@ unsafe extern "C" fn m_trap_entry() {
         "sw s10, 108(sp)",
         "sw s11, 112(sp)",
         // Call actual handler
-        "call s_trap_handler",
+        "call m_trap_handler",
         // Load back saved registers
         "lw ra,  0(sp)",
         "lw tp,  4(sp)",
@@ -110,39 +109,45 @@ unsafe extern "C" fn m_trap_entry() {
 #[unsafe(no_mangle)]
 pub extern "C" fn m_trap_handler() {
     unsafe {
-        if let Some(notifier) = INTERRUPT_NOTIFIER.get_mut() {
-            let cause = parse_mcause();
-            match cause {
-                Trap::Interrupt(int) => {
-                    {
-                        match int {
-                            InterruptCode::MachineTimer => {
-                                if let Some(mut sched) = SCHEDULER.wait().try_lock() {
-                                    sched.handle_interrupt()
-                                }
-                                MIP.read_set(1 << 1);
-                                schedule_interrupt_timer(QTICK);
-                            }
-                            // match int {
-                            // }
-                            _ => (),
-                        };
-                    }
+        let cause = parse_mcause();
+        match cause {
+            Trap::Interrupt(int) => {
+                {
+                    match int {
+                        InterruptCode::MachineTimer => {
+                            let now = (CLINT_BASE + 0xBFF8) as *const u64;
+                            set_mtimecmp(now.read() + QTICK);
+                            MIP.read_set(1 << 1);
+                        }
+                        // match int {
+                        // }
+                        _ => (),
+                    };
                 }
-                Trap::Exception(exception) => match exception {
-                    ExceptionCode::EnvCallFromUMode => handle_ecall(),
-                    _ => {
-                        let mepc = MEPC.read();
-                        let mtval = MTVAL.read();
-                        panic!(
-                            "unhandled exception {:?} at mepc={:#x} mtval={:#x}",
-                            exception, mepc, mtval
-                        );
-                    }
-                },
             }
-        } else {
-            warn!("Notifier unset")
+            Trap::Exception(exception) => match exception {
+                ExceptionCode::EnvCallFromUMode => handle_ecall(),
+                _ => {
+                    let mepc = MEPC.read();
+                    let mtval = MTVAL.read();
+                    panic!(
+                        "unhandled exception {:?} at mepc={:#x} mtval={:#x}",
+                        exception, mepc, mtval
+                    );
+                }
+            },
         }
+    }
+}
+const CLINT_BASE: usize = 0x0200_0000;
+const MTIMECMP: usize = CLINT_BASE + 0x4000; // hart 0
+
+fn set_mtimecmp(value: u64) {
+    let lo = MTIMECMP as *mut u32;
+    let hi = (MTIMECMP + 4) as *mut u32;
+    unsafe {
+        hi.write_volatile(u32::MAX); // stop a spurious match while updating
+        lo.write_volatile(value as u32);
+        hi.write_volatile((value >> 32) as u32);
     }
 }

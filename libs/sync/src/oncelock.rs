@@ -74,6 +74,21 @@ impl<T> OnceLock<T> {
             None
         }
     }
+    /// retuns the interior value if this oncelock has been initialized, sets it using `value` otherwise, returning the new value.
+    pub fn get_or_set(&self, value: T) -> &T {
+        if self
+            .state
+            .compare_exchange(WAITING, RUNNING, Acquire, Acquire)
+            .is_ok()
+        {
+            unsafe {
+                *self.value.get() = Some(value);
+                self.state.store(EXECUTED, Release);
+            }
+        }
+        // prob ok to unwrap since it was just set.
+        self.get().unwrap()
+    }
 
     /// blocks the thread until the cell is initialized, returning get
     pub fn wait(&self) -> &T {

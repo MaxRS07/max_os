@@ -20,9 +20,13 @@ pub trait GlobalTimer {
         (ms.saturating_mul(self.freq())) / 1_000
     }
 
-    /// whether `ticks` ticks have elapsed since `start` ticks
+    /// whether `duration` ticks have elapsed since `start` ticks
     #[inline(always)]
     fn elapsed(&self, start: u64, duration: u64) -> bool {
         (self.ticks().wrapping_sub(start)) >= duration
+    }
+    /// whether `duration` ms have elapsed since `start` ms
+    fn elapsed_ms(&self, start: u64, duration: u64) -> bool {
+        (self.now_ms().wrapping_sub(start)) >= duration
     }
 }

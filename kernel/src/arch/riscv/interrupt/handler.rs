@@ -1,7 +1,7 @@
-use core::arch::naked_asm;
+use core::{arch::naked_asm, ops::DerefMut};
 
 use ::time::global_time::GlobalTimer;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use sdt::fdt::{self, FDT, GLOBAL_FDT};
 
 use crate::{
@@ -13,25 +13,23 @@ use crate::{
         },
     },
     drivers::time::GLOBAL_TIME,
-    sched::SCHEDULER,
+    sched::{SCHEDULER, context::switch_context_impl},
     syscall::handle_ecall,
 };
 
 pub const QTICK: u64 = 100_000_000;
 
 pub fn init_s_trap_handler() {
-    let sie_stie = 1 << 0;
-    let sstatus_mie = 1 << 3;
+    let sstatus_sie = 1 << 1;
+    let sie_ssie = 1 << 1;
     let sie_meie = 1 << 9;
-    let sie_mask = sie_stie | sie_meie;
-
-    schedule_interrupt_timer(u64::MAX); // max out timer to prevent timer irq before handler
+    let sie_mask = sie_meie | sie_ssie;
 
     let trap_target = (s_trap_entry as *const () as usize) & !0x3;
 
     unsafe {
         STVEC.write(trap_target);
-        SSTATUS.read_set(sstatus_mie);
+        SSTATUS.read_set(sstatus_sie);
         SIE.read_set(sie_mask);
     }
 }
@@ -116,35 +114,40 @@ unsafe extern "C" fn s_trap_entry() {
 #[unsafe(no_mangle)]
 pub extern "C" fn s_trap_handler() {
     unsafe {
-        if let Some(notifier) = INTERRUPT_NOTIFIER.get_mut() {
-            let cause = parse_scause();
-            match cause {
-                Trap::Interrupt(int) => {
-                    match int {
-                        InterruptCode::MachineExternal => handle_plic_interrupt(notifier),
-                        InterruptCode::SupervisorSoftware => {
-                            SIP.read_clear(1 << 1);
-                            schedule_interrupt_timer(QTICK);
-                        }
-                        // match int {
-                        // }
-                        _ => (),
-                    };
-                }
-                Trap::Exception(exception) => match exception {
-                    ExceptionCode::EnvCallFromUMode => handle_ecall(),
-                    _ => {
-                        let sepc = SEPC.read();
-                        let stval = STVAL.read();
-                        panic!(
-                            "unhandled exception {:?} at sepc={:#x} stval={:#x}",
-                            exception, sepc, stval
-                        );
+        let cause = parse_scause();
+        match cause {
+            Trap::Interrupt(int) => {
+                match int {
+                    InterruptCode::SupervisorExternal => {
+                        let mut notifier = INTERRUPT_NOTIFIER.wait().lock();
+                        handle_plic_interrupt(notifier.deref_mut())
                     }
-                },
+                    InterruptCode::SupervisorSoftware => {
+                        if let Some(mut sched) = SCHEDULER.wait().try_lock() {
+                            let Ok((old_sp, new_sp, new_satp)) = sched.handle_interrupt() else {
+                                error!("IDK");
+                                return;
+                            };
+                            switch_context_impl(old_sp, new_sp, new_satp);
+                        }
+                        SIP.read_clear(1 << 1);
+                    }
+                    // match int {
+                    // }
+                    _ => (),
+                };
             }
-        } else {
-            warn!("Notifier unset")
+            Trap::Exception(exception) => match exception {
+                ExceptionCode::EnvCallFromUMode => handle_ecall(),
+                _ => {
+                    let sepc = SEPC.read();
+                    let stval = STVAL.read();
+                    panic!(
+                        "unhandled exception {:?} at sepc={:#x} stval={:#x}",
+                        exception, sepc, stval
+                    );
+                }
+            },
         }
     }
 }

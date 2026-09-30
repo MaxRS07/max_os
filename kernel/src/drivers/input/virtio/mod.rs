@@ -24,7 +24,7 @@ use input::config::{
     VIRTIO_INPUT_QUEUE_STATUS, VirtioInputConfig, VirtioInputEvent,
 };
 
-use sync::shared_cell::SharedCell;
+use sync::{mutex::Mutex, oncelock::OnceLock, shared_cell::SharedCell};
 
 use crate::{
     arch::riscv::interrupt::{
@@ -36,9 +36,7 @@ use crate::{
     drivers::input::KEYBOARD,
 };
 
-/// Global home for the input device so `'static` interrupt callbacks can reach
-/// it. `SharedCell` provides the interior mutability `handle_interrupt` needs.
-static INPUT_DEVICES: SharedCell<Vec<VirtioInput>> = SharedCell::new(Vec::new());
+static INPUT_DEVICES: OnceLock<Mutex<Vec<VirtioInput>>> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 pub struct VirtioInput {
@@ -52,6 +50,7 @@ pub struct VirtioInput {
 
 impl VirtioInput {
     pub fn from_mmio(fdt: &FDT, mmio_idx: usize) -> Option<DeviceType> {
+        let mutex_devices = INPUT_DEVICES.get_or_set(Mutex::new(Vec::new()));
         let mmio_addr = fdt.virtio_mmio[mmio_idx].base_address;
         if verify_virtio_magic(mmio_addr).is_err() {
             return None;
@@ -97,10 +96,7 @@ impl VirtioInput {
         let device_type = input.device_type;
 
         let device_idx = unsafe {
-            let devices = INPUT_DEVICES.get_mut();
-            // Reserve up front so later pushes never reallocate (and move) a
-            // device while an already-armed device's interrupt is reading the
-            // Vec. Only allocates once, when the Vec is still empty.
+            let mut devices = mutex_devices.lock();
             if devices.capacity() == 0 {
                 devices.reserve(8);
             }
@@ -108,19 +104,18 @@ impl VirtioInput {
             devices.len() - 1
         };
 
+        info!("configuring notifier");
+
         let irq_id = mmio::get_interrupt(fdt, mmio_idx).unwrap_or(mmio_idx as u32);
         set_interrupt_priority(fdt, irq_id, 1);
 
-        if let Some(notifer) = unsafe { INTERRUPT_NOTIFIER.get_mut() } {
-            // Route this IRQ to the device we just registered, not a shared
-            // global. `device_idx` is captured by value so each subscription
-            // services its own device.
-            notifer.subscribe(irq_id, move || {
-                if let Some(cell) = unsafe { INPUT_DEVICES.get_mut().get_mut(device_idx) } {
-                    cell.handle_interrupt();
-                }
-            });
-        }
+        info!("Attempting lock on interrupt notifier...");
+
+        INTERRUPT_NOTIFIER.wait().lock().subscribe(irq_id, move || {
+            if let Some(cell) = INPUT_DEVICES.wait().lock().get_mut(device_idx) {
+                cell.handle_interrupt();
+            }
+        });
 
         Some(device_type)
     }

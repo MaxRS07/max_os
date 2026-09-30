@@ -1,3 +1,4 @@
+use log::info;
 use sdt::fdt::FDT;
 
 pub mod handler;
@@ -6,7 +7,9 @@ pub mod notifier;
 pub mod route;
 
 pub fn setup() {
+    info!("Setting S-mode trap handler");
     handler::init_s_trap_handler();
+    info!("S-mode trap handler set");
     notifier::init_notifier();
 }
 

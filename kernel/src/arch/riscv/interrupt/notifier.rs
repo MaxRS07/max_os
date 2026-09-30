@@ -3,15 +3,15 @@ use core::cell::OnceCell;
 use alloc::boxed::Box;
 use collections::hashmap::HashMap;
 use log::info;
-use sync::oncelock::OnceLock;
+use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use crate::arch::riscv::interrupt::route::Trap;
 
-pub static INTERRUPT_NOTIFIER: OnceLock<InterruptNotifier> = OnceLock::new();
+pub static INTERRUPT_NOTIFIER: OnceLock<Mutex<InterruptNotifier>> = OnceLock::new();
 
 pub fn init_notifier() {
     let global_notifier = InterruptNotifier::default();
-    INTERRUPT_NOTIFIER.set(global_notifier);
+    INTERRUPT_NOTIFIER.set(Mutex::new(global_notifier));
 }
 
 pub trait InterruptListener: Send + Sync {
