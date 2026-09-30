@@ -5,6 +5,7 @@ use core::{
 
 use alloc::boxed::Box;
 use log::{debug, info, warn};
+use mem::page_table::asid::ASIDBitmapSV32;
 use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use crate::sched::{process::ProcessTable, scheduler::Scheduler, thread::Thread};
@@ -16,6 +17,8 @@ pub mod queue;
 pub mod scheduler;
 pub mod thread;
 
+/// Global ASID allocator
+pub static ASID_ALLOCATOR: OnceLock<Mutex<ASIDBitmapSV32>> = OnceLock::new();
 /// This is the global thread scheduler
 pub static SCHEDULER: OnceLock<Mutex<Scheduler>> = OnceLock::new();
 /// Global process table
