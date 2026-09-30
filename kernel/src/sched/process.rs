@@ -1,6 +1,9 @@
 // Manages a process
 
-use core::sync::atomic::{AtomicU32, Ordering};
+use core::{
+    ptr::{null, null_mut},
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 use alloc::{boxed::Box, fmt::format, format, string::String, vec::Vec};
 use collections::hashmap::HashMap;
@@ -12,6 +15,7 @@ use mem::page_table::{
 
 use crate::{
     drivers::time::GLOBAL_TIME,
+    kernel_main,
     mm::heap::PAGE_ALLOCATOR,
     sched::{
         ASID_ALLOCATOR, PROCESS_TABLE, SCHEDULER,
@@ -44,8 +48,25 @@ impl Process {
             threads,
         }))
     }
+    /// Creates the kernel process and adds it to the
+    pub fn kernel(main_tid: u32, address_space: AddressSpace) -> Result<u32, ThreadError> {
+        let process = Self::new(
+            String::from("Kernel"),
+            0,
+            address_space,
+            alloc::vec![main_tid],
+        );
+        PROCESS_TABLE
+            .wait()
+            .lock()
+            .insert(0, process)
+            .ok_or(ThreadError::Other(format!(
+                "Failed to insert main process into table"
+            )))?;
+        Ok(0)
+    }
     /// creates a new proces
-    pub fn spawn(name: String, entry: fn()) -> Result<u32, ThreadError> {
+    pub fn spawn(name: String, entry: *const fn()) -> Result<u32, ThreadError> {
         let asid = ASID_ALLOCATOR
             .wait()
             .lock()
@@ -57,16 +78,14 @@ impl Process {
 
         let pid = PID_ALLOCATOR.fetch_add(1, Ordering::Relaxed);
 
-        let thread = Box::into_raw(Box::new(Thread::new(
-            pid,
-            &name,
-            Priority::Normal,
-            entry as usize,
-        )));
-        let process = Self::new(name, pid, addr_space, alloc::vec![thread.id()]);
+        let thread = Thread::new(pid, &name, Priority::Normal, entry as usize);
+        let tid = thread.id();
+        let thread_ptr = Box::into_raw(Box::new(thread));
+
+        let process = Self::new(name, pid, addr_space, alloc::vec![tid]);
 
         PROCESS_TABLE.wait().lock().insert(pid, process);
-        SCHEDULER.wait().lock().schedule(thread);
+        SCHEDULER.wait().lock().schedule(thread_ptr);
         Ok(pid)
     }
     pub fn address_space(&self) -> &AddressSpace {

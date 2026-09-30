@@ -1,14 +1,30 @@
 use core::{
     cell::OnceCell,
+    fmt::Error,
     sync::atomic::{Ordering, fence},
 };
 
-use alloc::boxed::Box;
-use log::{debug, info, warn};
-use mem::page_table::asid::ASIDBitmapSV32;
+use alloc::{boxed::Box, format, vec::Vec};
+use log::{debug, error, info, warn};
+use mem::{
+    error::MemoryError,
+    page_table::{
+        address_space::AddressSpace,
+        asid::{ASID, ASIDBitmapSV32},
+        table::Table,
+    },
+};
 use sync::{mutex::Mutex, oncelock::OnceLock};
 
-use crate::sched::{process::ProcessTable, scheduler::Scheduler, thread::Thread};
+use crate::{
+    mm::heap::PAGE_ALLOCATOR,
+    sched::{
+        error::ThreadError,
+        process::{Process, ProcessTable},
+        scheduler::Scheduler,
+        thread::Thread,
+    },
+};
 
 pub mod context;
 pub mod error;
@@ -25,13 +41,21 @@ pub static SCHEDULER: OnceLock<Mutex<Scheduler>> = OnceLock::new();
 pub static PROCESS_TABLE: OnceLock<Mutex<ProcessTable>> = OnceLock::new();
 
 /// intialize threading globals, setup main thread.
-pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) {
+pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(), ThreadError> {
     SCHEDULER.set(Mutex::new(Scheduler::new()));
     PROCESS_TABLE.set(Mutex::new(ProcessTable::new()));
-    if let Err(error) = Thread::main(stack_top, stack_bottom) {
-        warn!("Failed to setup main thread: {}", error);
+    match Thread::main(stack_top, stack_bottom) {
+        Ok(tid) => {
+            let allocator = PAGE_ALLOCATOR.wait();
+            let table = Table::alloc_empty(allocator)
+                .map_err(|error| ThreadError::Other(format!("{error}")))?;
+            let kspace = AddressSpace::new(allocator, table, ASID::MAIN, Vec::new());
+            Process::kernel(tid, kspace).inspect_err(|err| error!("{err}"))?;
+        }
+        Err(error) => warn!("Failed to setup main thread: {}", error),
     }
     info!("Created main thread");
+    Ok(())
 }
 /// Manually terminates the current thread
 ///
@@ -39,9 +63,7 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) {
 #[macro_export]
 macro_rules! terminate {
     () => {
-        unsafe {
-            crate::sched::SCHEDULER.wait().lock().terminate_running();
-        }
+        crate::sched::SCHEDULER.wait().lock().terminate_running();
     };
 }
 
@@ -49,8 +71,6 @@ macro_rules! terminate {
 #[macro_export]
 macro_rules! yield_thread {
     () => {
-        unsafe {
-            crate::sched::SCHEDULER.wait().lock().yeild_thread();
-        }
+        crate::sched::SCHEDULER.wait().lock().yeild_thread();
     };
 }

@@ -97,11 +97,11 @@ pub struct Thread {
     pub prev: *mut Thread,
 }
 /// records the last used thread id. IDs are assigned incrementally, every id greater than `LAST_ID` is unused
-static LAST_ID: AtomicU32 = AtomicU32::new(0);
+static TID_ALLOCATOR: AtomicU32 = AtomicU32::new(0);
 
 impl Thread {
     /// Returns a preconfigured main thread. Does not have an entry point. Does not allocate stack or tls in memory.
-    pub fn main(stack_top: *const u8, stack_bottom: *const u8) -> Result<(), &'static str> {
+    pub fn main(stack_top: *const u8, stack_bottom: *const u8) -> Result<u32, &'static str> {
         let main = Self {
             pid: 0, // kernel process
             id: 0,  // main thread
@@ -120,14 +120,12 @@ impl Thread {
         };
         let main_box = Box::new(main);
         let main_ptr = Box::into_raw(main_box);
-        unsafe {
-            SCHEDULER.wait().lock().set_running(main_ptr);
-            return Ok(());
-        }
+        SCHEDULER.wait().lock().set_running(main_ptr);
+        return Ok(0);
     }
     pub fn new(pid: u32, name: &str, priority: Priority, entry: usize) -> Self {
         let name = Self::name_from_str(name);
-        let last_id = LAST_ID.load(Ordering::Acquire);
+        let last_id = TID_ALLOCATOR.load(Ordering::Acquire);
         Self {
             pid,
             context: Context::empty(),
@@ -162,13 +160,15 @@ impl Thread {
         let boxed = Box::new(new);
         let box_ptr = Box::into_raw(boxed);
 
-        LAST_ID.store(last_id + 1, Ordering::Release);
-        if unsafe { SCHEDULER.wait().lock().schedule(box_ptr).is_err() } {
-            warn!("Failed to queue thread: '{name}'");
-            let _ = unsafe { Box::from_raw(box_ptr) };
-            return None;
+        let tid = TID_ALLOCATOR.fetch_add(1, Ordering::Release);
+        match SCHEDULER.wait().lock().schedule(box_ptr) {
+            Ok(_) => return Some(tid),
+            Err(err) => {
+                warn!("{err}: Failed to queue thread: '{name}'");
+                let _ = unsafe { Box::from_raw(box_ptr) };
+                return None;
+            }
         }
-        Some(last_id + 1)
     }
     /// Allocates memory and assigns region addresses to self
     fn alloc(&mut self) -> Result<(), &'static str> {
