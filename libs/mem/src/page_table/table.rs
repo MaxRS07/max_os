@@ -64,7 +64,7 @@ impl Table {
             }
         }
 
-        if !root_entry.is_leaf() {
+        if !root_entry.is_valid() {
             let table = Self::alloc_empty(page_allocator)?;
             root_entry.set_addr(table as usize);
             root_entry.set_valid(true);

@@ -28,11 +28,11 @@ impl Scheduler {
         }
     }
     /// called on timer interrupt
+    ///
+    /// Dont call run next directly in case interrupt logic
     pub fn handle_interrupt(
         &mut self,
     ) -> Result<(*mut *mut usize, *mut usize, usize), ThreadError> {
-        let runqueue = &self.queue;
-        debug!("interrupt detected, switching threads: {runqueue:?}");
         // if there is only the running, dont interrupt
         self.run_next()
     }
@@ -62,10 +62,11 @@ impl Scheduler {
 
                 (*next_ready).state = State::Running;
 
-                // Switch context from old running thread to new
                 let old_sp_ptr = &mut (*self.running).context.stack_pointer as *mut *mut usize;
-                let new_sp = (*next_ready).context.stack_pointer;
+                self.set_running(next_ready);
 
+                // Switch context from old running thread to new
+                let new_sp = (*next_ready).context.stack_pointer;
                 let new_satp = Self::get_process(next_ready)?.address_space().satp();
 
                 return Ok((old_sp_ptr, new_sp, new_satp));
@@ -108,7 +109,11 @@ impl Scheduler {
             (*self.running).state = State::Terminated;
             drop(Box::from_raw(self.running));
         }
-        self.run_next();
+        if let Ok((old, new, satp)) = self.run_next() {
+            unsafe {
+                switch_context_impl(old, new, satp);
+            }
+        }
     }
     pub fn canel_id(&mut self, id: u32) -> Result<(), ThreadError> {
         if unsafe { &*self.running }.id() == id {

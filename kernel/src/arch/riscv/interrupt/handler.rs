@@ -17,7 +17,7 @@ use crate::{
     syscall::handle_ecall,
 };
 
-pub const QTICK: u64 = 100_000_000;
+pub const QTICK: u64 = 100_000;
 
 pub fn init_s_trap_handler() {
     let sstatus_sie = 1 << 1;
@@ -73,8 +73,16 @@ unsafe extern "C" fn s_trap_entry() {
         "sw s10, 108(sp)",
         "sw s11, 112(sp)",
         // Call actual handler
+        "csrr t0, sepc",
+        "sw t0, 116(sp)",
+        "csrr t0, sstatus",
+        "sw t0, 120(sp)",
         "call s_trap_handler",
         // Load back saved registers
+        "lw t0, 116(sp)",
+        "csrw sepc, t0",
+        "lw t0, 120(sp)",
+        "csrw sstatus, t0",
         "lw ra,  0(sp)",
         "lw tp,  4(sp)",
         "lw t0,  8(sp)",
@@ -123,14 +131,14 @@ pub extern "C" fn s_trap_handler() {
                         handle_plic_interrupt(notifier.deref_mut())
                     }
                     InterruptCode::SupervisorSoftware => {
-                        if let Some(mut sched) = SCHEDULER.wait().try_lock() {
-                            let Ok((old_sp, new_sp, new_satp)) = sched.handle_interrupt() else {
-                                error!("IDK");
-                                return;
-                            };
-                            switch_context_impl(old_sp, new_sp, new_satp);
-                        }
                         SIP.read_clear(1 << 1);
+                        let run_next = SCHEDULER
+                            .wait()
+                            .try_lock()
+                            .and_then(|mut sched| sched.handle_interrupt().ok());
+                        if let Some((old_sp, new_sp, new_satp)) = run_next {
+                            switch_context_impl(old_sp, new_sp, new_satp);
+                        };
                     }
                     // match int {
                     // }

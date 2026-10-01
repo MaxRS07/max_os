@@ -305,7 +305,7 @@ impl Default for Context {
 /// Loads the entry function into the first arg of the thread wrapper
 #[unsafe(naked)]
 extern "C" fn thread_prolouge() {
-    naked_asm!("mv a0, s0", "tail thread_wrapper")
+    naked_asm!("csrsi sstatus, 2", "mv a0, s0", "tail thread_wrapper")
 }
 /// Wraps the thread entry in a terminating function, disposing the thread after execution
 #[unsafe(no_mangle)]
