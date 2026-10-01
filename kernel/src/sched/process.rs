@@ -5,7 +5,7 @@ use core::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use alloc::{boxed::Box, fmt::format, format, string::String, vec::Vec};
+use alloc::{borrow::ToOwned, boxed::Box, fmt::format, format, string::String, vec::Vec};
 use collections::hashmap::HashMap;
 use mem::page_table::{
     address_space::AddressSpace,
@@ -40,9 +40,9 @@ pub struct Process {
 }
 
 impl Process {
-    fn new(name: String, pid: u32, address_space: AddressSpace, threads: Vec<u32>) -> *mut Self {
+    fn new(name: &str, pid: u32, address_space: AddressSpace, threads: Vec<u32>) -> *mut Self {
         Box::into_raw(Box::new(Self {
-            name,
+            name: name.to_owned(),
             pid,
             address_space,
             threads,
@@ -50,17 +50,12 @@ impl Process {
     }
     /// Creates the kernel process and adds it to the
     pub fn kernel(main_tid: u32, address_space: AddressSpace) -> Result<u32, ThreadError> {
-        let process = Self::new(
-            String::from("Kernel"),
-            0,
-            address_space,
-            alloc::vec![main_tid],
-        );
+        let process = Self::new("Kernel", 0, address_space, alloc::vec![main_tid]);
         PROCESS_TABLE.wait().lock().insert(0, process);
         Ok(0)
     }
     /// creates a new proces
-    pub fn spawn(name: String, entry: *const fn()) -> Result<u32, ThreadError> {
+    pub fn spawn(name: &str, entry: *const fn()) -> Result<u32, ThreadError> {
         let asid = ASID_ALLOCATOR
             .wait()
             .lock()

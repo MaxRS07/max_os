@@ -36,8 +36,16 @@ impl Scheduler {
         // if there is only the running, dont interrupt
         self.run_next()
     }
-    /// Manually pauses the running thread
-    pub fn yield_thread() {}
+    /// Manually requeues the running thread and starts the next ready thread
+    ///
+    /// Unrestricted, works on kernel thread and main thread
+    pub fn yield_thread(&self) {
+        if let Ok((old, new, satp)) = self.run_next() {
+            unsafe {
+                switch_context_impl(old, new, satp);
+            }
+        }
+    }
     pub fn set_running(&mut self, thread: *mut Thread) {
         self.running = thread;
     }

@@ -24,6 +24,7 @@ unsafe extern "C" {
     pub unsafe static _tbss_end: usize;
 }
 
+#[repr(usize)]
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Default)]
 pub enum Priority {
     /// Reserved for critical hardware drivers (e.g., UART, Disk Interrupts)
@@ -37,6 +38,17 @@ pub enum Priority {
     Background = 3,
     /// lowest priority (system is idle)
     Idle = 4,
+}
+impl From<usize> for Priority {
+    fn from(value: usize) -> Self {
+        match value {
+            0 => Self::RealTime,
+            1 => Self::High,
+            2 => Self::Normal,
+            3 => Self::Background,
+            4 => Self::Idle,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

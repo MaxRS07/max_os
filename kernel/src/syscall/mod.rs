@@ -16,6 +16,9 @@ mod error;
 mod fs;
 mod mem;
 mod op;
+mod process;
+mod thread;
+
 /// top 8 bits for identifing the call type
 const SYSCALL_MASK: usize = 0xFF << (usize::BITS - 8);
 /// lower 24 for function routing
