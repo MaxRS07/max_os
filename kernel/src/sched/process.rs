@@ -78,8 +78,14 @@ impl Process {
 
         let process = Self::new(name, pid, addr_space, alloc::vec![tid]);
 
-        PROCESS_TABLE.wait().lock().insert(pid, process);
-        SCHEDULER.wait().lock().schedule(thread_ptr);
+        PROCESS_TABLE
+            .wait()
+            .lock()
+            .insert(pid, process)
+            .ok_or(ThreadError::Other(format!(
+                "Failed to insert process with id {pid} into table, already exists"
+            )));
+        SCHEDULER.wait().lock().schedule(thread_ptr)?;
         Ok(pid)
     }
     pub fn address_space(&self) -> &AddressSpace {
@@ -87,6 +93,23 @@ impl Process {
     }
     pub fn contains_thread(&self, tid: u32) -> bool {
         self.threads.contains(&tid)
+    }
+    /// adds a new thread id to this thread's owned TIDs. If the thread ID is already present, returns [`Some`], returns [`None`] if the assignment was successful
+    pub fn assign_thread(&mut self, tid: u32) -> Option<()> {
+        if self.threads.contains(&tid) {
+            return None;
+        }
+        self.threads.push(tid);
+        Some(())
+    }
+    /// Removes a thread with the id `tid` from this process. Returns [`Some`] if the removal was successful or [`None`] if the process doesnt own `tid`
+    pub fn remove_thread(&mut self, tid: u32) -> Option<usize> {
+        if !self.threads.contains(&tid) {
+            return None;
+        }
+        self.threads.iter().position(|t| *t == tid).inspect(|idx| {
+            self.threads.remove(*idx);
+        })
     }
 }
 

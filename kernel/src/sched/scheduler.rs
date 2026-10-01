@@ -71,6 +71,7 @@ impl Scheduler {
     }
     /// Enqueues `thread`, scheduling it to be run
     pub fn schedule(&mut self, thread: *mut Thread) -> Result<(), ThreadError> {
+        Self::process_mut(thread)?.assign_thread(unsafe { (*thread).id() });
         self.queue.enque(thread)
     }
     /// Removes and deallocates the `Thread` pointed to by `thread`. Cancelling the running thread is effectively identical to [`Self::run_next`] but discards [`Self::running`] instead of requeuing it
@@ -115,8 +116,16 @@ impl Scheduler {
                 "Failed to find thread with the specified id".to_owned(),
             ))
     }
-    /// Pauses the current thread for `ms` milliseconds
+    // Pauses the current thread for `ms` milliseconds
     // pub fn sleep(&mut self, ms: u64) {} TODO
+    pub fn current_pid(&self) -> Result<u32, ThreadError> {
+        if self.running.is_null() {
+            return Err(ThreadError::Other(
+                "Attempt to access null thread".to_owned(),
+            ));
+        }
+        Ok((unsafe { &*self.running }).pid)
+    }
     /// Returns the process that owns the current thread
     pub fn get_process<'a>(thread: *mut Thread) -> Result<&'a Process, ThreadError> {
         PROCESS_TABLE

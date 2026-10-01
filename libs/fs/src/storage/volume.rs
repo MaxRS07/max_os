@@ -113,13 +113,11 @@ where
                 .ok_or_else(|| FSError::Type("Expected directory".to_string()))?;
             let inode = self.io.read_inode_address(inode_addr)?;
 
-            let children = self
+            let mut children = self
                 .io
                 .children_inode(current_header, current_sector, inode)?;
 
-            let found = self
-                .io
-                .children_inode(current_header, current_sector, inode)?
+            let found = children
                 .find(|child| child.value().name().is_ok_and(|name| name == component))
                 .map(|child| child.addr());
 
@@ -343,7 +341,7 @@ impl<'a> Volume<'a> for FSVolume<'a> {
         todo!()
     }
 }
-trait Volume<'a> {
+pub trait Volume<'a> {
     fn resolve_path(&mut self, path: &FSPath) -> Result<FSHeaderSector, FSError>;
     fn get_fileobj<'v>(&'v mut self, path: &FSPath) -> Result<FileObject<'v, 'a>, FSError>;
     fn children<'v>(&'v mut self, path: &FSPath) -> Result<DirContents<'v, 'a>, FSError>;

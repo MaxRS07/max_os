@@ -3,7 +3,7 @@ use core::{
     sync::atomic::{Ordering, fence},
 };
 
-use crate::arch::riscv::csr::Csr::SCAUSE;
+use crate::arch::riscv::csr::Csr::{MCAUSE, SCAUSE};
 
 const CAUSE_MASK: usize = 1 << (usize::BITS - 1);
 const EXCEPTION_MASK: usize = !CAUSE_MASK;
@@ -105,13 +105,20 @@ impl From<usize> for ExceptionCode {
 
 /// Parses the trap type from the mcause register
 /// # Safety
-pub unsafe fn parse_scause() -> Trap {
-    let scause = unsafe { SCAUSE.read() };
+pub unsafe fn parse_cause(cause: usize) -> Trap {
     fence(Ordering::SeqCst);
-    let reason = scause & CAUSE_MASK; // signficant bit, 1 = interrupt, 0 = exception
-    let code = scause & EXCEPTION_MASK; // select the lower bytes for code
+    let reason = cause & CAUSE_MASK; // signficant bit, 1 = interrupt, 0 = exception
+    let code = cause & EXCEPTION_MASK; // select the lower bytes for code
     match reason {
         0 => Trap::Exception(ExceptionCode::from(code)),
         _ => Trap::Interrupt(InterruptCode::from(code)),
     }
+}
+
+pub unsafe fn parse_scause() -> Trap {
+    unsafe { parse_cause(SCAUSE.read()) }
+}
+
+pub unsafe fn parse_mcause() -> Trap {
+    unsafe { parse_cause(MCAUSE.read()) }
 }

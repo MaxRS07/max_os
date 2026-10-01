@@ -1,11 +1,12 @@
 use sdt::fdt::FDT;
 
 pub mod handler;
+pub mod machine;
 pub mod notifier;
 pub mod route;
 
 pub fn setup() {
-    handler::init_trap_handler();
+    handler::init_s_trap_handler();
     notifier::init_notifier();
 }
 
@@ -14,7 +15,6 @@ pub fn set_interrupt_priority(fdt: &FDT, device_id: u32, priority: u32) {
         let plic_base = fdt.plic.base_address;
 
         let priority_reg = (plic_base + (device_id as usize * 4)) as *mut u32;
-        let addr = priority_reg.addr();
         priority_reg.write_volatile(priority);
 
         let enable_reg_offset = 0x2000 + ((device_id as usize / 32) * 4);

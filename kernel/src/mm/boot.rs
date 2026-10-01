@@ -19,7 +19,7 @@ const RX: usize = 0b1011;
 // read + write + execute
 const RWX: usize = 0b1111;
 
-fn map_boot_pages(root_ptr: *mut Table) -> Result<(), MemoryError> {
+pub fn map_boot_pages(root_ptr: *mut Table) -> Result<(), MemoryError> {
     debug!("Mapping regions");
     // identity mappings
     if let Some(fdt) = GLOBAL_FDT.get() {
@@ -67,9 +67,9 @@ pub fn map_region_identity(
 ) -> Result<(), MemoryError> {
     let virt_addr = region.base_address;
     let offset_size = if flags & Table::MEGAPAGE != 0 {
-        0 // MEGATABLE_SIZE
+        0x400_000 // MEGATABLE_SIZE
     } else {
-        0 // LEAF_SIZE
+        0x1000 // LEAF_SIZE
     };
     let page_count = region.size.div_ceil(offset_size);
     for i in 0..page_count {

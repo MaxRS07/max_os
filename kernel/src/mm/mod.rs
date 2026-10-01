@@ -4,14 +4,16 @@ use core::sync::atomic::{compiler_fence, fence};
 
 use log::{debug, info, warn};
 
+use mem::page_table::table::Table;
 use sdt::fdt::{FDT, GLOBAL_FDT};
 
 use crate::drivers::time::start_system_clock;
-use crate::mm::heap::setup_boot_mem;
+use crate::mm::boot::map_boot_pages;
+use crate::mm::heap::{PAGE_ALLOCATOR, setup_boot_mem};
 use crate::{console, println};
 
+pub mod boot;
 pub mod heap;
-pub mod page_table;
 
 // declare boot stack addresses
 unsafe extern "C" {

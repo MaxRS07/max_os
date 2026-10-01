@@ -13,13 +13,14 @@ pub mod syscall;
 
 use core::{arch::global_asm, panic};
 
-use log::{Level::Debug, debug, info, warn};
+use log::{Level::Debug, debug, error, info, warn};
 use sdt::fdt::GLOBAL_FDT;
 
 use crate::{
     arch::riscv::{self, interrupt::handler::schedule_interrupt_timer},
     drivers::block::BLOCK_DEVICE,
     mm::{_boot_stack_bottom, _boot_stack_top},
+    sched::{process::Process, thread::Thread},
 };
 
 global_asm!(include_str!("boot.s"));
@@ -60,8 +61,17 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
         let stack_top = _boot_stack_top as *const u8;
         let stack_bottom = _boot_stack_bottom as *const u8;
         info!("Loaded stack");
-        sched::init_scheduler(stack_top, stack_bottom);
+        if let Err(msg) = sched::init_scheduler(stack_top, stack_bottom) {
+            error!("{msg}");
+        }
         info!("Scheduler initialized");
+        if Thread::spawn_local("Thread_A", thread_a_entry as *const fn() as usize).is_some()
+            && Thread::spawn_local("Thread_B", thread_b_entry as *const fn() as usize).is_some()
+        {
+            info!("starting threads A and B")
+        } else {
+            warn!("Failed to start thread A or B")
+        }
     }
     // enable hardware timer
     loop {
@@ -69,4 +79,23 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
             core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
         }
     }
+}
+
+fn thread_a_entry() {
+    info!("Thread A: Counting to 1 million!");
+    for i in 0..1_000_000 {
+        if i % 100_000 == 0 {
+            info!("Thread A at {i}")
+        }
+    }
+    info!("Thread A: Done!");
+}
+fn thread_b_entry() {
+    info!("Thread B: Counting to 1 million!");
+    for i in 0..1_000_000 {
+        if i % 100_000 == 0 {
+            info!("Thread B at {i}")
+        }
+    }
+    info!("Thread B: Done!");
 }

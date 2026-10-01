@@ -170,6 +170,11 @@ impl Thread {
             }
         }
     }
+    /// Tries to spawn a new thread under the current running process
+    pub fn spawn_local(name: &str, entry: usize) -> Option<u32> {
+        let pid = SCHEDULER.wait().lock().current_pid().ok()?;
+        Thread::spawn(pid, name, Priority::Normal, entry)
+    }
     /// Allocates memory and assigns region addresses to self
     fn alloc(&mut self) -> Result<(), &'static str> {
         // Calculte TSS size using pointers, then copy it to start pointer

@@ -6,10 +6,10 @@ use sdt::fdt::{self, FDT, GLOBAL_FDT};
 
 use crate::{
     arch::riscv::{
-        csr::Csr::{MIE, MSTATUS, MTVEC, SEPC, SIE, SSTATUS, STVAL, STVEC},
+        csr::Csr::{MIE, MSTATUS, MTVEC, SEPC, SIE, SIP, SSTATUS, STVAL, STVEC},
         interrupt::{
             notifier::{INTERRUPT_NOTIFIER, InterruptNotifier},
-            route::{ExceptionCode, InterruptCode, Trap, parse_scause},
+            route::{ExceptionCode, InterruptCode, Trap, parse_cause, parse_scause},
         },
     },
     drivers::time::GLOBAL_TIME,
@@ -17,17 +17,17 @@ use crate::{
     syscall::handle_ecall,
 };
 
-const QTICK: u64 = 100_000_000;
+pub const QTICK: u64 = 100_000_000;
 
-pub fn init_trap_handler() {
+pub fn init_s_trap_handler() {
+    let sie_stie = 1 << 0;
     let sstatus_mie = 1 << 3;
-    let sie_stie = 1 << 7;
-    let sie_meie = 1 << 11;
+    let sie_meie = 1 << 9;
     let sie_mask = sie_stie | sie_meie;
 
     schedule_interrupt_timer(u64::MAX); // max out timer to prevent timer irq before handler
 
-    let trap_target = (trap_entry as *const () as usize) & !0x3;
+    let trap_target = (s_trap_entry as *const () as usize) & !0x3;
 
     unsafe {
         STVEC.write(trap_target);
@@ -40,7 +40,7 @@ pub fn init_trap_handler() {
 #[unsafe(no_mangle)]
 /// Execeuted on interuppt.
 /// `handler_addr`: function address for trap handling
-unsafe extern "C" fn trap_entry() {
+unsafe extern "C" fn s_trap_entry() {
     // save registers
     naked_asm!(
         // Create 128 byte region for register saving
@@ -75,7 +75,7 @@ unsafe extern "C" fn trap_entry() {
         "sw s10, 108(sp)",
         "sw s11, 112(sp)",
         // Call actual handler
-        "call rust_trap_handler",
+        "call s_trap_handler",
         // Load back saved registers
         "lw ra,  0(sp)",
         "lw tp,  4(sp)",
@@ -114,7 +114,7 @@ unsafe extern "C" fn trap_entry() {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn rust_trap_handler() {
+pub extern "C" fn s_trap_handler() {
     unsafe {
         if let Some(notifier) = INTERRUPT_NOTIFIER.get_mut() {
             let cause = parse_scause();
@@ -122,10 +122,8 @@ pub extern "C" fn rust_trap_handler() {
                 Trap::Interrupt(int) => {
                     match int {
                         InterruptCode::MachineExternal => handle_plic_interrupt(notifier),
-                        InterruptCode::MachineTimer => {
-                            if let Some(mut sched) = SCHEDULER.wait().try_lock() {
-                                sched.handle_interrupt()
-                            }
+                        InterruptCode::SupervisorSoftware => {
+                            SIP.read_clear(1 << 1);
                             schedule_interrupt_timer(QTICK);
                         }
                         // match int {
@@ -136,10 +134,6 @@ pub extern "C" fn rust_trap_handler() {
                 Trap::Exception(exception) => match exception {
                     ExceptionCode::EnvCallFromUMode => handle_ecall(),
                     _ => {
-                        // There's no fixup/demand-paging path for any other
-                        // exception, so resuming at the same sepc can never
-                        // make progress - sret would just re-trap on the same
-                        // instruction forever. Fail loudly instead.
                         let sepc = SEPC.read();
                         let stval = STVAL.read();
                         panic!(

@@ -10,14 +10,14 @@ use mem::{
     error::MemoryError,
     page_table::{
         address_space::AddressSpace,
-        asid::{ASID, ASIDBitmapSV32},
+        asid::{ASID, ASIDBitmapSV32, MAX_ASID},
         table::Table,
     },
 };
 use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use crate::{
-    mm::heap::PAGE_ALLOCATOR,
+    mm::{boot::map_boot_pages, heap::PAGE_ALLOCATOR},
     sched::{
         error::ThreadError,
         process::{Process, ProcessTable},
@@ -42,6 +42,7 @@ pub static PROCESS_TABLE: OnceLock<Mutex<ProcessTable>> = OnceLock::new();
 
 /// intialize threading globals, setup main thread.
 pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(), ThreadError> {
+    ASID_ALLOCATOR.set(Mutex::new(ASIDBitmapSV32::new([0; 8], MAX_ASID as usize)));
     SCHEDULER.set(Mutex::new(Scheduler::new()));
     PROCESS_TABLE.set(Mutex::new(ProcessTable::new()));
     match Thread::main(stack_top, stack_bottom) {
@@ -49,6 +50,9 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
             let allocator = PAGE_ALLOCATOR.wait();
             let table = Table::alloc_empty(allocator)
                 .map_err(|error| ThreadError::Other(format!("{error}")))?;
+            if let Err(msg) = map_boot_pages(table) {
+                error!("{msg}")
+            }
             let kspace = AddressSpace::new(allocator, table, ASID::MAIN, Vec::new());
             Process::kernel(tid, kspace).inspect_err(|err| error!("{err}"))?;
         }

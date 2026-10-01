@@ -9,12 +9,13 @@ use log::{debug, error, info, warn};
 use mem::{
     allocator::{bump::BumpAllocator, linked_list::LinkedListAllocator},
     error::MemoryError,
-    page_table::page_alloc::PageAllocator,
+    page_table::{page_alloc::PageAllocator, table::Table},
 };
 use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use crate::mm::{
     BOOT_HEAP_SIZE,
+    boot::map_boot_pages,
     heap::{kalloc::ALLOCATOR, state::AllocatorState},
 };
 
@@ -34,7 +35,6 @@ unsafe extern "C" {
 }
 
 pub fn setup_boot_mem() {
-    // I HAve no idea how big this is supposed to be yet
     BOOT_ALLOCATOR.set(Mutex::new(BumpAllocator::new(
         &raw const _end as usize,
         BOOT_HEAP_SIZE,

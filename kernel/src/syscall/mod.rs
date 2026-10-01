@@ -57,7 +57,7 @@ impl Syscall {
 }
 
 fn route_call(value: usize) -> Result<Syscall, SyscallError> {
-    let call_type = value & SYSCALL_MASK >> (usize::BITS - 8);
+    let call_type = (value & SYSCALL_MASK) >> (usize::BITS - 8);
     let fn_type = value & FN_MASK;
     Syscall::from_call_fn(call_type, fn_type)
 }
