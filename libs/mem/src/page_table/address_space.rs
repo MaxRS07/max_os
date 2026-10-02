@@ -97,6 +97,19 @@ impl VirtualRegion {
     pub fn contains_virtual_address(&self, virt_addr: usize) -> bool {
         self.virt_addr <= virt_addr && virt_addr <= self.end()
     }
+    /// Merges this region with `next` if the merge is possible, mutating self's page count
+    pub fn merge_next(&mut self, next: Self) -> bool {
+        if self.megatable == next.megatable
+            && self.backing == next.backing
+            && self.perms == next.perms
+            && self.phys_addr + self.size() + 1 == next.phys_addr
+            && self.virt_addr + self.size() + 1 == next.virt_addr
+        {
+            self.pages += next.pages;
+            return true;
+        }
+        false
+    }
     /// Returns virtual address `virt_addr` to its corresponding physical address. Resturns `MemoryError` if the virtual address is not contained within the region
     pub fn translate(&self, virt_addr: usize) -> Result<usize, MemoryError> {
         if !self.contains_virtual_address(virt_addr) {
@@ -142,6 +155,33 @@ impl AddressSpace {
         let root_ptr = Table::alloc_empty(page_allocator)?;
         Ok(Self::new(page_allocator, root_ptr, asid, Vec::new()))
     }
+    fn insert_region(&mut self, region: VirtualRegion) -> Result<(), MemoryError> {
+        match self
+            .regions
+            .binary_search_by(|reg| reg.virt_addr.cmp(&region.virt_addr))
+        {
+            // this should probably never happen. maybe merge lengths here but idk
+            Ok(_) => Err(MemoryError::AccessViolation(
+                "Failed to insert region, already mapped",
+            )),
+            Err(idx) => {
+                self.regions.insert(idx, region);
+                Ok(())
+            }
+        }
+    }
+    /// Merges owned regions with identical configurations
+    fn merge_regions(&mut self) {
+        // lookahead + merge
+        for i in 0..self.regions.len() - 1 {
+            let region = self.regions[i];
+            let next = self.regions[i + 1];
+
+            if region.merge_next(next_reg) {
+                self.regions.remove(i + 1);
+            }
+        }
+    }
 }
 
 impl Addresser for AddressSpace {
@@ -175,14 +215,14 @@ impl Addresser for AddressSpace {
             let right_pages = region.pages.saturating_sub(left_pages + num_pages);
 
             if left_pages > 0 {
-                self.regions.push(VirtualRegion {
+                self.insert_region(VirtualRegion {
                     pages: left_pages,
                     ..region
                 });
             }
 
             if right_pages > 0 {
-                self.regions.push(VirtualRegion {
+                self.insert_region(VirtualRegion {
                     virt_addr: end + 0x1000,
                     phys_addr: region.phys_addr + (left_pages + num_pages) * 0x1000,
                     pages: right_pages,
@@ -226,11 +266,6 @@ impl Addresser for AddressSpace {
             self.regions.push(virt_region);
         }
         Ok(())
-    }
-    fn insert_region(&mut self, region: VirtualRegion)
-    /// Merges owned regions with identical configurations
-    fn merge_regions(&mut self) {
-
     }
 
     fn asid(&self) -> ASID {

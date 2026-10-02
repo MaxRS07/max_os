@@ -1,6 +1,7 @@
 // Manages a process
 
 use core::{
+    ops::Div,
     ptr::{null, null_mut},
     sync::atomic::{AtomicU32, Ordering},
 };
@@ -121,6 +122,8 @@ impl Process {
     }
 
     /* Address Space Helpers */
+
+    /// Maps `size` bytes to this process's address space.
     pub fn map_size(
         &mut self,
         virt_addr: usize,
@@ -129,11 +132,14 @@ impl Process {
         flags: usize,
         perms: PagePermissions,
     ) -> Result<(), mem::error::MemoryError> {
-        self.address_space.map_pages(virt_addr, size, flags, perms)
+        let pages = size.div_ceil(0x1000);
+        self.address_space.map_pages(virt_addr, size, pages, perms)
     }
-
+    /// Unmaps `size` from this process's address space beggining at `virt_addr`
     pub fn unmap_size(&mut self, virt_addr: usize, size: usize) {
-        self.address_space.unmap_pages(virt_addr)
+        // convert bytes to pages here to reduce sysop overhead
+        let pages = size.div_ceil(0x1000);
+        self.address_space.unmap_pages(virt_addr, pages);
     }
 }
 

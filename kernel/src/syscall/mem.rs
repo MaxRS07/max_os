@@ -1,6 +1,9 @@
+use log::error;
+use mem::{error::MemoryError, page_table::permissions::PagePermissions};
+
 use crate::{
     sched::{PROCESS_TABLE, SCHEDULER},
-    syscall::op::SysOp,
+    syscall::{context::KernelContext, op::SysOp},
 };
 
 pub enum MemOp {
@@ -10,13 +13,16 @@ pub enum MemOp {
     ///
     /// * `virt_addr` - Target virtual memory address to map.
     /// * `size` - Size of the mapping in bytes.
-    /// * `phys_addr` - Source physical address to map, or `0` / `null` to let the kernel allocate physical pages.
+    /// * `phys_addr` - Source physical address to map, or `0` to let the kernel allocate physical pages.
+    /// * `flags` - Page flags
+    /// * `perms` - Page permissions; `0`: Read, `1`: Write, `2`: Execute, 3: `User`
     Map,
     /// Unmaps a virtual memory region from this process, freeing the physical addresses
     ///
     /// ## Args
     ///
-    /// * `virt_addr` - Target virtual memory address to map.
+    /// * `virt_addr` - Target virtual memory address to unmap.
+    /// * `size` - The number of bytes to unmap
     Unmap,
     Lock,
     Unlock,
@@ -26,22 +32,64 @@ impl SysOp for MemOp {
     fn call(&self, ktx: &mut super::context::KernelContext, args: super::SyscallArgs) {
         match self {
             Self::Map => {
-                if let Some(process) = ktx.process() {
-                    process
+                let (virt_addr, size, phys_addr, flags, perms, ..) = args;
+                match mmap(ktx, virt_addr, size, phys_addr, flags, perms) {
+                    Ok(_) => unsafe {
+                        // write ok
+                        core::arch::asm!("mv a0, x0");
+                    },
+                    Err(err) => unsafe {
+                        error!("{err}");
+                        core::arch::asm!("li a0, -1");
+                    },
                 }
-
             }
+            Self::Unmap => {
+                let (virt_addr, size, ..) = args;
+                match mmap(ktx, virt_addr, size, phys_addr, flags, perms) {
+                    Ok(_) => unsafe {
+                        // write ok
+                        core::arch::asm!("mv a0, x0");
+                    },
+                    Err(err) => unsafe {
+                        error!("{err}");
+                        core::arch::asm!("li a0, -1");
+                    },
+                }
+            }
+            Self::Lock => {}
+            Self::Unlock => {}
         }
-        
     }
 }
 
 /// Allocates `size` bytes of memory and maps
-fn mmap(virt_addr: usize, size: usize, phys_addr: usize) {
-    if let Ok(process) = 
+fn mmap(
+    ktx: &mut KernelContext,
+    virt_addr: usize,
+    size: usize,
+    phys_addr: usize,
+    flags: usize,
+    perms: usize,
+) -> Result<(), MemoryError> {
+    if let Some(process) = ktx.process() {
+        let perms = PagePermissions::from(perms as u8);
+        return process.map_size(virt_addr, size, phys_addr, flags, perms);
+    }
+    Err(MemoryError::AccessViolation(
+        "Failed to retrive current process",
+    ))
 }
 
-fn munmap() {}
+fn munmap(ktx: &mut KernelContext, virt_addr: usize, size: usize) -> Result<(), MemoryError> {
+    if let Some(process) = ktx.process() {
+        process.unmap_size(virt_addr, size);
+        return Ok(());
+    }
+    Err(MemoryError::AccessViolation(
+        "Failed to retrive current process",
+    ))
+}
 
 /// Locks pages
 fn mlock() {}
