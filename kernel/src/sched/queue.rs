@@ -3,7 +3,7 @@ use core::{
     ptr::{null, null_mut},
 };
 
-use alloc::{borrow::ToOwned, collections::LinkedList};
+use alloc::{borrow::ToOwned, boxed::Box, collections::LinkedList};
 
 use crate::sched::{
     error::ThreadError,
@@ -147,18 +147,37 @@ impl RunQueue {
         unsafe { Ok(&mut *thread) }
     }
     /// removes the first entry matching the predicate
-    pub fn remove_where<F>(&mut self, predicate: F) -> Option<()>
+    pub fn remove_first<F>(&mut self, predicate: F) -> Option<()>
     where
         F: Fn(&Thread) -> bool,
     {
         for thread in self.iter() {
             unsafe {
                 if predicate(&*thread) {
-                    return self.remove(thread).ok().map(|_| ());
+                    self.remove(thread).ok().map(|_| ());
+                    drop(Box::from_raw(thread));
+                    return Some(());
                 }
             }
         }
         None
+    }
+    /// removes all elements matching `predicate`. Returns the number of elements removed
+    pub fn remove_where<F>(&mut self, predicate: F) -> usize
+    where
+        F: Fn(&Thread) -> bool,
+    {
+        let mut count = 0;
+        for thread in self.iter() {
+            unsafe {
+                if predicate(&*thread) {
+                    self.remove(thread).ok().map(|_| ());
+                    drop(Box::from_raw(thread));
+                    count += 1;
+                }
+            }
+        }
+        return count;
     }
     pub fn iter(&mut self) -> QueueIterator {
         QueueIterator { next: self.head }

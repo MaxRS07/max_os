@@ -168,7 +168,7 @@ impl Table {
             ))
         }
     }
-    /// unmaps consecutive virtual regions
+    /// unmaps `size` consecutive virtual regions
     pub fn unmap_size(
         &mut self,
         page_allocator: &dyn Pager,

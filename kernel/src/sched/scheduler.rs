@@ -1,7 +1,10 @@
-use core::ptr::null_mut;
+use core::{
+    ptr::null_mut,
+    sync::atomic::{AtomicPtr, Ordering},
+};
 
 use alloc::{borrow::ToOwned, boxed::Box, collections::btree_map::IterMut, format};
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use mem::page_table::address_space::Addresser;
 use sync::{mutex::Mutex, oncelock::OnceLock};
 
@@ -13,6 +16,8 @@ use crate::sched::{
     queue::RunQueue,
     thread::{State, Thread},
 };
+
+pub static CURRENT_PROCESS: AtomicPtr<Process> = AtomicPtr::new(null_mut());
 
 /// Ochestrates multiple thread queues, schedules CPU time per process
 pub struct Scheduler {
@@ -39,7 +44,7 @@ impl Scheduler {
     /// Manually requeues the running thread and starts the next ready thread
     ///
     /// Unrestricted, works on kernel thread and main thread
-    pub fn yield_thread(&self) {
+    pub fn yield_thread(&mut self) {
         if let Ok((old, new, satp)) = self.run_next() {
             unsafe {
                 switch_context_impl(old, new, satp);
@@ -47,6 +52,11 @@ impl Scheduler {
         }
     }
     pub fn set_running(&mut self, thread: *mut Thread) {
+        let process_ptr = Self::process_mut(thread).unwrap_or_else(|err| {
+            error!("Failed to set running process: {err}");
+            null_mut()
+        });
+        CURRENT_PROCESS.store(process_ptr, Ordering::Release);
         self.running = thread;
     }
     /// Interrupts the running thread and attempts to requeue it with the next available thread.
@@ -84,7 +94,9 @@ impl Scheduler {
     }
     /// Enqueues `thread`, scheduling it to be run
     pub fn schedule(&mut self, thread: *mut Thread) -> Result<(), ThreadError> {
-        Self::process_mut(thread)?.assign_thread(unsafe { (*thread).id() });
+        unsafe {
+            (*Self::process_mut(thread)?).assign_thread((*thread).id());
+        }
         self.queue.enque(thread)
     }
     /// Removes and deallocates the `Thread` pointed to by `thread`. Cancelling the running thread is effectively identical to [`Self::run_next`] but discards [`Self::running`] instead of requeuing it
@@ -128,7 +140,7 @@ impl Scheduler {
             return self.canel_thread(self.running);
         }
         self.queue
-            .remove_where(|thread| thread.id() == id)
+            .remove_first(|thread| thread.id() == id)
             .ok_or(ThreadError::Other(
                 "Failed to find thread with the specified id".to_owned(),
             ))
@@ -143,6 +155,15 @@ impl Scheduler {
         }
         Ok((unsafe { &*self.running }).pid)
     }
+    /// Kills the process with the given PID, deallocating its address space and child threads
+    pub fn kill_pid(&mut self, pid: u32) -> Option<()> {
+        let process = PROCESS_TABLE.wait().lock().remove(&pid)?;
+        unsafe {
+            self.queue
+                .remove_where(|thread| (*process).contains_thread(thread.id()));
+        }
+        None
+    }
     /// Returns the process that owns the current thread
     pub fn get_process<'a>(thread: *mut Thread) -> Result<&'a Process, ThreadError> {
         PROCESS_TABLE
@@ -155,12 +176,11 @@ impl Scheduler {
             ))
     }
     /// Mutable ref to the process that owns the thread. This operation is locking.
-    pub fn process_mut<'a>(thread: *mut Thread) -> Result<&'a mut Process, ThreadError> {
+    pub fn process_mut<'a>(thread: *mut Thread) -> Result<*mut Process, ThreadError> {
         PROCESS_TABLE
             .wait()
             .lock()
             .get(unsafe { &(*thread).pid })
-            .map(|ptr| unsafe { &mut *ptr })
             .ok_or(ThreadError::Other(
                 "Failed to retrive parent process, invalid PID".to_owned(),
             ))

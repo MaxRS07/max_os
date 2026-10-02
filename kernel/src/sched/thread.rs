@@ -46,7 +46,7 @@ impl From<usize> for Priority {
             1 => Self::High,
             2 => Self::Normal,
             3 => Self::Background,
-            4 => Self::Idle,
+            _ => Self::Idle,
         }
     }
 }

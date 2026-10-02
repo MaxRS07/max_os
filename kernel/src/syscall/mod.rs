@@ -5,7 +5,10 @@ use log::warn;
 use crate::{
     drivers::time::GLOBAL_TIME,
     fs::GLOBAL_FS,
-    syscall::{com::ComOp, context::KernelContext, error::SyscallError, fs::FsOp, op::SysOp},
+    syscall::{
+        com::ComOp, context::KernelContext, error::SyscallError, fs::FsOp, op::SysOp,
+        process::ProcessOp, thread::ThreadOp,
+    },
 };
 
 mod com;
@@ -37,6 +40,8 @@ enum Syscall {
     FileSystem(FsOp),
     /// allocation
     Memory,
+    Thread(ThreadOp),
+    Process(ProcessOp),
 }
 
 impl SysOp for Syscall {
@@ -70,7 +75,7 @@ pub fn handle_ecall() {
         warn!("Failed to get GLOBAL_FS instance");
         return;
     };
-    let ktx = KernelContext::new(&mut fs);
+    let ktx = KernelContext::new();
     let mut id = 0usize;
     let args = load_args(&mut id);
     match route_call(id) {

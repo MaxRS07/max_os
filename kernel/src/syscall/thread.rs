@@ -1,3 +1,5 @@
+use log::error;
+
 use crate::{
     sched::{
         SCHEDULER,
@@ -29,15 +31,34 @@ impl SysOp for ThreadOp {
     fn call(&self, ktx: super::context::KernelContext, args: super::SyscallArgs) {
         match self {
             Self::Spawn => {
-                let (pid, name, name_len, priority, entry, ..) = args;
+                let (pid, name, name_len, priority, entry, out_addr, ..) = args;
+                let out_ptr = out_addr as *mut u32;
                 let name_str = unsafe { str_from_args(name, name_len) };
-                let id = Thread::spawn(pid as u32, name_str, Priority::from(priority), entry)?;
-                unsafe { core::arch::asm!("mv a0, {}" in(reg) id) }
+                if let Some(id) = Thread::spawn(
+                    pid as u32,
+                    name_str.as_str(),
+                    Priority::from(priority),
+                    entry,
+                ) {
+                    // exit ok (0)
+                    unsafe {
+                        core::arch::asm!("mv a0, x0");
+                        core::ptr::write(out_ptr, id);
+                    }
+                } else {
+                    // Exit with error (-1)
+                    unsafe { core::arch::asm!("li a0, -1") }
+                }
             }
             Self::Cancel => {
                 let (id, ..) = args;
-                SCHEDULER.wait().lock().canel_id(id as u32);
-                unsafe { core::arch::asm!("mv a0, {}", in(reg) id) }
+                match SCHEDULER.wait().lock().canel_id(id as u32) {
+                    Ok(_) => unsafe { core::arch::asm!("mv a0, x0") },
+                    Err(msg) => unsafe {
+                        core::arch::asm!("li a0, -1");
+                        error!("{msg}")
+                    },
+                }
             }
             Self::Yield => SCHEDULER.wait().lock().yield_thread(),
         }

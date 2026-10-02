@@ -5,11 +5,15 @@ use core::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-use alloc::{borrow::ToOwned, boxed::Box, fmt::format, format, string::String, vec::Vec};
+use alloc::{
+    borrow::ToOwned, boxed::Box, collections::BTreeSet, fmt::format, format, string::String,
+    vec::Vec,
+};
 use collections::hashmap::HashMap;
 use mem::page_table::{
-    address_space::AddressSpace,
+    address_space::{AddressSpace, Addresser},
     asid::{ASID, ASIDAllocator},
+    permissions::PagePermissions,
     table::Table,
 };
 
@@ -36,11 +40,11 @@ pub struct Process {
     /// address space that this process operates in
     address_space: AddressSpace,
     /// list of thread IDs owned by this process
-    threads: Vec<u32>,
+    threads: BTreeSet<u32>,
 }
 
 impl Process {
-    fn new(name: &str, pid: u32, address_space: AddressSpace, threads: Vec<u32>) -> *mut Self {
+    fn new(name: &str, pid: u32, address_space: AddressSpace, threads: BTreeSet<u32>) -> *mut Self {
         Box::into_raw(Box::new(Self {
             name: name.to_owned(),
             pid,
@@ -50,7 +54,9 @@ impl Process {
     }
     /// Creates the kernel process and adds it to the
     pub fn kernel(main_tid: u32, address_space: AddressSpace) -> Result<u32, ThreadError> {
-        let process = Self::new("Kernel", 0, address_space, alloc::vec![main_tid]);
+        let mut thread_set = BTreeSet::new();
+        thread_set.insert(main_tid);
+        let process = Self::new("Kernel", 0, address_space, thread_set);
         PROCESS_TABLE.wait().lock().insert(0, process);
         Ok(0)
     }
@@ -71,7 +77,9 @@ impl Process {
         let tid = thread.id();
         let thread_ptr = Box::into_raw(Box::new(thread));
 
-        let process = Self::new(name, pid, addr_space, alloc::vec![tid]);
+        let mut thread_set = BTreeSet::new();
+        thread_set.insert(tid);
+        let process = Self::new(name, pid, addr_space, thread_set);
 
         PROCESS_TABLE
             .wait()
@@ -94,17 +102,38 @@ impl Process {
         if self.threads.contains(&tid) {
             return None;
         }
-        self.threads.push(tid);
+        self.threads.insert(tid);
         Some(())
     }
     /// Removes a thread with the id `tid` from this process. Returns [`Some`] if the removal was successful or [`None`] if the process doesnt own `tid`
-    pub fn remove_thread(&mut self, tid: u32) -> Option<usize> {
+    pub fn remove_thread(&mut self, tid: u32) -> Option<()> {
         if !self.threads.contains(&tid) {
             return None;
         }
-        self.threads.iter().position(|t| *t == tid).inspect(|idx| {
-            self.threads.remove(*idx);
-        })
+        if self.threads.remove(&tid) {
+            return Some(());
+        }
+        None
+    }
+
+    pub fn destroy(&mut self) {
+        self.address_space.destroy();
+    }
+
+    /* Address Space Helpers */
+    pub fn map_size(
+        &mut self,
+        virt_addr: usize,
+        size: usize,
+        _phys_addr: usize,
+        flags: usize,
+        perms: PagePermissions,
+    ) -> Result<(), mem::error::MemoryError> {
+        self.address_space.map_pages(virt_addr, size, flags, perms)
+    }
+
+    pub fn unmap_size(&mut self, virt_addr: usize, size: usize) {
+        self.address_space.unmap_pages(virt_addr)
     }
 }
 

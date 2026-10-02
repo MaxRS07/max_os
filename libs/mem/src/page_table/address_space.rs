@@ -19,14 +19,14 @@ pub trait Addresser {
     /// allocator runs out of pages or fails to allocate
     fn new(page_allocator: &'static dyn Pager, root_table: *mut Table, asid: ASID) -> Self;
     /// Force-unmaps this address space, freeing all of its owned regions
-    fn drop(&mut self) -> Result<(), MemoryError>;
+    fn destroy(&mut self) -> Result<(), MemoryError>;
     /// Unmaps `virt_addr` from this space, freeing the physical page
-    fn unmap(&mut self, virt_addr: usize) -> Result<(), MemoryError>;
+    fn unmap_pages(&mut self, virt_addr: usize, size: usize) -> Result<(), MemoryError>;
     /// Maps virtual addresses to this space, increasing this space's capacity by at least [`bytes`]
-    fn map_size(
+    fn map_pages(
         &mut self,
         virt_addr: usize,
-        size: usize,
+        num_pages: usize,
         flags: usize,
         perms: PagePermissions,
     ) -> Result<(), MemoryError>;
@@ -59,7 +59,7 @@ pub struct VirtualRegion {
     /// the physical address of the first page in the region. If `size > 1`, then the following physical addresses will be offset by 0x1000 up to `size`
     pub phys_addr: usize,
     /// the size of the region in pages.
-    pub size: usize,
+    pub pages: usize,
     /// whether this region is a megatable. If true, then `size` is the number of megatables in the region
     pub megatable: bool,
     /// Physical memory type
@@ -71,27 +71,37 @@ impl VirtualRegion {
         perms: PagePermissions,
         virt_addr: usize,
         phys_addr: usize,
-        size: usize,
+        pages: usize,
         backing: RegionBacking,
     ) -> Self {
         Self {
             perms,
             virt_addr,
             phys_addr,
-            size,
+            pages,
             backing,
             // dont want to deal with this right now
             megatable: false,
         }
     }
+    /// The size of this region in bytes
+    pub fn size(&self) -> usize {
+        self.pages * 0x1000
+    }
+    /// The last address in this region (inclusive), not to be confused with the last virtual address mapped to this region.
+    ///
+    /// *This value is equal to the last virtual address + `0x0FFF`.*
+    pub fn end(&self) -> usize {
+        self.virt_addr + self.size() - 1
+    }
     pub fn contains_virtual_address(&self, virt_addr: usize) -> bool {
-        self.virt_addr <= virt_addr && self.virt_addr + self.size > virt_addr
+        self.virt_addr <= virt_addr && virt_addr <= self.end()
     }
     /// Returns virtual address `virt_addr` to its corresponding physical address. Resturns `MemoryError` if the virtual address is not contained within the region
     pub fn translate(&self, virt_addr: usize) -> Result<usize, MemoryError> {
         if !self.contains_virtual_address(virt_addr) {
             return Err(MemoryError::AccessViolation(
-                "Virtual address not contained in address space",
+                "Virtual address not contained in region",
             ));
         }
         Ok(virt_addr - self.virt_addr + self.phys_addr)
@@ -138,45 +148,57 @@ impl Addresser for AddressSpace {
     fn new(page_allocator: &'static dyn Pager, root_table: *mut Table, asid: ASID) -> Self {
         AddressSpace::new(page_allocator, root_table, asid, Vec::new())
     }
-    fn drop(&mut self) -> Result<(), MemoryError> {
-        while let Some(virt_addr) = self.regions.first().map(|region| region.virt_addr) {
-            self.unmap(virt_addr)?;
+    fn destroy(&mut self) -> Result<(), MemoryError> {
+        for region in self.regions.clone() {
+            let _ = self.unmap_pages(region.virt_addr, region.pages);
         }
         let root_table_ptr = self.root_table as *mut u8;
         self.page_allocator.free(root_table_ptr)
     }
-
-    fn unmap(&mut self, virt_addr: usize) -> Result<(), MemoryError> {
-        let virt_addr = aligned_down(virt_addr, 0x1000);
-        for index in 0..self.regions.len() {
-            let region = self.regions[index];
-            // need to split region
-            if region.contains_virtual_address(virt_addr) {
-                self.regions.remove(index);
-                if region.size <= 1 {
-                    return Ok(());
-                }
-                let l = VirtualRegion {
-                    size: region.size - 1,
-                    ..region
-                };
-                let next_virt = virt_addr + 0x1000;
-                let r = VirtualRegion {
-                    virt_addr: next_virt,
-                    phys_addr: region.translate(next_virt)?,
-                    size: region.size - 1,
-                    ..region
-                };
-                self.regions.insert(index, r);
-                self.regions.insert(index, l);
-            }
+    /// Unmaps `num_pages` consecutive virtual addresses starting at `virt_addr` and incrementing by 0x1000. To unmap a single address, use size 1.
+    fn unmap_pages(&mut self, virt_addr: usize, num_pages: usize) -> Result<(), MemoryError> {
+        if num_pages == 0 {
+            return Ok(());
         }
+
+        let virt_addr = aligned_down(virt_addr, 0x1000);
+        let end = virt_addr + (num_pages - 1) * 0x1000;
+
+        if let Some(index) = self
+            .regions
+            .iter()
+            .position(|r| r.contains_virtual_address(virt_addr) && r.contains_virtual_address(end))
+        {
+            let region = self.regions.remove(index);
+
+            let left_pages = (virt_addr - region.virt_addr) / 0x1000;
+            let right_pages = region.pages.saturating_sub(left_pages + num_pages);
+
+            if left_pages > 0 {
+                self.regions.push(VirtualRegion {
+                    pages: left_pages,
+                    ..region
+                });
+            }
+
+            if right_pages > 0 {
+                self.regions.push(VirtualRegion {
+                    virt_addr: end + 0x1000,
+                    phys_addr: region.phys_addr + (left_pages + num_pages) * 0x1000,
+                    pages: right_pages,
+                    ..region
+                });
+            }
+
+            return Ok(());
+        }
+
         Err(MemoryError::AccessViolation(
-            "Attemped to free unmapped region from address space",
+            "Attempted to unmap or access regions mapped to another process",
         ))
     }
 
-    fn map_size(
+    fn map_pages(
         &mut self,
         virt_addr: usize,
         size: usize,
@@ -190,20 +212,25 @@ impl Addresser for AddressSpace {
             flags,
         )?;
         let mut peekable_addrs = phys_addrs.iter().peekable();
-        let mut cur_size = 0x1000;
-        for addr in peekable_addrs.next() {
+        let mut cur_pages = 1;
+        while let Some(addr) = peekable_addrs.next() {
             // save space by grouping contiguous virt regions. This will be a massive headache later on partial frees
             if let Some(next) = peekable_addrs.peek()
                 && (addr + 0x1000).eq(*next)
             {
-                cur_size += 0x1000;
+                cur_pages += 1;
                 continue;
             }
             let virt_region =
-                VirtualRegion::new(perms, virt_addr, *addr, cur_size, RegionBacking::Anonymous);
+                VirtualRegion::new(perms, virt_addr, *addr, cur_pages, RegionBacking::Anonymous);
             self.regions.push(virt_region);
         }
         Ok(())
+    }
+    fn insert_region(&mut self, region: VirtualRegion)
+    /// Merges owned regions with identical configurations
+    fn merge_regions(&mut self) {
+
     }
 
     fn asid(&self) -> ASID {
@@ -231,7 +258,7 @@ impl Addresser for AddressSpace {
     fn contains(&self, virt_addr: usize) -> bool {
         self.regions
             .iter()
-            .any(|region| region.contains_virtual_address(virt_addr))
+            .any(|region: &VirtualRegion| region.contains_virtual_address(virt_addr))
     }
 }
 
