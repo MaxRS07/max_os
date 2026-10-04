@@ -35,11 +35,11 @@ impl SysOp for ProcessOp {
                     Ok(pid) => unsafe {
                         // exit 0 with value write
                         (pid_out as *mut u32).write(pid);
-                        exit(0)
+                        exit(ktx, 0)
                     },
                     Err(msg) => {
                         error!("{msg}");
-                        exit(-1);
+                        exit(ktx, -1);
                     }
                 }
             }

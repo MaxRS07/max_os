@@ -13,15 +13,13 @@ pub mod syscall;
 
 use core::{arch::global_asm, panic};
 
-use log::{Level::Debug, debug, error, info, warn};
+use log::{debug, error, info, warn};
 use sdt::fdt::GLOBAL_FDT;
-use time::global_time::GlobalTimer;
 
 use crate::{
     arch::riscv::{self, interrupt::handler::schedule_interrupt_timer},
-    drivers::{block::BLOCK_DEVICE, time::GLOBAL_TIME},
+    drivers::block::BLOCK_DEVICE,
     mm::{_boot_stack_bottom, _boot_stack_top},
-    sched::{process::Process, thread::Thread},
 };
 
 global_asm!(include_str!("boot.s"));
@@ -66,13 +64,6 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
             error!("{msg}");
         }
         info!("Scheduler initialized");
-        if Thread::spawn_local("Thread_B", thread_b_entry as *const fn() as usize).is_some()
-            && Thread::spawn_local("Thread_A", thread_a_entry as *const fn() as usize).is_some()
-        {
-            info!("starting threads A and B")
-        } else {
-            warn!("Failed to start thread A or B")
-        }
     }
     // enable hardware timer
     loop {
@@ -80,31 +71,4 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
             core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
         }
     }
-}
-
-fn thread_a_entry() {
-    info!("Thread A: Counting to 10 seconds!");
-    let mut total = 0;
-    let mut start = GLOBAL_TIME.wait().now_ms();
-    while total < 10 {
-        if GLOBAL_TIME.wait().elapsed_ms(start, 1_000) {
-            total += 1;
-            start = GLOBAL_TIME.wait().now_ms();
-            info!("Thread A: {total}s");
-        }
-    }
-    info!("Thread A: Done!");
-}
-fn thread_b_entry() {
-    info!("Thread B: Counting to 10 seconds!");
-    let mut total = 0;
-    let mut start = GLOBAL_TIME.wait().now_ms();
-    while total < 10 {
-        if GLOBAL_TIME.wait().elapsed_ms(start, 1_000) {
-            total += 1;
-            start = GLOBAL_TIME.wait().now_ms();
-            info!("Thread B: {total}s");
-        }
-    }
-    info!("Thread B: Done!");
 }

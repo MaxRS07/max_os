@@ -1,4 +1,4 @@
-use core::{arch::naked_asm, ops::DerefMut};
+use core::{arch::naked_asm, ops::DerefMut, sync::atomic::Ordering};
 
 use ::time::global_time::GlobalTimer;
 use log::{debug, error, info, warn};
@@ -49,6 +49,8 @@ unsafe extern "C" fn s_trap_entry() {
         "sw t1,  12(sp)",
         "sw t2,  16(sp)",
         "sw a0,  20(sp)",
+        // move stack pointer starting at 20(sp) into register a0 for frame write access in syscall
+        "mv a0,  sp",
         "sw a1,  24(sp)",
         "sw a2,  28(sp)",
         "sw a3,  32(sp)",
@@ -119,8 +121,9 @@ unsafe extern "C" fn s_trap_entry() {
     );
 }
 
+/// Frame is the address of the bottom of the stack pointer.
 #[unsafe(no_mangle)]
-pub extern "C" fn s_trap_handler() {
+pub extern "C" fn s_trap_handler(frame: *mut usize) {
     unsafe {
         let cause = parse_scause();
         match cause {
@@ -146,7 +149,7 @@ pub extern "C" fn s_trap_handler() {
                 };
             }
             Trap::Exception(exception) => match exception {
-                ExceptionCode::EnvCallFromUMode => handle_ecall(),
+                ExceptionCode::EnvCallFromUMode => handle_ecall(frame),
                 _ => {
                     let sepc = SEPC.read();
                     let stval = STVAL.read();

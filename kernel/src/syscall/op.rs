@@ -17,6 +17,27 @@ pub unsafe fn str_from_args(address: usize, len: usize) -> String {
     }
 }
 
-pub fn exit(code: i32) {
-    unsafe { core::arch::asm!("mv a0, {}", in(reg) code) }
+pub fn exit(ktx: &mut KernelContext, code: isize) {
+    let frame = ktx.trap_frame();
+    // write first return to a0
+    // bytewise convert to usize, a0 is always the exit code
+    // and will be interpereted as isize in userspace
+    frame[0] = usize_bytes(code);
+}
+/// performs a bitwise conversion from isize to usize
+fn usize_bytes(value: isize) -> usize {
+    usize::from_ne_bytes(value.to_ne_bytes())
+}
+
+/// This macro writes 8 return values through the a0-a7 registers
+#[macro_export]
+macro_rules! exit {
+    ( $arg0_ktx:expr, $( $rest:expr ),+ $(,)? ) => {
+        let ktx: KernelContext = $arg0_ktx;
+        let args = [ $( $rest as usize ),+ ];
+        let len = args.len();
+        core::debug_assert!(len <= 7, "exit! takes at most 7 additional arguments (8 total including ktx)");
+        // Writes args starting at a0
+        ktx.trap_frame()[0..=len].copy_from_slice(&args);
+    };
 }

@@ -56,9 +56,9 @@ impl SysOp for ThreadOp {
             Self::Cancel => {
                 let (id, ..) = args;
                 match SCHEDULER.wait().lock().canel_id(id as u32) {
-                    Ok(_) => exit(0),
+                    Ok(_) => exit(ktx, 0),
                     Err(msg) => {
-                        exit(-1);
+                        exit(ktx, -1);
                         error!("{msg}")
                     }
                 }

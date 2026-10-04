@@ -6,8 +6,15 @@ use crate::{
     drivers::time::GLOBAL_TIME,
     fs::{GLOBAL_FS, call},
     syscall::{
-        com::ComOp, context::KernelContext, device::DevOp, error::SyscallError, fs::FsOp,
-        mem::MemOp, op::SysOp, process::ProcessOp, thread::ThreadOp,
+        com::ComOp,
+        context::{KernelContext, TrapFrame},
+        device::DevOp,
+        error::SyscallError,
+        fs::FsOp,
+        mem::MemOp,
+        op::SysOp,
+        process::ProcessOp,
+        thread::ThreadOp,
     },
 };
 
@@ -87,8 +94,8 @@ impl Syscall {
     }
 }
 
-pub fn handle_ecall() {
-    let ktx = &mut KernelContext::new();
+pub fn handle_ecall(frame: *mut usize) {
+    let ktx = &mut KernelContext::new(frame);
     let mut id = 0usize;
     let args = load_args(&mut id);
     match Syscall::try_from(id) {

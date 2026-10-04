@@ -1,3 +1,5 @@
+use core::sync::atomic::AtomicUsize;
+
 use log::info;
 use sdt::fdt::FDT;
 

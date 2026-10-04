@@ -18,6 +18,8 @@ use crate::{
     syscall::error::SyscallError,
 };
 
+pub type TrapFrame = [usize; 32];
+
 // Context for the syscall operations
 /// Kernel context struct
 ///
@@ -25,13 +27,15 @@ use crate::{
 pub struct KernelContext {
     vfs: Option<MutexGuard<'static, vfs::Vfs<'static>>>,
     process: Option<*mut Process>,
+    trap_frame: *mut TrapFrame,
 }
 
 impl KernelContext {
-    pub fn new() -> Self {
+    pub fn new(trap_frame: *mut usize) -> Self {
         Self {
             vfs: None,
             process: None,
+            trap_frame: trap_frame as *mut TrapFrame,
         }
     }
     pub fn process(&mut self) -> Option<&mut Process> {
@@ -59,5 +63,43 @@ impl KernelContext {
             self.vfs = Some(vfs);
         }
         Ok(self.vfs.as_mut().unwrap().deref_mut())
+    }
+    /// This is the trap frame saved before ecall. Writes to this persist after interrupt.
+    /// ## Registers
+    /// `0`. `ra` \
+    /// `1`. `tp` \
+    /// `2`. `t0` \
+    /// `3`. `t1` \
+    /// `4`. `t2` \
+    /// `5`. `a0` \
+    /// `6`. `a1` \
+    /// `7`. `a2` \
+    /// `8`. `a3` \
+    /// `9`. `a4` \
+    /// `10`. `a5` \
+    /// `11`. `a6` \
+    /// `12`. `a7` \
+    /// `13`. `t3` \
+    /// `14`. `t4` \
+    /// `15`. `t5` \
+    /// `16`. `t6` \
+    /// `17`. `s0` \
+    /// `18`. `s1` \
+    /// `19`. `s2` \
+    /// `20`. `s3` \
+    /// `21`. `s4` \
+    /// `22`. `s5` \
+    /// `23`. `s6` \
+    /// `24`. `s7` \
+    /// `25`. `s8` \
+    /// `26`. `s9` \
+    /// `27`. `s10` \
+    /// `28`. `s11` \
+    /// `29`. `unused` \
+    /// `30`. `unused` \
+    /// `31`. `unused` \
+    /// `32`. `unused`
+    pub fn trap_frame(&mut self) -> &mut TrapFrame {
+        unsafe { &mut *self.trap_frame }
     }
 }

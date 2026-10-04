@@ -2,6 +2,7 @@ use log::error;
 use mem::{error::MemoryError, page_table::permissions::PagePermissions};
 
 use crate::{
+    exit,
     sched::{PROCESS_TABLE, SCHEDULER},
     syscall::{
         context::KernelContext,
@@ -53,11 +54,11 @@ impl SysOp for MemOp {
                 match munmap(ktx, virt_addr, size) {
                     Ok(_) => {
                         // write ok
-                        exit(0);
+                        exit(ktx, 0);
                     }
                     Err(err) => {
                         error!("{err}");
-                        exit(-1)
+                        exit(ktx, -1)
                     }
                 }
             }

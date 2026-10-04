@@ -126,7 +126,7 @@ pub extern "C" fn m_trap_handler() {
                 }
             }
             Trap::Exception(exception) => match exception {
-                ExceptionCode::EnvCallFromUMode => handle_ecall(),
+                // ExceptionCode::EnvCallFromUMode => handle_ecall(),
                 _ => {
                     let mepc = MEPC.read();
                     let mtval = MTVAL.read();
