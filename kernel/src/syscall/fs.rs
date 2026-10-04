@@ -1,9 +1,10 @@
 use core::str::{self, FromStr};
 
 use alloc::{borrow::ToOwned, string::String};
+use fs::collections::error::FSError;
 use log::warn;
 
-use crate::syscall::{SyscallArgs, context::KernelContext, op::SysOp};
+use crate::syscall::{SyscallArgs, context::KernelContext, error::SyscallError, op::SysOp};
 
 /// File system operations
 pub enum FsOp {
@@ -15,7 +16,7 @@ pub enum FsOp {
 }
 
 impl SysOp for FsOp {
-    fn call(&self, ktx: KernelContext, args: SyscallArgs) {
+    fn call(&self, ktx: &mut KernelContext, args: SyscallArgs) {
         match self {
             Self::Open => {
                 let path = Self::get_path(args.0, args.1);
@@ -27,6 +28,19 @@ impl SysOp for FsOp {
         }
     }
 }
+impl TryFrom<usize> for FsOp {
+    type Error = SyscallError;
+    fn try_from(value: usize) -> Result<Self, super::error::SyscallError> {
+        Ok(match value {
+            0 => Self::Open,
+            1 => Self::Read,
+            2 => Self::Write,
+            3 => Self::Close,
+            4 => Self::Seek,
+            _ => return Err(SyscallError::InvalidOperation("FsOp", value)),
+        })
+    }
+}
 impl FsOp {
     fn get_path(addr: usize, len: usize) -> String {
         unsafe {
@@ -34,19 +48,6 @@ impl FsOp {
             let bytes = core::slice::from_raw_parts(str_ptr, len);
             let str = str::from_utf8(bytes).unwrap(); // TODO: Actually handle this 
             String::from_str(str).unwrap()
-        }
-    }
-}
-
-impl From<usize> for FsOp {
-    fn from(value: usize) -> Self {
-        match value {
-            0 => Self::Open,
-            1 => Self::Read,
-            2 => Self::Write,
-            3 => Self::Close,
-            4 => Self::Seek,
-            _ => panic!("Unsupported file system operation"),
         }
     }
 }

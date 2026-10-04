@@ -3,7 +3,11 @@ use mem::{error::MemoryError, page_table::permissions::PagePermissions};
 
 use crate::{
     sched::{PROCESS_TABLE, SCHEDULER},
-    syscall::{context::KernelContext, op::SysOp},
+    syscall::{
+        context::KernelContext,
+        error::SyscallError,
+        op::{SysOp, exit},
+    },
 };
 
 pub enum MemOp {
@@ -46,20 +50,34 @@ impl SysOp for MemOp {
             }
             Self::Unmap => {
                 let (virt_addr, size, ..) = args;
-                match mmap(ktx, virt_addr, size, phys_addr, flags, perms) {
-                    Ok(_) => unsafe {
+                match munmap(ktx, virt_addr, size) {
+                    Ok(_) => {
                         // write ok
-                        core::arch::asm!("mv a0, x0");
-                    },
-                    Err(err) => unsafe {
+                        exit(0);
+                    }
+                    Err(err) => {
                         error!("{err}");
-                        core::arch::asm!("li a0, -1");
-                    },
+                        exit(-1)
+                    }
                 }
             }
             Self::Lock => {}
             Self::Unlock => {}
         }
+    }
+}
+
+impl TryFrom<usize> for MemOp {
+    type Error = SyscallError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::Map,
+            1 => Self::Unmap,
+            2 => Self::Lock,
+            3 => Self::Unlock,
+            _ => return Err(SyscallError::InvalidOperation("MemOp", value)),
+        })
     }
 }
 

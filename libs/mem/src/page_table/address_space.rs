@@ -98,7 +98,7 @@ impl VirtualRegion {
         self.virt_addr <= virt_addr && virt_addr <= self.end()
     }
     /// Merges this region with `next` if the merge is possible, mutating self's page count
-    pub fn merge_next(&mut self, next: Self) -> bool {
+    pub fn merge_next(&mut self, next: &Self) -> bool {
         if self.megatable == next.megatable
             && self.backing == next.backing
             && self.perms == next.perms
@@ -174,10 +174,11 @@ impl AddressSpace {
     fn merge_regions(&mut self) {
         // lookahead + merge
         for i in 0..self.regions.len() - 1 {
-            let region = self.regions[i];
-            let next = self.regions[i + 1];
+            let (current, following) = self.regions.split_at_mut(i + 1);
+            let region = &mut current[i];
+            let next = &following[0];
 
-            if region.merge_next(next_reg) {
+            if region.merge_next(next) {
                 self.regions.remove(i + 1);
             }
         }

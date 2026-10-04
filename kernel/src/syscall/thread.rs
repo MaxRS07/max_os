@@ -6,7 +6,10 @@ use crate::{
         scheduler::Scheduler,
         thread::{Priority, Thread},
     },
-    syscall::op::{SysOp, str_from_args},
+    syscall::{
+        error::SyscallError,
+        op::{SysOp, exit, str_from_args},
+    },
 };
 
 /// Threading and process control system call operations
@@ -28,7 +31,7 @@ pub enum ThreadOp {
 }
 
 impl SysOp for ThreadOp {
-    fn call(&self, ktx: super::context::KernelContext, args: super::SyscallArgs) {
+    fn call(&self, ktx: &mut super::context::KernelContext, args: super::SyscallArgs) {
         match self {
             Self::Spawn => {
                 let (pid, name, name_len, priority, entry, out_addr, ..) = args;
@@ -53,14 +56,27 @@ impl SysOp for ThreadOp {
             Self::Cancel => {
                 let (id, ..) = args;
                 match SCHEDULER.wait().lock().canel_id(id as u32) {
-                    Ok(_) => unsafe { core::arch::asm!("mv a0, x0") },
-                    Err(msg) => unsafe {
-                        core::arch::asm!("li a0, -1");
+                    Ok(_) => exit(0),
+                    Err(msg) => {
+                        exit(-1);
                         error!("{msg}")
-                    },
+                    }
                 }
             }
             Self::Yield => SCHEDULER.wait().lock().yield_thread(),
         }
+    }
+}
+
+impl TryFrom<usize> for ThreadOp {
+    type Error = SyscallError;
+
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::Spawn,
+            1 => Self::Yield,
+            2 => Self::Cancel,
+            _ => return Err(SyscallError::InvalidOperation("ThreadOp", value)),
+        })
     }
 }

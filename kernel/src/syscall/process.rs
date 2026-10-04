@@ -2,7 +2,10 @@ use log::error;
 
 use crate::{
     sched::process::Process,
-    syscall::op::{SysOp, str_from_args},
+    syscall::{
+        error::SyscallError,
+        op::{SysOp, exit, str_from_args},
+    },
 };
 
 /// Operations for creating, querying, and managing processes
@@ -12,17 +15,17 @@ pub enum ProcessOp {
     /// 0. `name`: The pointer to the name str \
     /// 1. `name_len`: The length of the name in chars
     /// 2. ``
-    Spawn,
+    Spawn = 1,
     /// Clones the current process into the process table, returning the clone's PID
-    Fork,
-    /// Kills a process and terminates child threads
-    Kill,
+    Fork = 2,
     /// Idk
-    Wait,
+    Wait = 3,
+    /// Kills a process and terminates child threads
+    Kill = 4,
 }
 
 impl SysOp for ProcessOp {
-    fn call(&self, ktx: super::context::KernelContext, args: super::SyscallArgs) {
+    fn call(&self, ktx: &mut super::context::KernelContext, args: super::SyscallArgs) {
         match self {
             Self::Spawn => {
                 let (name_ptr, len, entry, pid_out, ..) = args;
@@ -32,17 +35,30 @@ impl SysOp for ProcessOp {
                     Ok(pid) => unsafe {
                         // exit 0 with value write
                         (pid_out as *mut u32).write(pid);
-                        core::arch::asm!("mv a0, x0")
+                        exit(0)
                     },
-                    Err(msg) => unsafe {
+                    Err(msg) => {
                         error!("{msg}");
-                        core::arch::asm!("li a0, -1")
-                    },
+                        exit(-1);
+                    }
                 }
             }
             Self::Fork => {}
             Self::Kill => {}
             Self::Wait => {}
         }
+    }
+}
+
+impl TryFrom<usize> for ProcessOp {
+    type Error = SyscallError;
+    fn try_from(value: usize) -> Result<Self, SyscallError> {
+        Ok(match value {
+            0 => Self::Spawn,
+            1 => Self::Fork,
+            2 => Self::Wait,
+            3 => Self::Kill,
+            _ => return Err(SyscallError::InvalidOperation("ProcessOp", value)),
+        })
     }
 }
