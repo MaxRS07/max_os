@@ -10,7 +10,6 @@ use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use crate::sched::{
     PROCESS_TABLE,
-    context::switch_context_impl,
     error::ThreadError,
     process::Process,
     queue::RunQueue,
@@ -22,6 +21,7 @@ pub static CURRENT_PROCESS: AtomicPtr<Process> = AtomicPtr::new(null_mut());
 /// Ochestrates multiple thread queues, schedules CPU time per process
 pub struct Scheduler {
     running: *mut Thread,
+    dead: *mut Thread,
     queue: RunQueue,
 }
 
@@ -29,6 +29,7 @@ impl Scheduler {
     pub fn new() -> Self {
         Self {
             running: null_mut(),
+            dead: null_mut(),
             queue: RunQueue::new(),
         }
     }
@@ -47,7 +48,7 @@ impl Scheduler {
     pub fn yield_thread(&mut self) {
         if let Ok((old, new, satp)) = self.run_next() {
             unsafe {
-                switch_context_impl(old, new, satp);
+                // switch_context_impl(old, new, satp);
             }
         }
     }
@@ -70,12 +71,15 @@ impl Scheduler {
         }
         if !self.running.is_null() {
             unsafe {
-                // if the thread is not terminated, requeue it
+                // if the thread is not terminated, requeue it. otherwise put it in the dead slot
                 if (*self.running).state != State::Terminated {
                     (*self.running).state = State::Ready;
                     self.queue.enque(self.running)?
                 } else {
-                    drop(Box::from_raw(self.running))
+                    if !self.dead.is_null() {
+                        drop(Box::from_raw(self.dead));
+                    }
+                    self.dead = self.running;
                 }
 
                 (*next_ready).state = State::Running;
@@ -127,12 +131,6 @@ impl Scheduler {
                 return;
             }
             (*self.running).state = State::Terminated;
-            drop(Box::from_raw(self.running));
-        }
-        if let Ok((old, new, satp)) = self.run_next() {
-            unsafe {
-                switch_context_impl(old, new, satp);
-            }
         }
     }
     pub fn canel_id(&mut self, id: u32) -> Result<(), ThreadError> {

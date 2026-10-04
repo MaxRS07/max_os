@@ -139,7 +139,7 @@ impl Process {
     pub fn unmap_size(&mut self, virt_addr: usize, size: usize) {
         // convert bytes to pages here to reduce sysop overhead
         let pages = size.div_ceil(0x1000);
-        self.address_space.unmap_pages(virt_addr, pages);
+        let _ = self.address_space.unmap_pages(virt_addr, pages);
     }
 }
 

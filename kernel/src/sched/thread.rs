@@ -319,13 +319,29 @@ impl Default for Context {
 extern "C" fn thread_prolouge() {
     naked_asm!("csrsi sstatus, 2", "mv a0, s0", "tail thread_wrapper")
 }
-/// Wraps the thread entry in a terminating function, disposing the thread after execution
+/// Wraps the thread entry in a terminating function, disposing the thread after execution.
+///
+/// Never returns: `ra` still points at [`thread_prolouge`], so returning would re-run the entry.
 #[unsafe(no_mangle)]
-extern "C" fn thread_wrapper(entry: u32) {
+extern "C" fn thread_wrapper(entry: u32) -> ! {
     unsafe {
         let func_ptr = entry as *const ();
         let func: fn() -> () = core::mem::transmute(func_ptr);
         func();
+
+        // stop the timer from switching between terminating and switching ourselves
+        core::arch::asm!("csrci sstatus, 2");
+        // release the scheduler lock before switching, this stack is never resumed
+        let next = {
+            let mut sched = SCHEDULER.wait().lock();
+            sched.terminate_running();
+            sched.run_next()
+        };
+        if let Ok((old_sp, new_sp, new_satp)) = next {
+            crate::sched::context::switch_context_impl(old_sp, new_sp, new_satp);
+        }
+        loop {
+            core::arch::asm!("wfi");
+        }
     }
-    crate::terminate!();
 }
