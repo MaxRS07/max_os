@@ -111,6 +111,7 @@ impl<T> OnceLock<T> {
         unsafe { self.get_mut_ptr().map(|ptr| &mut *ptr) }
     }
     /// Spins until the cell is initialized
+    #[allow(clippy::mut_from_ref)]
     pub fn wait_mut(&self) -> &mut T {
         loop {
             if self.state.load(Ordering::Acquire) == EXECUTED {
