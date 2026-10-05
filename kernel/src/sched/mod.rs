@@ -45,19 +45,20 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
     ASID_ALLOCATOR.set(Mutex::new(ASIDBitmapSV32::new([0; 8], MAX_ASID as usize)));
     SCHEDULER.set(Mutex::new(Scheduler::new()));
     PROCESS_TABLE.set(Mutex::new(ProcessTable::new()));
-    match Thread::main(stack_top, stack_bottom) {
-        Ok(tid) => {
-            let allocator = PAGE_ALLOCATOR.wait();
-            let table = Table::alloc_empty(allocator)
-                .map_err(|error| ThreadError::Other(format!("{error}")))?;
-            if let Err(msg) = map_boot_pages(table) {
-                error!("{msg}")
-            }
-            let kspace = AddressSpace::new(allocator, table, ASID::MAIN, Vec::new());
-            Process::kernel(tid, kspace).inspect_err(|err| error!("{err}"))?;
-        }
-        Err(error) => warn!("Failed to setup main thread: {}", error),
+
+    let main_thread = Thread::main(stack_top, stack_bottom);
+    let tid = unsafe { &*main_thread }.id(); // should be 0
+
+    let allocator = PAGE_ALLOCATOR.wait();
+    let table =
+        Table::alloc_empty(allocator).map_err(|error| ThreadError::Other(format!("{error}")))?;
+    if let Err(msg) = map_boot_pages(table) {
+        error!("{msg}")
     }
+    let kspace = AddressSpace::new(allocator, table, ASID::MAIN, Vec::new());
+    Process::kernel(tid, kspace).inspect_err(|err| error!("{err}"))?;
+    SCHEDULER.wait().lock().set_running(main_thread);
+
     info!("Created main thread");
     Ok(())
 }

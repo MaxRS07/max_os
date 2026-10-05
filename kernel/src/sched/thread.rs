@@ -113,7 +113,7 @@ static TID_ALLOCATOR: AtomicU32 = AtomicU32::new(1);
 
 impl Thread {
     /// Returns a preconfigured main thread. Does not have an entry point. Does not allocate stack or tls in memory.
-    pub fn main(stack_top: *const u8, stack_bottom: *const u8) -> Result<u32, &'static str> {
+    pub fn main(stack_top: *const u8, stack_bottom: *const u8) -> *mut Thread {
         let main = Self {
             pid: 0, // kernel process
             id: 0,  // main thread
@@ -131,9 +131,7 @@ impl Thread {
             prev: null_mut(),
         };
         let main_box = Box::new(main);
-        let main_ptr = Box::into_raw(main_box);
-        SCHEDULER.wait().lock().set_running(main_ptr);
-        return Ok(0);
+        Box::into_raw(main_box)
     }
     pub fn new(pid: u32, name: &str, priority: Priority, entry: usize) -> Self {
         let name = Self::name_from_str(name);
