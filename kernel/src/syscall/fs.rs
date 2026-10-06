@@ -1,10 +1,15 @@
 use core::str::{self, FromStr};
 
 use alloc::{borrow::ToOwned, string::String};
-use fs::collections::error::FSError;
-use log::warn;
+use fs::{collections::error::FSError, core::path::FSPath};
+use log::{error, warn};
 
-use crate::syscall::{SyscallArgs, context::KernelContext, error::SyscallError, op::SysOp};
+use crate::syscall::{
+    SyscallArgs,
+    context::KernelContext,
+    error::SyscallError,
+    op::{SysOp, exit, str_from_args},
+};
 
 /// File system operations
 pub enum FsOp {
@@ -18,9 +23,18 @@ pub enum FsOp {
 impl SysOp for FsOp {
     fn call(&self, ktx: &mut KernelContext, args: SyscallArgs) {
         match self {
-            Self::Open => {
-                let path = Self::get_path(args.0, args.1);
-            }
+            Self::Open => unsafe {
+                let (path_ptr, path_len, ..) = args;
+                let path = str_from_args(path_ptr, path_len);
+                let fspath = FSPath::new(&path);
+                match open(ktx, file_path) {
+                    Ok(_) => exit(ktx, 0),
+                    Err(msg) => {
+                        error!("{msg}");
+                        exit(ktx, -1);
+                    }
+                }
+            },
             Self::Close => {
                 let path = Self::get_path(args.0, args.1);
             }
@@ -41,22 +55,3 @@ impl TryFrom<usize> for FsOp {
         })
     }
 }
-impl FsOp {
-    fn get_path(addr: usize, len: usize) -> String {
-        unsafe {
-            let str_ptr = addr as *const u8;
-            let bytes = core::slice::from_raw_parts(str_ptr, len);
-            let str = str::from_utf8(bytes).unwrap(); // TODO: Actually handle this 
-            String::from_str(str).unwrap()
-        }
-    }
-}
-
-/// Opens a file for reading or writing (text, audio, etc.).
-fn open(file_path: &str) {}
-// Reads data from an opened file.
-fn read(file_path: &str) {}
-// Writes or saves data to a file.
-
-// Closes an opened file.
-// Moves the file pointer to a specific position in a file (e.g., jump to line 47 to read from there).

@@ -22,7 +22,7 @@ pub fn exit(ktx: &mut KernelContext, code: isize) {
     // write first return to a0
     // bytewise convert to usize, a0 is always the exit code
     // and will be interpereted as isize in userspace
-    frame[0] = usize_bytes(code);
+    frame[5] = usize_bytes(code);
 }
 /// performs a bitwise conversion from isize to usize
 fn usize_bytes(value: isize) -> usize {
@@ -38,6 +38,6 @@ macro_rules! exit {
         let len = args.len();
         core::debug_assert!(len <= 7, "exit! takes at most 7 additional arguments (8 total including ktx)");
         // Writes args starting at a0
-        ktx.trap_frame()[0..=len].copy_from_slice(&args);
+        ktx.trap_frame()[5..=len].copy_from_slice(&args);
     };
 }
