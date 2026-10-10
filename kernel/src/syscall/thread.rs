@@ -1,4 +1,6 @@
-use log::error;
+use core::arch::asm;
+
+use log::{error, warn};
 
 use crate::{
     sched::{
@@ -36,7 +38,16 @@ impl SysOp for ThreadOp {
             Self::Spawn => {
                 let (pid, name, name_len, priority, entry, out_addr, ..) = args;
                 let out_ptr = out_addr as *mut u32;
-                let name_str = unsafe { str_from_args(name, name_len) };
+                let name_str = unsafe {
+                    match str_from_args(name, name_len) {
+                        Ok(value) => value,
+                        Err(err) => {
+                            exit(ktx, -1);
+                            error!("{err}");
+                            return;
+                        }
+                    }
+                };
                 if let Some(id) = Thread::spawn(
                     pid as u32,
                     name_str.as_str(),
@@ -50,7 +61,7 @@ impl SysOp for ThreadOp {
                     }
                 } else {
                     // Exit with error (-1)
-                    unsafe { core::arch::asm!("li a0, -1") }
+                    exit(ktx, -1);
                 }
             }
             Self::Cancel => {

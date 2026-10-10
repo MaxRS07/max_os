@@ -7,8 +7,8 @@ const POWEROFF: u32 = 0x5555;
 
 /// Triggers a hardware shutdown. This will close QEMU
 pub fn sys_poweroff() {
-    if let Some(fdt) = GLOBAL_FDT.get()
-        && let Some(e) = fdt.get_element("root/soc/test/reg")
+    let fdt = GLOBAL_FDT.wait();
+    if let Some(e) = fdt.get_element("root/soc/test/reg")
         && let FDTElement::Property { value_ptr, len, .. } = e
     {
         let addr = value_ptr.addr();

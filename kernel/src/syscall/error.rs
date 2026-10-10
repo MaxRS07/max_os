@@ -6,6 +6,7 @@ pub enum SyscallError {
     InvalidCall(usize),
     InvalidOperation(&'static str, usize),
     Busy(String),
+    InvalidArg(String),
 }
 
 impl Display for SyscallError {
@@ -16,6 +17,7 @@ impl Display for SyscallError {
                 f.write_fmt(format_args!("Invalid Operation: operation {num} on {name}"))
             }
             Self::Busy(msg) => f.write_str(msg),
+            Self::InvalidArg(msg) => f.write_str(msg),
         }
     }
 }

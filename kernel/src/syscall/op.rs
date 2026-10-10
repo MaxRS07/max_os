@@ -1,19 +1,21 @@
-use alloc::string::String;
+use alloc::{format, string::String};
 
 use crate::syscall::{SyscallArgs, context::KernelContext, error::SyscallError};
 
 pub(crate) trait SysOp: Sized + TryFrom<usize, Error = SyscallError> {
-    fn call(&self, ktx: &mut KernelContext, args: SyscallArgs);
+    fn call(&self, ktx: &mut KernelContext, args: SyscallArgs) -> Result<(), SyscallError>;
 }
 
 /* Arg Utils */
 
-pub unsafe fn str_from_args(address: usize, len: usize) -> String {
+pub unsafe fn str_from_args(address: usize, len: usize) -> Result<String, SyscallError> {
     unsafe {
         let str_ptr = address as *const u8;
         let bytes = core::slice::from_raw_parts(str_ptr, len);
-        let byte_str = str::from_utf8(bytes).unwrap(); // TODO: Actually handle this 
-        String::from(byte_str)
+        let byte_str = str::from_utf8(bytes).map_err(|err| {
+            SyscallError::InvalidArg(format!("Failed to parse argument of type string: {err}"))
+        })?;
+        Ok(String::from(byte_str))
     }
 }
 
@@ -31,13 +33,13 @@ fn usize_bytes(value: isize) -> usize {
 
 /// This macro writes 8 return values through the a0-a7 registers
 #[macro_export]
-macro_rules! exit {
+macro_rules! write_return {
     ( $arg0_ktx:expr, $( $rest:expr ),+ $(,)? ) => {
-        let ktx: KernelContext = $arg0_ktx;
-        let args = [ $( $rest as usize ),+ ];
+        let ktx: &mut KernelContext = $arg0_ktx;
+        let args = [ $( $rest as isize ),+ ];
         let len = args.len();
         core::debug_assert!(len <= 7, "exit! takes at most 7 additional arguments (8 total including ktx)");
         // Writes args starting at a0
-        ktx.trap_frame()[5..=len].copy_from_slice(&args);
+        ktx.trap_frame()[5..len].copy_from_slice(&args);
     };
 }

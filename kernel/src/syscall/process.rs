@@ -25,11 +25,15 @@ pub enum ProcessOp {
 }
 
 impl SysOp for ProcessOp {
-    fn call(&self, ktx: &mut super::context::KernelContext, args: super::SyscallArgs) {
+    fn call(
+        &self,
+        ktx: &mut super::context::KernelContext,
+        args: super::SyscallArgs,
+    ) -> Result<(), SyscallError> {
         match self {
             Self::Spawn => {
                 let (name_ptr, len, entry, pid_out, ..) = args;
-                let name = unsafe { str_from_args(name_ptr, len) };
+                let name = unsafe { str_from_args(name_ptr, len) }?;
                 let entry_fn = entry as *const fn();
                 match Process::spawn(name.as_str(), entry_fn) {
                     Ok(pid) => unsafe {

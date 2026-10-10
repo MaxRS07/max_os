@@ -21,13 +21,13 @@ pub enum FsOp {
 }
 
 impl SysOp for FsOp {
-    fn call(&self, ktx: &mut KernelContext, args: SyscallArgs) {
+    fn call(&self, ktx: &mut KernelContext, args: SyscallArgs) -> Result<(), SyscallError> {
         match self {
             Self::Open => unsafe {
                 let (path_ptr, path_len, ..) = args;
-                let path = str_from_args(path_ptr, path_len);
+                let path = str_from_args(path_ptr, path_len)?;
                 let fspath = FSPath::new(&path);
-                match open(ktx, file_path) {
+                open(ktx, file_path) {
                     Ok(_) => exit(ktx, 0),
                     Err(msg) => {
                         error!("{msg}");

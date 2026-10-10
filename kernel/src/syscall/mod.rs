@@ -1,5 +1,6 @@
 use core::{arch::asm, ops::DerefMut};
 
+use alloc::string::ToString;
 use log::warn;
 
 use crate::{
@@ -16,6 +17,7 @@ use crate::{
         process::ProcessOp,
         thread::ThreadOp,
     },
+    write_return,
 };
 
 mod com;
@@ -60,15 +62,21 @@ enum Syscall {
 }
 
 impl SysOp for Syscall {
-    fn call(&self, ktx: &mut KernelContext, args: SyscallArgs) {
-        match self {
+    fn call(&self, ktx: &mut KernelContext, args: SyscallArgs) -> Result<(), SyscallError> {
+        if let Err(err) = match self {
             Self::Device(op) => op.call(ktx, args),
             Self::Memory(op) => op.call(ktx, args),
             Self::FileSystem(op) => op.call(ktx, args),
             Self::Thread(op) => op.call(ktx, args),
             Self::Process(op) => op.call(ktx, args),
             Self::Communication(op) => op.call(ktx, args),
+        } {
+            // Propagate a0 write to here, write Syscall err pointer to following args
+            let msg_ptr = err.to_string().as_ptr() as usize;
+            write_return!(ktx, -1, msg_ptr);
+            return Err(err);
         }
+        Ok(())
     }
 }
 impl TryFrom<usize> for Syscall {
@@ -97,40 +105,16 @@ impl Syscall {
 pub fn handle_ecall(frame: *mut usize) {
     let ktx = &mut KernelContext::new(frame);
     let mut id = 0usize;
-    let args = load_args(&mut id);
+    let args = load_args(&mut id, ktx);
     match Syscall::try_from(id) {
         Ok(op) => op.call(ktx, args),
         Err(msg) => warn!("{msg}"),
     }
 }
-/// Loads the syscall registers and returns them
-pub fn load_args(id: &mut usize) -> SyscallArgs {
-    let mut _id: usize; // syscall id + route
-    let mut a0: usize; // arg 1
-    let mut a1: usize; // arg 2
-    let mut a2: usize; // arg 3
-    let mut a3: usize; // arg 4
-    let mut a4: usize; // arg 5
-    let mut a5: usize; // arg 6
-
-    unsafe {
-        asm!(
-            "mv {}, a7",
-            "mv {}, a0",
-            "mv {}, a1",
-            "mv {}, a2",
-            "mv {}, a3",
-            "mv {}, a4",
-            "mv {}, a5",
-            out(reg) _id,
-            out(reg) a0,
-            out(reg) a1,
-            out(reg) a2,
-            out(reg) a3,
-            out(reg) a4,
-            out(reg) a5,
-        )
-    }
-    *id = _id;
+/// Loads the syscall registers from frame and returns them
+pub fn load_args(id: &mut usize, ktx: &mut KernelContext) -> SyscallArgs {
+    let frame = ktx.trap_frame();
+    let [a0, a1, a2, a3, a4, a5, a6, ..] = frame[5..12];
+    *id = frame[12];
     (a0, a1, a2, a3, a4, a5)
 }
