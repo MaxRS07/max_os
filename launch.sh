@@ -3,6 +3,7 @@ ARGS=()
 # Loop through all arguments
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    # enables the debug logger
     -d|--debug)
       ARGS+=("debug=1")
       shift
@@ -13,7 +14,7 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     *)
-      # Handle unknown arguments or positional parameters if needed
+    # TODO add help page
       shift
       ;;
   esac
@@ -21,7 +22,7 @@ done
 
 JOIN_ARGS=$(IFS=,; echo "${ARGS[*]}")
 
-if (RUSTFLAGS="-Awarnings" cargo build --release) then
+if (RUSTFLAGS="-A warnings" cargo build --release) then
   cargo objcopy --release -- -O binary os.bin
   qemu-system-riscv32 \
     -m 1G \
@@ -32,7 +33,7 @@ if (RUSTFLAGS="-Awarnings" cargo build --release) then
     -device virtio-gpu-device,xres=640,yres=480 \
     -device virtio-keyboard-device \
     -device virtio-tablet-device \
-    -drive file=/Users/max/Desktop/max_os.img,format=raw,id=usb_backend,if=none \
+    -drive file=/Volumes/MAX_OS/max_os.img,format=raw,id=usb_backend,if=none \
     -device virtio-blk-device,drive=usb_backend \
     -device virtio-net-device,netdev=net0 \
     -netdev user,id=net0,hostfwd=tcp::10022-:22 \

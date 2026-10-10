@@ -7,6 +7,7 @@ pub enum SyscallError {
     InvalidOperation(&'static str, usize),
     Busy(String),
     InvalidArg(String),
+    Failed(String),
 }
 
 impl Display for SyscallError {
@@ -18,6 +19,7 @@ impl Display for SyscallError {
             }
             Self::Busy(msg) => f.write_str(msg),
             Self::InvalidArg(msg) => f.write_str(msg),
+            Self::Failed(msg) => f.write_str(msg),
         }
     }
 }

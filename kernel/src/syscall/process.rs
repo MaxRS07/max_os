@@ -1,3 +1,4 @@
+use alloc::string::ToString;
 use log::error;
 
 use crate::{
@@ -39,12 +40,9 @@ impl SysOp for ProcessOp {
                     Ok(pid) => unsafe {
                         // exit 0 with value write
                         (pid_out as *mut u32).write(pid);
-                        exit(ktx, 0)
+                        Ok(())
                     },
-                    Err(msg) => {
-                        error!("{msg}");
-                        exit(ktx, -1);
-                    }
+                    Err(msg) => Err(SyscallError::Failed(msg.to_string())),
                 }
             }
             Self::Fork => {}

@@ -31,15 +31,16 @@ fn usize_bytes(value: isize) -> usize {
     usize::from_ne_bytes(value.to_ne_bytes())
 }
 
-/// This macro writes 8 return values through the a0-a7 registers
 #[macro_export]
 macro_rules! write_return {
-    ( $arg0_ktx:expr, $( $rest:expr ),+ $(,)? ) => {
-        let ktx: &mut KernelContext = $arg0_ktx;
-        let args = [ $( $rest as isize ),+ ];
-        let len = args.len();
-        core::debug_assert!(len <= 7, "exit! takes at most 7 additional arguments (8 total including ktx)");
-        // Writes args starting at a0
-        ktx.trap_frame()[5..len].copy_from_slice(&args);
-    };
+    ( $ktx:expr, $( $val:expr ),+ $(,)? ) => {{
+        let ktx: &mut $crate::syscall::context::KernelContext = $ktx;
+        let frame = ktx.trap_frame();
+        let mut reg = 6; // a1
+        $(
+            core::debug_assert!(reg <= 12, "write_return! takes at most 7 values (a1-a7)");
+            frame[reg] = ($val) as isize as usize;
+            reg += 1;
+        )+
+    }};
 }

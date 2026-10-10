@@ -16,11 +16,16 @@ use crate::{
         sector::{FSHeaderSector, FSInodeSector},
     },
 };
+pub struct IOCtx<'v, 'a> {
+    pub data_map: &'v mut dyn SectorAllocator,
+    pub blk_store: &'v mut FSBlockStore<'a>,
+}
 
 pub struct VolumeIO<'a, Allocator = FSBitmap>
 where
     Allocator: SectorAllocator,
 {
+    id: u32,
     data_map: Allocator,
     inode_map: Allocator,
     blk_store: FSBlockStore<'a>,
@@ -35,20 +40,32 @@ pub(crate) const INODES_PER_SECTOR: u64 = SECTOR_SIZE / INODE_SLOT;
 const ROOT_INODE_INDEX: u64 = 0;
 
 impl<'a> VolumeIO<'a> {
-    fn new(blk_store: FSBlockStore<'a>) -> Self {
+    fn new(id: u32, blk_store: FSBlockStore<'a>) -> Self {
         Self {
+            id,
             data_map: FSBitmap::new(0, 0),
             inode_map: FSBitmap::new(0, 0),
             lock_table: LockTable::default(),
             blk_store,
         }
     }
+    /// Helper to retrive context object from this
+    pub(crate) fn ctx(&mut self) -> IOCtx<'_, 'a> {
+        IOCtx {
+            data_map: &mut self.data_map,
+            blk_store: &mut self.blk_store,
+        }
+    }
+    pub fn id(&self) -> u32 {
+        self.id
+    }
     /// Creates a VolumeIO object from a block device and formats it using the superblock if present.
     pub fn from_block_device(
+        id: u32,
         blk_dev: &'a mut dyn BlockDevice,
     ) -> Result<(FSHeaderSector, Self), FSError> {
         let blk_store = FSBlockStore::new(blk_dev);
-        let mut volume_io = Self::new(blk_store);
+        let mut volume_io = Self::new(id, blk_store);
         let sb = volume_io.load_superblock()?;
         Ok((sb.root, volume_io))
     }
@@ -132,18 +149,17 @@ impl<'a> VolumeIO<'a> {
         header_sector: FSHeaderSector,
         inode: FSInode,
         mode: OpenMode,
-    ) -> Result<FileObject<'v, 'a>, FSError> {
+    ) -> Result<FileObject, FSError> {
         let lock_state = self
             .lock_table
             .get_lock(inode.id())
             .ok_or(FSError::IOError("Failed to retrieve lockstate for inode"));
         Ok(FileObject::new(
+            self.id,
             header,
             header_sector,
             inode,
-            &mut self.data_map,
             lock_state?,
-            &mut self.blk_store,
             mode,
         ))
     }
@@ -176,7 +192,7 @@ impl<'a> VolumeIO<'a> {
         header: FSHeader,
         header_sector: FSHeaderSector,
         inode: FSInode,
-    ) -> Result<DirContents<'v, 'a>, FSError> {
+    ) -> Result<DirContents, FSError> {
         let contents = self
             .get_fileobj_inode(header, header_sector, inode, OpenMode::Read)?
             .dir_contents();

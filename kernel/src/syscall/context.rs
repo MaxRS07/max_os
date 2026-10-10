@@ -38,17 +38,18 @@ impl KernelContext {
             trap_frame: trap_frame as *mut TrapFrame,
         }
     }
-    pub fn process(&mut self) -> Option<&mut Process> {
+    pub fn process(&mut self) -> Result<&mut Process, SyscallError> {
         match self.process {
-            Some(process) => Some(unsafe { &mut *process }),
+            Some(process) => Ok(unsafe { &mut *process }),
             None => {
                 let process = CURRENT_PROCESS.load(Ordering::Acquire);
                 if process.is_null() {
-                    error!("Process is undefined");
-                    return None;
+                    Err(SyscallError::Busy(format!(
+                        "Failed to retrieve running process"
+                    )));
                 }
                 self.process = Some(process);
-                Some(unsafe { &mut *process })
+                Ok(unsafe { &mut *process })
             }
         }
     }

@@ -9,7 +9,7 @@ use block::device::BlockDevice;
 use crate::{
     collections::error::FSError,
     core::{locator::FSLocator, mutpath, path::FSPath},
-    storage::volume::FSVolume,
+    storage::volume::{FSVolume, Volume},
 };
 
 pub struct FSMountEntry<'a> {
@@ -41,13 +41,19 @@ impl<'a> FSMountTable<'a> {
             next_id: AtomicU32::new(0),
         }
     }
+    pub fn get_mut(&'a mut self, id: u32) -> Option<&mut FSVolume> {
+        self.table
+            .iter_mut()
+            .find(|entry| entry.id == id)
+            .map(|e| &mut e.volume)
+    }
     pub fn mount(
         &mut self,
         path: &'a FSPath,
         blk_dev: &'a mut dyn BlockDevice,
     ) -> Result<u32, FSError> {
-        let volume = FSVolume::from_block_device(blk_dev)?;
         let id = self.next_id.fetch_add(1, Ordering::AcqRel);
+        let volume = FSVolume::from_block_device(id, blk_dev)?;
         let entry = FSMountEntry::new(id, path, volume);
         self.table.push(entry);
         Ok(id)
@@ -65,7 +71,6 @@ impl<'a> FSMountTable<'a> {
         }
         for entry in self.table.iter_mut() {
             if entry.prefix.matches_prefix(path) {
-
                 return Some(&mut entry.volume);
             }
         }

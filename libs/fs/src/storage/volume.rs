@@ -1,4 +1,4 @@
-use core::{debug_assert_eq, ptr::addr_of, slice::GetDisjointMutError::IndexOutOfBounds, todo};
+use core::todo;
 
 use alloc::{
     borrow::ToOwned,
@@ -30,7 +30,6 @@ use crate::{
         volumeio::{INODES_PER_SECTOR, VolumeIO},
     },
 };
-
 /// Disk volume
 pub struct FSVolume<'a, C: Cache = FSPathCache> {
     /// Address of the root header in this volume
@@ -54,11 +53,14 @@ where
         }
     }
     /// Creates a new volume from a block device and formats it, fill cache, etc.
-    pub fn from_block_device(blk_dev: &'a mut dyn BlockDevice) -> Result<Self, FSError> {
-        let (root, io) = VolumeIO::from_block_device(blk_dev)?;
+    pub fn from_block_device(id: u32, blk_dev: &'a mut dyn BlockDevice) -> Result<Self, FSError> {
+        let (root, io) = VolumeIO::from_block_device(id, blk_dev)?;
         let mut volume = Self::new(root, 1000, io);
         volume.populate_map()?;
         Ok(volume)
+    }
+    pub fn id(&self) -> u32 {
+        self.io.id()
     }
     /// rebuilds the path cache from disk by recursively walking the directory tree from the root
     fn populate_map(&mut self) -> Result<(), FSError> {
@@ -170,9 +172,10 @@ where
     ) -> Result<FSHeaderSector, FSError> {
         self.allocate_header(header, header.metadata().storage_type)?;
         let mut fo = self.open_read(path.parent())?;
-        fo.write_header(*header).inspect(|header_sector| {
-            self.cache.put_path(path, *header_sector);
-        })
+        fo.write_header(*header, &mut self.io.ctx())
+            .inspect(|header_sector| {
+                self.cache.put_path(path, *header_sector);
+            })
     }
     pub fn delete_file(&mut self, path: &FSPath) -> Result<FSHeader, FSError> {
         let sector = self.resolve_path(path)?;
@@ -195,20 +198,26 @@ where
     }
 
     /* File Object Getters */
+    pub fn read(&mut self, f: &mut FileObject, buf: &mut [u8]) -> Result<usize, FSError> {
+        f.read(&mut self.io.ctx(), buf)
+    }
+    pub fn write(&mut self, f: &mut FileObject, buf: &[u8]) -> Result<(), FSError> {
+        f.write_buffer(&mut self.io.ctx(), buf)
+    }
     // Gets a file object from the file located at `path`.
-    pub fn open_read<'v>(&'v mut self, path: &FSPath) -> Result<FileObject<'v, 'a>, FSError> {
+    pub fn open_read<'v>(&'v mut self, path: &FSPath) -> Result<FileObject, FSError> {
         let (header, header_sector, inode) = self.get_open_context(path)?;
         self.io
             .get_fileobj_inode(header, header_sector, inode, OpenMode::Read)
     }
 
-    pub fn open_write<'v>(&'v mut self, path: &FSPath) -> Result<FileObject<'v, 'a>, FSError> {
+    pub fn open_write<'v>(&'v mut self, path: &FSPath) -> Result<FileObject, FSError> {
         let (header, header_sector, inode) = self.get_open_context(path)?;
         self.io
             .get_fileobj_inode(header, header_sector, inode, OpenMode::Write)
     }
 
-    pub fn open_append<'v>(&'v mut self, path: &FSPath) -> Result<FileObject<'v, 'a>, FSError> {
+    pub fn open_append<'v>(&'v mut self, path: &FSPath) -> Result<FileObject, FSError> {
         let (header, header_sector, inode) = self.get_open_context(path)?;
         self.io
             .get_fileobj_inode(header, header_sector, inode, OpenMode::Append)
@@ -239,7 +248,7 @@ where
     }
 
     /* Directory Children Getters */
-    pub fn children<'v>(&'v mut self, path: &FSPath) -> Result<DirContents<'v, 'a>, FSError> {
+    pub fn children<'v>(&'v mut self, path: &FSPath) -> Result<DirContents, FSError> {
         if self.is_file(path) {
             return Err(FSError::Type(format!(
                 "Expected directory, {path:?} is a file"
@@ -318,11 +327,11 @@ impl<'a> Volume<'a> for FSVolume<'a> {
         self.resolve_path(path)
     }
 
-    fn get_fileobj<'v>(&'v mut self, path: &FSPath) -> Result<FileObject<'v, 'a>, FSError> {
+    fn get_fileobj<'v>(&'v mut self, path: &FSPath) -> Result<FileObject, FSError> {
         self.open_read(path)
     }
 
-    fn children<'v>(&'v mut self, path: &FSPath) -> Result<DirContents<'v, 'a>, FSError> {
+    fn children<'v>(&'v mut self, path: &FSPath) -> Result<DirContents, FSError> {
         self.children(path)
     }
 
@@ -343,8 +352,8 @@ impl<'a> Volume<'a> for FSVolume<'a> {
 }
 pub trait Volume<'a> {
     fn resolve_path(&mut self, path: &FSPath) -> Result<FSHeaderSector, FSError>;
-    fn get_fileobj<'v>(&'v mut self, path: &FSPath) -> Result<FileObject<'v, 'a>, FSError>;
-    fn children<'v>(&'v mut self, path: &FSPath) -> Result<DirContents<'v, 'a>, FSError>;
+    fn get_fileobj<'v>(&'v mut self, path: &FSPath) -> Result<FileObject, FSError>;
+    fn children<'v>(&'v mut self, path: &FSPath) -> Result<DirContents, FSError>;
     fn read_inode(&mut self, path: &FSPath) -> Result<FSInode, FSError>;
     fn read_header(&mut self, path: &FSPath) -> Result<FSHeader, FSError>;
     fn delete_file(&mut self, path: &FSPath) -> Result<FSHeader, FSError>;

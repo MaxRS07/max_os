@@ -7,10 +7,16 @@ use core::{
 };
 
 use alloc::{
-    borrow::ToOwned, boxed::Box, collections::BTreeSet, fmt::format, format, string::String,
+    borrow::ToOwned,
+    boxed::Box,
+    collections::{BTreeMap, BTreeSet},
+    fmt::format,
+    format,
+    string::String,
     vec::Vec,
 };
 use collections::hashmap::HashMap;
+use fs::storage::fileobject::FileObject;
 use mem::page_table::{
     address_space::{AddressSpace, Addresser},
     asid::{ASID, ASIDAllocator},
@@ -24,7 +30,7 @@ use crate::{
     mm::heap::PAGE_ALLOCATOR,
     sched::{
         ASID_ALLOCATOR, PROCESS_TABLE, SCHEDULER,
-        error::ThreadError,
+        error::{ProcessError, ThreadError},
         thread::{Priority, Thread},
     },
 };
@@ -32,6 +38,8 @@ use crate::{
 pub static PID_ALLOCATOR: AtomicU32 = AtomicU32::new(0);
 /// Process table for pid -> process lookup.
 pub type ProcessTable = HashMap<u32, *mut Process>;
+
+pub const MAX_FDS: u32 = 64;
 
 #[derive(Clone, Debug)]
 pub struct Process {
@@ -42,6 +50,7 @@ pub struct Process {
     address_space: AddressSpace,
     /// list of thread IDs owned by this process
     threads: BTreeSet<u32>,
+    fds: Vec<Option<FileObject>>,
 }
 
 impl Process {
@@ -51,6 +60,7 @@ impl Process {
             pid,
             address_space,
             threads,
+            fds: Vec::new(),
         }))
     }
     /// Creates the kernel process and adds it to the
@@ -119,6 +129,7 @@ impl Process {
 
     pub fn destroy(&mut self) {
         self.address_space.destroy();
+        drop(self.fds)
     }
 
     /* Address Space Helpers */
@@ -140,6 +151,32 @@ impl Process {
         // convert bytes to pages here to reduce sysop overhead
         let pages = size.div_ceil(0x1000);
         let _ = self.address_space.unmap_pages(virt_addr, pages);
+    }
+
+    /* File Descriptor Helpers */
+
+    pub fn alloc_fd(&mut self, file: FileObject) -> Result<u32, ProcessError> {
+        let Some(fd) = self.fds.iter().position(|fo| fo.is_none()) else {
+            return Err(ProcessError::FileDescriptorsFull(format!(
+                "Failed to allocate file descriptor, free slots exhausted"
+            )));
+        };
+        self.fds[fd] = Some(file);
+        Ok(fd as u32)
+    }
+    pub fn file_mut(&mut self, fd: u32) -> Option<&mut FileObject> {
+        if fd > MAX_FDS {
+            return None;
+        }
+        self.fds.get_mut(fd)?
+    }
+    pub fn close_fd(&mut self, fd: u32) -> Option<FileObject> {
+        if fd > MAX_FDS {
+            return None;
+        }
+        let fo = self.fds[fd];
+        self.fds[fd] = None;
+        fo
     }
 }
 

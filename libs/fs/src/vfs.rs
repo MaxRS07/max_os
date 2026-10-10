@@ -22,6 +22,9 @@ impl<'a> Vfs<'a> {
             mount_table: FSMountTable::new(),
         }
     }
+    pub fn get_volume(&'a mut self, id: u32) -> Option<&mut FSVolume> {
+        self.mount_table.get_mut(id)
+    }
     /// mounts a volume to a path
     pub fn mount(
         &mut self,
@@ -37,11 +40,7 @@ impl<'a> Vfs<'a> {
         }
         self.mount_table.unmount(path)
     }
-    pub fn open<'v>(
-        &'v mut self,
-        path: &FSPath,
-        mode: OpenMode,
-    ) -> Result<FileObject<'v, 'a>, FSError> {
+    pub fn open<'v>(&'v mut self, path: &FSPath, mode: OpenMode) -> Result<FileObject, FSError> {
         if let Some(vol) = self.resolve(path) {
             return match mode {
                 OpenMode::Append => vol.open_append(path),
