@@ -4,7 +4,7 @@ use alloc::{borrow::ToOwned, fmt::format, format, string::String};
 use fs::{
     collections::error::FSError,
     core::path::FSPath,
-    storage::fileobject::{FileObject, OpenMode},
+    storage::fileobject::{FileObject, OpenMode, SeekMode},
 };
 use log::{error, warn};
 
@@ -84,7 +84,27 @@ impl SysOp for FsOp {
                 process.close_fd(fd as u32);
                 return Ok(());
             }
-            _ => Err(SyscallError::InvalidCall(0)),
+            Self::Seek => {
+                let (fd, offset, mode, ..) = args;
+                let process = ktx.process()?;
+                let fo = process
+                    .file_mut(fd as u32)
+                    .ok_or(SyscallError::InvalidArg(format!(
+                        "Failed to read file, invalid file descriptor"
+                    )))?;
+                let seek_mode = match mode {
+                    0 => SeekMode::Set,
+                    1 => SeekMode::Current,
+                    2 => SeekMode::End,
+                };
+                match fo.seek(offset, seek_mode) {
+                    Ok(cursor) => {
+                        write_return!(ktx, cursor);
+                        Ok(())
+                    }
+                    Err(err) => Err(SyscallError::Failed(format!("{err}"))),
+                }
+            }
         }
     }
 }

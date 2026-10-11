@@ -161,8 +161,7 @@ impl AddressSpace {
         for region in &self.regions {
             // copy 1-1 physical mapping if the pages are readonly
             // something something partial faliure
-            fork_space.map_pages(region.virt_addr, region.pages, 0, region.perms)?;
-            if let Err(err) = fork_space.copy_from_region(region) {
+            if let Err(err) = fork_space.clone_region(region) {
                 let _ = fork_space.destroy();
                 return Err(err);
             }
@@ -170,26 +169,24 @@ impl AddressSpace {
         Ok(fork_space)
     }
     /// Copies all memory from a physical pointer and writes it to a virtual region, overwriting existing memory
-    pub fn copy_from_region(&mut self, region: &VirtualRegion) -> Result<*mut u8, MemoryError> {
-        let mut ptr = null_mut();
+    pub fn clone_region(&mut self, region: &VirtualRegion) -> Result<(), MemoryError> {
+        self.map_region(region)?;
         for i in 0..region.pages {
             let offset = i * 0x1000;
             let src = (region.phys_addr + offset) as *const u8;
-            ptr = self.copy_from_page(src, region.virt_addr + offset)?;
+
+            let this = &mut *self;
+            let virt_dest = region.virt_addr + offset;
+            let dest_addr = this.translate(virt_dest)?;
+            let dest_ptr = dest_addr as *mut u8;
+            unsafe {
+                core::ptr::copy(src, dest_ptr, 0x1000);
+            }
         }
-        Ok(ptr)
+        Ok(())
     }
-    pub fn copy_from_page(
-        &mut self,
-        phys_src: *const u8,
-        virt_dest: usize,
-    ) -> Result<*mut u8, MemoryError> {
-        let dest_addr = self.translate(virt_dest)?;
-        let dest_ptr = dest_addr as *mut u8;
-        unsafe {
-            core::ptr::copy(phys_src, dest_ptr, 0x1000);
-        }
-        Ok(dest_ptr)
+    fn map_region(&mut self, region: &VirtualRegion) -> Result<(), MemoryError> {
+        self.map_pages(region.virt_addr, region.pages, 0, region.perms)
     }
     fn insert_region(&mut self, region: VirtualRegion) -> Result<(), MemoryError> {
         self.check_overlap(region.virt_addr, region.pages)?;
@@ -294,7 +291,6 @@ impl Addresser for AddressSpace {
             "Attempted to unmap or access regions mapped to another process",
         ))
     }
-
     fn map_pages(
         &mut self,
         virt_addr: usize,

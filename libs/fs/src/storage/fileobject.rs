@@ -5,7 +5,7 @@ use core::{
     sync::atomic::{AtomicU8, AtomicU32, Ordering},
 };
 
-use alloc::{borrow::ToOwned, format, sync::Arc, vec::Vec};
+use alloc::{borrow::ToOwned, format, string::ToString, sync::Arc, vec::Vec};
 
 use crate::{
     collections::{bitmap::FSBitmap, error::FSError, filelock::LockStateData},
@@ -51,6 +51,18 @@ impl From<u8> for OpenMode {
         }
     }
 }
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum SeekMode {
+    /// Sets the cursor position to `offset`
+    Set = 0,
+    /// Shifts the cursor position by `offset`
+    Current = 1,
+    /// Sets the cursor position to file size + `offset`
+    End = 2,
+}
+
 /// Open file object in RAM
 pub struct FileObject {
     /// The id of the parent
@@ -97,6 +109,29 @@ impl FileObject {
     /* Flag get/set */
     pub fn is_dir(&self) -> bool {
         self.header.is_dir()
+    }
+    pub fn seek(&mut self, offset: usize, mode: SeekMode) -> Result<usize, FSError> {
+        match mode {
+            SeekMode::Set => {
+                self.cursor = offset as u64;
+                Ok(offset)
+            }
+            SeekMode::Current => {
+                let offset_sign = isize::from_ne_bytes(offset.to_ne_bytes());
+                let new_pos = self.cursor as isize + offset_sign;
+                if new_pos < 0 {
+                    return Err(FSError::OutOfBounds(
+                        "Cursor cannot be negative".to_string(),
+                    ));
+                }
+                self.cursor = new_pos as u64;
+                Ok(new_pos as usize)
+            }
+            SeekMode::End => {
+                self.cursor = (self.max_cursor() as usize + offset) as u64;
+                Ok(self.cursor as usize)
+            }
+        }
     }
 
     /* Read methods */
@@ -249,7 +284,7 @@ impl FileObject {
             if !header.active() || header.is_removed() {
                 return Some(());
             }
-            self.advance(HEADER_SLOT)?;
+            self.advance(HEADER_SLOT);
         }
     }
     /// moves the cursor to address of the next header matching `predicate`. Returns none if no matching header was found
@@ -277,12 +312,8 @@ impl FileObject {
         Ok(())
     }
     // moves the cursor `bytes` bytes forward. Returns None if the the advance is greater than the size of the file
-    fn advance(&mut self, bytes: u64) -> Option<()> {
-        if self.cursor + bytes > self.max_cursor() {
-            return None;
-        }
+    fn advance(&mut self, bytes: u64) {
         self.cursor += bytes;
-        Some(())
     }
     fn check_size(&mut self, bytes: u64, ctx: &mut IOCtx) -> Result<(), FSError> {
         let end = self.cursor + bytes;

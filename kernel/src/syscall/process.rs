@@ -23,7 +23,10 @@ pub enum ProcessOp {
     Spawn = 1,
     /// Clones the current process into the process table, returning the clone's PID
     Fork = 2,
-    /// Idk
+    /// Blocks this process until a child exits
+    /// `pid>0`: waits for child with `pid` to exit
+    /// `pid=0`: waits for any process to exit
+    /// `pid=-1`:
     Wait = 3,
     /// Kills a process and terminates child threads
     Kill = 4,
@@ -68,7 +71,7 @@ impl SysOp for ProcessOp {
                 process.destroy(); // deallocate process and drop asid + fd
                 Ok(())
             }
-            Self::Wait => {}
+            Self::Wait => todo!(),
         }
     }
 }
