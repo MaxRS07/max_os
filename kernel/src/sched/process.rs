@@ -12,7 +12,7 @@ use alloc::{
     collections::{BTreeMap, BTreeSet},
     fmt::format,
     format,
-    string::String,
+    string::{String, ToString},
     vec::Vec,
 };
 use collections::hashmap::HashMap;
@@ -31,6 +31,7 @@ use crate::{
     sched::{
         ASID_ALLOCATOR, PROCESS_TABLE, SCHEDULER,
         error::{ProcessError, ThreadError},
+        scheduler::CURRENT_PROCESS,
         thread::{Priority, Thread},
     },
 };
@@ -71,6 +72,24 @@ impl Process {
         PROCESS_TABLE.wait().lock().insert(0, process);
         Ok(0)
     }
+    /// Forks this process with a new name and entry, copying the address space
+    pub fn fork(&self, name: &str, entry: *mut u32) -> Result<u32, ProcessError> {
+        let pid = alloc_pid();
+        // Clone the address space
+        let fork_asid = ASID_ALLOCATOR
+            .wait()
+            .lock()
+            .alloc_id()
+            .ok_or(ProcessError::OutOfResources(format!("ASIDs exhausted")))?;
+        let address_space = self
+            .address_space
+            .fork(fork_asid)
+            .map_err(|err| ProcessError::OutOfResources(err.to_string()))?;
+        let pid = alloc_pid();
+        let process = Self::new(name, pid, address_space, threads);
+        PROCESS_TABLE.wait().lock().insert(pid, process);
+        Ok(pid)
+    }
     /// creates a new proces
     pub fn spawn(name: &str, entry: *const fn()) -> Result<u32, ThreadError> {
         let asid = ASID_ALLOCATOR
@@ -78,12 +97,9 @@ impl Process {
             .lock()
             .alloc_id()
             .ok_or(ThreadError::Other(format!("No free ASIDs")))?; // TODO Make this not unwrap
-        let table = Table::alloc_empty(PAGE_ALLOCATOR.wait())
-            .map_err(|err| ThreadError::Other(format!("{err}")))?;
-        let addr_space = AddressSpace::new(PAGE_ALLOCATOR.wait(), table, asid, Vec::new());
+        let addr_space = AddressSpace::alloc_new(PAGE_ALLOCATOR.wait(), asid, Vec::new())?;
 
-        let pid = PID_ALLOCATOR.fetch_add(1, Ordering::Relaxed);
-
+        let pid = alloc_pid();
         let thread = Thread::new(pid, &name, Priority::Normal, entry as usize);
         let tid = thread.id();
         let thread_ptr = Box::into_raw(Box::new(thread));
@@ -101,6 +117,9 @@ impl Process {
             )));
         SCHEDULER.wait().lock().schedule(thread_ptr)?;
         Ok(pid)
+    }
+    pub fn pid(&self) -> u32 {
+        self.pid
     }
     pub fn address_space(&self) -> &AddressSpace {
         &self.address_space
@@ -178,6 +197,10 @@ impl Process {
         self.fds[fd] = None;
         fo
     }
+}
+
+fn alloc_pid() -> u32 {
+    PID_ALLOCATOR.fetch_add(1, Ordering::Acquire)
 }
 
 impl PartialEq for Process {

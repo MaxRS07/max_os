@@ -4,7 +4,7 @@ use core::{
     sync::atomic::Ordering,
 };
 
-use alloc::format;
+use alloc::{borrow::ToOwned, format};
 use fs::vfs::{self, Vfs};
 use log::error;
 use sync::mutex_guard::MutexGuard;
@@ -13,9 +13,12 @@ use crate::{
     drivers::time::GLOBAL_TIME,
     fs::GLOBAL_FS,
     sched::{
-        PROCESS_TABLE, SCHEDULER, error::ThreadError, process::Process, scheduler::CURRENT_PROCESS,
+        PROCESS_TABLE, SCHEDULER,
+        error::{ProcessError, ThreadError},
+        process::Process,
+        scheduler::CURRENT_PROCESS,
     },
-    syscall::error::SyscallError,
+    syscall::{Syscall, error::SyscallError},
 };
 
 pub type TrapFrame = [usize; 32];
@@ -52,6 +55,23 @@ impl KernelContext {
                 Ok(unsafe { &mut *process })
             }
         }
+    }
+    pub fn get_process(&self, pid: u32) -> Result<&mut Process, SyscallError> {
+        match PROCESS_TABLE.wait().lock().get(&pid) {
+            Some(process) => Ok(unsafe { &mut *process }),
+            None => Err(SyscallError::InvalidArg(
+                "Failed to get process, PID invalid".to_owned(),
+            )),
+        }
+    }
+    pub fn remove_process(&self, pid: u32) -> Result<*mut Process, SyscallError> {
+        PROCESS_TABLE
+            .wait()
+            .lock()
+            .remove(&pid)
+            .ok_or(SyscallError::InvalidArg(format!(
+                "Failed to kill process, invalid pid: {pid}"
+            )))
     }
     pub fn vfs(&mut self) -> Result<&mut Vfs<'static>, SyscallError> {
         if self.vfs.is_none() {

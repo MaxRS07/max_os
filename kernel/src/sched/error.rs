@@ -18,6 +18,7 @@ impl Display for ThreadError {
 pub enum ProcessError {
     NullFileDescriptor(String),
     FileDescriptorsFull(String),
+    OutOfResources(String),
 }
 
 impl Display for ProcessError {

@@ -17,12 +17,14 @@ use crate::{
 pub trait Addresser {
     /// Creates a new empty address space using an ASID. ASIDs must be between 0 and 511. This method will `Err` if the page
     /// allocator runs out of pages or fails to allocate
-    fn new(page_allocator: &'static dyn Pager, root_table: *mut Table, asid: ASID) -> Self;
+    fn new(page_allocator: &'static dyn Pager, asid: ASID) -> Result<Self, MemoryError>
+    where
+        Self: Sized;
     /// Force-unmaps this address space, freeing all of its owned regions
     fn destroy(&mut self) -> Result<(), MemoryError>;
     /// Unmaps `virt_addr` from this space, freeing the physical page
     fn unmap_pages(&mut self, virt_addr: usize, size: usize) -> Result<(), MemoryError>;
-    /// Maps virtual addresses to this space, increasing this space's capacity by at least [`bytes`]
+    /// Maps virtual addresses to this space, increasing this space's capacity by `num_ page` pages
     fn map_pages(
         &mut self,
         virt_addr: usize,
@@ -40,7 +42,7 @@ pub trait Addresser {
     fn satp(&self) -> usize;
 }
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
-enum RegionBacking {
+pub enum RegionBacking {
     #[default]
     /// Anon space is fully freed and reclaimed on teardown
     Anonymous,
@@ -83,6 +85,9 @@ impl VirtualRegion {
             // dont want to deal with this right now
             megatable: false,
         }
+    }
+    pub fn readonly(&self) -> bool {
+        self.perms.readonly()
     }
     /// The size of this region in bytes
     pub fn size(&self) -> usize {
@@ -137,25 +142,57 @@ impl AddressSpace {
     // pub fn kernel() -> Self {
     //     Self::new(, 0, regions);
     // }
-    pub fn new(
+    pub fn alloc_new(
         page_allocator: &'static dyn Pager,
-        root_table: *mut Table,
         asid: ASID,
         regions: Vec<VirtualRegion>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, MemoryError> {
+        let root_table = Table::alloc_empty(page_allocator)?;
+        Ok(Self {
             page_allocator,
             root_table,
             asid,
             regions,
-        }
+        })
     }
-    fn from_asid(page_allocator: &'static dyn Pager, asid: ASID) -> Result<Self, MemoryError> {
-        // create the root table. This table must be zerod
-        let root_ptr = Table::alloc_empty(page_allocator)?;
-        Ok(Self::new(page_allocator, root_ptr, asid, Vec::new()))
+    // Copies the region mappings to a new address space
+    pub fn fork(&mut self, asid: ASID) -> Result<AddressSpace, MemoryError> {
+        let mut fork_space = Self::alloc_new(self.page_allocator, asid, Vec::new())?;
+        for region in &self.regions {
+            // copy 1-1 physical mapping if the pages are readonly
+            // something something partial faliure
+            fork_space.map_pages(region.virt_addr, region.pages, 0, region.perms)?;
+            if let Err(err) = fork_space.copy_from_region(region) {
+                let _ = fork_space.destroy();
+                return Err(err);
+            }
+        }
+        Ok(fork_space)
+    }
+    /// Copies all memory from a physical pointer and writes it to a virtual region, overwriting existing memory
+    pub fn copy_from_region(&mut self, region: &VirtualRegion) -> Result<*mut u8, MemoryError> {
+        let mut ptr = null_mut();
+        for i in 0..region.pages {
+            let offset = i * 0x1000;
+            let src = (region.phys_addr + offset) as *const u8;
+            ptr = self.copy_from_page(src, region.virt_addr + offset)?;
+        }
+        Ok(ptr)
+    }
+    pub fn copy_from_page(
+        &mut self,
+        phys_src: *const u8,
+        virt_dest: usize,
+    ) -> Result<*mut u8, MemoryError> {
+        let dest_addr = self.translate(virt_dest)?;
+        let dest_ptr = dest_addr as *mut u8;
+        unsafe {
+            core::ptr::copy(phys_src, dest_ptr, 0x1000);
+        }
+        Ok(dest_ptr)
     }
     fn insert_region(&mut self, region: VirtualRegion) -> Result<(), MemoryError> {
+        self.check_overlap(region.virt_addr, region.pages)?;
         match self
             .regions
             .binary_search_by(|reg| reg.virt_addr.cmp(&region.virt_addr))
@@ -170,7 +207,22 @@ impl AddressSpace {
             }
         }
     }
-    /// Merges owned regions with identical configurations
+    fn check_overlap(&self, start: usize, len: usize) -> Result<(), MemoryError> {
+        if len == 0 {
+            return Ok(());
+        }
+        let end = start + (len - 1);
+        let idx = self.regions.partition_point(|r| r.virt_addr <= start);
+        if idx > 0 && self.regions[idx - 1].end() >= start
+            || idx < self.regions.len() && self.regions[idx].virt_addr <= end
+        {
+            return Err(MemoryError::AccessViolation(
+                "Attemped to map region which overlaps existing region",
+            ));
+        }
+        Ok(())
+    }
+    /// Merges contiguous regions with identical configurations
     fn merge_regions(&mut self) {
         // lookahead + merge
         for i in 0..self.regions.len() - 1 {
@@ -186,8 +238,8 @@ impl AddressSpace {
 }
 
 impl Addresser for AddressSpace {
-    fn new(page_allocator: &'static dyn Pager, root_table: *mut Table, asid: ASID) -> Self {
-        AddressSpace::new(page_allocator, root_table, asid, Vec::new())
+    fn new(page_allocator: &'static dyn Pager, asid: ASID) -> Result<Self, MemoryError> {
+        AddressSpace::alloc_new(page_allocator, asid, Vec::new())
     }
     fn destroy(&mut self) -> Result<(), MemoryError> {
         for region in self.regions.clone() {
@@ -196,7 +248,7 @@ impl Addresser for AddressSpace {
         let root_table_ptr = self.root_table as *mut u8;
         self.page_allocator.free(root_table_ptr)
     }
-    /// Unmaps `num_pages` consecutive virtual addresses starting at `virt_addr` and incrementing by 0x1000. To unmap a single address, use size 1.
+    /// Unmaps `num_pages` consecutive virtual addresses and frees the frames in memory, starting at `virt_addr` and incrementing by 0x1000. To unmap a single address, use size 1.
     fn unmap_pages(&mut self, virt_addr: usize, num_pages: usize) -> Result<(), MemoryError> {
         if num_pages == 0 {
             return Ok(());
@@ -219,7 +271,7 @@ impl Addresser for AddressSpace {
                 self.insert_region(VirtualRegion {
                     pages: left_pages,
                     ..region
-                });
+                })?;
             }
 
             if right_pages > 0 {
@@ -228,7 +280,11 @@ impl Addresser for AddressSpace {
                     phys_addr: region.phys_addr + (left_pages + num_pages) * 0x1000,
                     pages: right_pages,
                     ..region
-                });
+                })?;
+            }
+            for i in 0..num_pages {
+                let ptr = (virt_addr + 0x1000 * i) as *mut u8;
+                self.page_allocator.free(ptr)?;
             }
 
             return Ok(());
@@ -242,18 +298,21 @@ impl Addresser for AddressSpace {
     fn map_pages(
         &mut self,
         virt_addr: usize,
-        size: usize,
+        num_pages: usize,
         flags: usize,
         perms: PagePermissions,
     ) -> Result<(), MemoryError> {
+        self.check_overlap(virt_addr, num_pages)?;
         let phys_addrs = unsafe { &mut *self.root_table }.map_size(
             self.page_allocator,
             virt_addr,
-            size,
+            num_pages,
             flags,
         )?;
+        let mut new_regions = Vec::new();
         let mut peekable_addrs = phys_addrs.iter().peekable();
         let mut cur_pages = 1;
+        let mut cur_virt = virt_addr;
         while let Some(addr) = peekable_addrs.next() {
             // save space by grouping contiguous virt regions. This will be a massive headache later on partial frees
             if let Some(next) = peekable_addrs.peek()
@@ -263,8 +322,17 @@ impl Addresser for AddressSpace {
                 continue;
             }
             let virt_region =
-                VirtualRegion::new(perms, virt_addr, *addr, cur_pages, RegionBacking::Anonymous);
-            self.regions.push(virt_region);
+                VirtualRegion::new(perms, cur_virt, *addr, cur_pages, RegionBacking::Anonymous);
+            match self.insert_region(virt_region) {
+                Ok(_) => new_regions.push((cur_virt, cur_pages)),
+                Err(err) => {
+                    for (addr, pages) in new_regions {
+                        self.unmap_pages(addr, pages)?;
+                    }
+                    return Err(err);
+                }
+            }
+            cur_virt += num_pages * 0x1000;
         }
         Ok(())
     }
@@ -295,6 +363,12 @@ impl Addresser for AddressSpace {
         self.regions
             .iter()
             .any(|region: &VirtualRegion| region.contains_virtual_address(virt_addr))
+    }
+}
+
+impl Drop for AddressSpace {
+    fn drop(&mut self) {
+        let _ = self.destroy();
     }
 }
 

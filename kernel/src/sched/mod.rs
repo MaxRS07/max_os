@@ -55,7 +55,7 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
     if let Err(msg) = map_boot_pages(table) {
         error!("{msg}")
     }
-    let kspace = AddressSpace::new(allocator, table, ASID::MAIN, Vec::new());
+    let kspace = AddressSpace::alloc_new(allocator, table, ASID::MAIN, Vec::new());
     Process::kernel(tid, kspace).inspect_err(|err| error!("{err}"))?;
     SCHEDULER.wait().lock().set_running(main_thread);
 

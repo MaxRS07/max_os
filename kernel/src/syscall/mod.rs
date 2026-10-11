@@ -107,7 +107,9 @@ pub fn handle_ecall(frame: *mut usize) {
     let mut id = 0usize;
     let args = load_args(&mut id, ktx);
     match Syscall::try_from(id) {
-        Ok(op) => op.call(ktx, args),
+        Ok(op) => {
+            let _ = op.call(ktx, args);
+        }
         Err(msg) => warn!("{msg}"),
     }
 }
