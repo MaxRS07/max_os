@@ -73,7 +73,7 @@ impl SysOp for Syscall {
         } {
             // Propagate a0 write to here, write Syscall err pointer to following args
             let msg_ptr = err.to_string().as_ptr() as usize;
-            write_return!(ktx, -1, msg_ptr);
+            write_return!(ktx, msg_ptr);
             return Err(err);
         }
         Ok(())

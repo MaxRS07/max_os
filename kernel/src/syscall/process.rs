@@ -64,14 +64,14 @@ impl SysOp for ProcessOp {
                 let pid = ktx
                     .process()?
                     .fork(&name, entry_ptr)
-                    .map_err(|error| SyscallError::Failed(error.to_string()));
+                    .map_err(|error| SyscallError::Failed(error.to_string()))?;
                 write_return!(ktx, pid);
                 Ok(())
             }
             Self::Kill => {
                 let (pid, ..) = args;
                 let process = ktx.remove_process(pid as u32)?;
-                unsafe { *process.destroy() }; // deallocate process and drop asid + fd
+                unsafe { (*process).destroy() }; // deallocate process and drop asid + fd
                 Ok(())
             }
             Self::Wait => todo!(),

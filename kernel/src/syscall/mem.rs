@@ -1,3 +1,4 @@
+use alloc::string::ToString;
 use log::error;
 use mem::{error::MemoryError, page_table::permissions::PagePermissions};
 
@@ -34,36 +35,32 @@ pub enum MemOp {
 }
 
 impl SysOp for MemOp {
-    fn call(&self, ktx: &mut super::context::KernelContext, args: super::SyscallArgs) {
+    fn call(
+        &self,
+        ktx: &mut super::context::KernelContext,
+        args: super::SyscallArgs,
+    ) -> Result<(), SyscallError> {
         match self {
             Self::Map => {
                 let (virt_addr, size, phys_addr, flags, perms, ..) = args;
-                match mmap(ktx, virt_addr, size, phys_addr, flags, perms) {
-                    Ok(_) => unsafe {
-                        // write ok
-                        core::arch::asm!("mv a0, x0");
-                    },
-                    Err(err) => unsafe {
-                        error!("{err}");
-                        core::arch::asm!("li a0, -1");
-                    },
-                }
+                mmap(ktx, virt_addr, size, phys_addr, flags, perms).map_err(|err| {
+                    error!("{err}");
+                    SyscallError::Failed(err.to_string())
+                })
             }
             Self::Unmap => {
                 let (virt_addr, size, ..) = args;
-                match munmap(ktx, virt_addr, size) {
-                    Ok(_) => {
-                        // write ok
-                        exit(ktx, 0);
-                    }
-                    Err(err) => {
-                        error!("{err}");
-                        exit(ktx, -1)
-                    }
-                }
+                munmap(ktx, virt_addr, size).map_err(|err| {
+                    error!("{err}");
+                    SyscallError::Failed(err.to_string())
+                })
             }
-            Self::Lock => {}
-            Self::Unlock => {}
+            Self::Lock => {
+                todo!()
+            }
+            Self::Unlock => {
+                todo!()
+            }
         }
     }
 }
@@ -91,7 +88,7 @@ fn mmap(
     flags: usize,
     perms: usize,
 ) -> Result<(), MemoryError> {
-    if let Some(process) = ktx.process() {
+    if let Ok(process) = ktx.process() {
         let perms = PagePermissions::from(perms as u8);
         return process.map_size(virt_addr, size, phys_addr, flags, perms);
     }
@@ -101,7 +98,7 @@ fn mmap(
 }
 
 fn munmap(ktx: &mut KernelContext, virt_addr: usize, size: usize) -> Result<(), MemoryError> {
-    if let Some(process) = ktx.process() {
+    if let Ok(process) = ktx.process() {
         process.unmap_size(virt_addr, size);
         return Ok(());
     }

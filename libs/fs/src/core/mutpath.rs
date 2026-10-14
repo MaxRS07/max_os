@@ -3,10 +3,10 @@ use alloc::{borrow::ToOwned, boxed::Box, fmt::format, string::String, vec::Vec};
 use crate::core::{locator::FSLocator, path::FSPath};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct FSMutPath {
+pub struct FSBufPath {
     path: String,
 }
-impl FSMutPath {
+impl FSBufPath {
     pub fn from_slice(path: &str) -> Self {
         Self {
             path: path.to_owned(),

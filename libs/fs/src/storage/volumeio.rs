@@ -3,7 +3,7 @@ use block::device::BlockDevice;
 
 use crate::{
     collections::{bitmap::FSBitmap, error::FSError, filelock::LockTable},
-    core::path::FSPath,
+    core::{mutpath::FSBufPath, path::FSPath},
     meta::{
         header::FSHeader,
         inode::{FSInode, SECTOR_SIZE, SECTORS_PER_BLOCK, StorageType},
@@ -145,8 +145,8 @@ impl<'a> VolumeIO<'a> {
 
     pub(crate) fn get_fileobj_inode<'v>(
         &'v mut self,
+        path: FSBufPath,
         header: FSHeader,
-        header_sector: FSHeaderSector,
         inode: FSInode,
         mode: OpenMode,
     ) -> Result<FileObject, FSError> {
@@ -155,9 +155,9 @@ impl<'a> VolumeIO<'a> {
             .get_lock(inode.id())
             .ok_or(FSError::IOError("Failed to retrieve lockstate for inode"));
         Ok(FileObject::new(
+            path,
             self.id,
             header,
-            header_sector,
             inode,
             lock_state?,
             mode,
@@ -172,7 +172,7 @@ impl<'a> VolumeIO<'a> {
             && let Some(inode_sector) = header.inode_addr()
         {
             let inode = self.read_inode_address(inode_sector)?;
-            let mut contents = self.children_inode(header, sector, inode)?;
+            let mut contents = self.children_inode(FSBufPath::empty(), header, inode)?;
             let mut children: Vec<FSHeaderSector> = Vec::new();
             while let Some(child) = contents.next(&mut self.ctx()) {
                 children.push(FSHeaderSector::new(child.addr()));
@@ -190,11 +190,11 @@ impl<'a> VolumeIO<'a> {
 
     pub(crate) fn children_inode<'v>(
         &'v mut self,
+        path: FSBufPath,
         header: FSHeader,
-        header_sector: FSHeaderSector,
         inode: FSInode,
     ) -> Result<DirContents, FSError> {
-        self.get_fileobj_inode(header, header_sector, inode, OpenMode::Read)?
+        self.get_fileobj_inode(path, header, inode, OpenMode::Read)?
             .dir_contents()
     }
 

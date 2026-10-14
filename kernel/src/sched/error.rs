@@ -1,6 +1,6 @@
 use core::fmt::Display;
 
-use alloc::string::String;
+use alloc::{format, string::String};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ThreadError {
@@ -16,8 +16,9 @@ impl Display for ThreadError {
 }
 
 pub enum ProcessError {
-    NullFileDescriptor(String),
+    InvalidFileDescriptor,
     FileDescriptorsFull(String),
+    BadFileDescriptor(u32),
     OutOfResources(String),
 }
 
@@ -25,8 +26,11 @@ impl Display for ProcessError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::FileDescriptorsFull(msg) => f.write_str(msg),
-            Self::NullFileDescriptor(msg) => f.write_str(msg),
+            Self::InvalidFileDescriptor => f.write_str("Invalid file descriptor"),
             Self::OutOfResources(msg) => f.write_str(msg),
+            Self::BadFileDescriptor(fd) => {
+                f.write_str(&format!("File descriptor {fd} not open for process"))
+            }
         }
     }
 }

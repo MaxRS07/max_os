@@ -9,7 +9,7 @@ use block::device::BlockDevice;
 
 use crate::{
     collections::error::FSError,
-    core::{mutpath::FSMutPath, path::FSPath},
+    core::{mutpath::FSBufPath, path::FSPath},
     meta::{
         context::{self, CreationContext, HeaderMetadata},
         inode::{FSInode, StorageType},

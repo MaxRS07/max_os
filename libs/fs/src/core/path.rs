@@ -6,7 +6,7 @@ use core::{
 
 use alloc::{borrow::ToOwned, string::String};
 
-use crate::core::{locator::FSLocator, mutpath::FSMutPath};
+use crate::core::{locator::FSLocator, mutpath::FSBufPath};
 
 pub const MAX_PATH: usize = 0xFF; // 255 chars for max path length
 
@@ -29,8 +29,8 @@ impl FSPath {
         unsafe { &*("" as *const str as *const FSPath) }
     }
 
-    pub fn to_owned(&self) -> FSMutPath {
-        FSMutPath::from_slice(&self.path)
+    pub fn to_owned(&self) -> FSBufPath {
+        FSBufPath::from_slice(&self.path)
     }
     pub fn is_root(&self) -> bool {
         self.path.eq("/")

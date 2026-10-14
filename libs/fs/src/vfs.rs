@@ -22,7 +22,7 @@ impl<'a> Vfs<'a> {
             mount_table: FSMountTable::new(),
         }
     }
-    pub fn get_volume(&'a mut self, id: u32) -> Option<&mut FSVolume> {
+    pub fn get_volume(&'a mut self, id: u32) -> Option<&'a mut FSVolume<'a>> {
         self.mount_table.get_mut(id)
     }
     /// mounts a volume to a path

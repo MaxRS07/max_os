@@ -34,12 +34,12 @@ fn usize_bytes(value: isize) -> usize {
 #[macro_export]
 macro_rules! write_return {
     ( $ktx:expr, $( $val:expr ),+ $(,)? ) => {{
-        let ktx: &mut $crate::syscall::context::KernelContext = $ktx;
+        let ktx: &$crate::syscall::context::KernelContext = $ktx;
         let frame = ktx.trap_frame();
         let mut reg = 6; // a1
         $(
             core::debug_assert!(reg <= 12, "write_return! takes at most 7 values (a1-a7)");
-            frame[reg] = ($val) as isize as usize;
+            frame[reg] = ($val) as usize;
             reg += 1;
         )+
     }};

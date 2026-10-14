@@ -1,8 +1,4 @@
-use core::{
-    ops::DerefMut,
-    ptr::{null, null_mut},
-    sync::atomic::Ordering,
-};
+use core::{cell::RefCell, ops::DerefMut, sync::atomic::Ordering};
 
 use alloc::{borrow::ToOwned, format};
 use fs::vfs::{self, Vfs};
@@ -12,13 +8,8 @@ use sync::mutex_guard::MutexGuard;
 use crate::{
     drivers::time::GLOBAL_TIME,
     fs::GLOBAL_FS,
-    sched::{
-        PROCESS_TABLE, SCHEDULER,
-        error::{ProcessError, ThreadError},
-        process::Process,
-        scheduler::CURRENT_PROCESS,
-    },
-    syscall::{Syscall, error::SyscallError},
+    sched::{PROCESS_TABLE, process::Process, scheduler::CURRENT_PROCESS},
+    syscall::error::SyscallError,
 };
 
 pub type TrapFrame = [usize; 32];
@@ -28,33 +19,25 @@ pub type TrapFrame = [usize; 32];
 ///
 /// Using
 pub struct KernelContext {
-    vfs: Option<MutexGuard<'static, vfs::Vfs<'static>>>,
-    process: Option<*mut Process>,
+    vfs: RefCell<Option<MutexGuard<'static, vfs::Vfs<'static>>>>,
     trap_frame: *mut TrapFrame,
 }
 
 impl KernelContext {
     pub fn new(trap_frame: *mut usize) -> Self {
         Self {
-            vfs: None,
-            process: None,
+            vfs: RefCell::new(None),
             trap_frame: trap_frame as *mut TrapFrame,
         }
     }
-    pub fn process(&mut self) -> Result<&mut Process, SyscallError> {
-        match self.process {
-            Some(process) => Ok(unsafe { &mut *process }),
-            None => {
-                let process = CURRENT_PROCESS.load(Ordering::Acquire);
-                if process.is_null() {
-                    Err(SyscallError::Busy(format!(
-                        "Failed to retrieve running process"
-                    )));
-                }
-                self.process = Some(process);
-                Ok(unsafe { &mut *process })
-            }
+    pub fn process(&self) -> Result<&mut Process, SyscallError> {
+        let process = CURRENT_PROCESS.load(Ordering::Acquire);
+        if process.is_null() {
+            return Err(SyscallError::Busy(format!(
+                "Failed to retrieve running process"
+            )));
         }
+        Ok(unsafe { &mut *process })
     }
     pub fn get_process(&self, pid: u32) -> Result<&mut Process, SyscallError> {
         match PROCESS_TABLE.wait().lock().get(&pid) {
@@ -73,17 +56,21 @@ impl KernelContext {
                 "Failed to kill process, invalid pid: {pid}"
             )))
     }
-    pub fn vfs(&mut self) -> Result<&mut Vfs<'static>, SyscallError> {
-        if self.vfs.is_none() {
-            let vfs = GLOBAL_FS
-                .wait()
-                .lock_timeout(GLOBAL_TIME.wait(), 1000)
-                .map_err(|err| {
-                    SyscallError::Busy(format!("Failed to retrieve lock on file: {err}"))
-                })?;
-            self.vfs = Some(vfs);
+    pub fn vfs(&self) -> Result<&mut Vfs<'static>, SyscallError> {
+        let mut slot = self.vfs.borrow_mut();
+        if slot.is_none() {
+            *slot = Some(
+                GLOBAL_FS
+                    .wait()
+                    .lock_timeout(GLOBAL_TIME.wait(), 1000)
+                    .map_err(|err| {
+                        SyscallError::Busy(format!("Failed to retrieve lock on file: {err}"))
+                    })?,
+            )
         }
-        Ok(self.vfs.as_mut().unwrap().deref_mut())
+        let vfs = &mut **slot.as_mut().unwrap();
+        drop(slot);
+        Ok(&mut *vfs)
     }
     /// This is the trap frame saved before ecall. Writes to this persist after interrupt.
     /// ## Registers
@@ -120,7 +107,7 @@ impl KernelContext {
     /// `30`. `unused` \
     /// `31`. `unused` \
     /// `32`. `unused`
-    pub fn trap_frame(&mut self) -> &mut TrapFrame {
+    pub fn trap_frame(&self) -> &mut TrapFrame {
         unsafe { &mut *self.trap_frame }
     }
 }

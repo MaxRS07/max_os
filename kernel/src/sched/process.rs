@@ -16,7 +16,7 @@ use alloc::{
     vec::Vec,
 };
 use collections::hashmap::HashMap;
-use fs::storage::fileobject::FileObject;
+use fs::{collections::error::FSError, storage::fileobject::FileObject};
 use mem::page_table::{
     address_space::{AddressSpace, Addresser},
     asid::{ASID, ASIDAllocator},
@@ -183,19 +183,19 @@ impl Process {
         self.fds[fd] = Some(file);
         Ok(fd as u32)
     }
-    pub fn file_mut(&mut self, fd: u32) -> Option<&mut FileObject> {
+    pub fn file_mut(&mut self, fd: u32) -> Result<&mut FileObject, ProcessError> {
         if fd > MAX_FDS {
-            return None;
+            return Err(ProcessError::InvalidFileDescriptor);
         }
-        self.fds.get_mut(fd)?
+        self.fds.get_mut(fd as usize).and_then(Option::as_mut)
     }
-    pub fn close_fd(&mut self, fd: u32) -> Option<FileObject> {
+    /// Returns the closed file object
+    pub fn close_fd(&mut self, fd: u32) -> Result<(), ProcessError> {
         if fd > MAX_FDS {
-            return None;
+            return Err(ProcessError::BadFileDescriptor(fd));
         }
-        let fo = self.fds[fd];
-        self.fds[fd] = None;
-        fo
+        let fo = self.file_mut(fd).ok_or(err);
+        self.fds[fd as usize] = None;
     }
 }
 

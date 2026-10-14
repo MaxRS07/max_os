@@ -1,6 +1,11 @@
 use core::str::{self, FromStr};
 
-use alloc::{borrow::ToOwned, fmt::format, format, string::String};
+use alloc::{
+    borrow::ToOwned,
+    fmt::format,
+    format,
+    string::{String, ToString},
+};
 use fs::{
     collections::error::FSError,
     core::path::FSPath,
@@ -45,36 +50,36 @@ impl SysOp for FsOp {
                 return Ok(());
             },
             Self::Read => unsafe {
-                let (fd, buf, buf_len, ..) = args;
+                let (fd, buf_addr, buf_len, ..) = args;
                 let process = ktx.process()?;
                 let fo = process
                     .file_mut(fd as u32)
-                    .ok_or(SyscallError::InvalidArg(format!(
-                        "Failed to read file, invalid file descriptor"
-                    )))?;
+                    .map_err(|err| SyscallError::Failed(err.to_string()))?;
                 let volume = ktx
                     .vfs()?
                     .get_volume(fo.volume_id())
                     .ok_or(SyscallError::Failed(format!("Invalid volume id")))?;
-                let buf = bud as *mut [u8; buf_size];
-                let rlen = volume.read(f, &mut *buf)?;
+                let buf_ptr = buf_addr as *mut u8;
+                let buf = core::slice::from_raw_parts_mut(buf_ptr, buf_len);
+                let rlen = volume
+                    .read(fo, buf)
+                    .map_err(|err| SyscallError::Failed(err.to_string()))?;
                 write_return!(ktx, rlen);
                 return Ok(());
             },
             Self::Write => unsafe {
-                let (fd, buf, buf_len, ..) = args;
+                let (fd, buf_addr, buf_len, ..) = args;
                 let process = ktx.process()?;
                 let fo = process
                     .file_mut(fd as u32)
-                    .ok_or(SyscallError::InvalidArg(format!(
-                        "Failed to read file, invalid file descriptor"
-                    )))?;
+                    .map_err(|err| SyscallError::Failed(err.to_string()))?;
                 let volume = ktx
                     .vfs()?
                     .get_volume(fo.volume_id())
                     .ok_or(SyscallError::Failed(format!("Invalid volume id")))?;
-                let buf = bud as *mut [u8; buf_size];
-                volume.write(f, &*buf)?;
+                let buf_ptr = buf_addr as *const u8;
+                let buf = core::slice::from_raw_parts(buf_ptr, buf_len);
+                volume.write(fo, buf);
                 return Ok(());
             },
             // close the file descriptor for this process
@@ -89,13 +94,16 @@ impl SysOp for FsOp {
                 let process = ktx.process()?;
                 let fo = process
                     .file_mut(fd as u32)
-                    .ok_or(SyscallError::InvalidArg(format!(
-                        "Failed to read file, invalid file descriptor"
-                    )))?;
+                    .map_err(|err| SyscallError::Failed(err.to_string()))?;
                 let seek_mode = match mode {
                     0 => SeekMode::Set,
                     1 => SeekMode::Current,
                     2 => SeekMode::End,
+                    _ => {
+                        return Err(SyscallError::InvalidArg(format!(
+                            "Invalid seek mode ({mode}). Mode must be less than 3"
+                        )));
+                    }
                 };
                 match fo.seek(offset, seek_mode) {
                     Ok(cursor) => {
@@ -122,11 +130,7 @@ impl TryFrom<usize> for FsOp {
     }
 }
 
-fn open(
-    ktx: &mut KernelContext,
-    path: &str,
-    mode: u8,
-) -> Result<FileObject<'static, 'static>, SyscallError> {
+fn open(ktx: &mut KernelContext, path: &str, mode: u8) -> Result<FileObject, SyscallError> {
     let vfs = ktx.vfs()?;
     let mode = OpenMode::from(mode);
     let fspath = FSPath::new(path);

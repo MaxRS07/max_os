@@ -9,7 +9,7 @@ use alloc::{borrow::ToOwned, format, string::ToString, sync::Arc, vec::Vec};
 
 use crate::{
     collections::{bitmap::FSBitmap, error::FSError, filelock::LockStateData},
-    core::{mutpath::FSMutPath, path::FSPath},
+    core::{mutpath::FSBufPath, path::FSPath},
     meta::{
         header::FSHeader,
         inode::{BLOCK_SIZE, BlockPos, FSInode},
@@ -68,7 +68,7 @@ pub struct FileObject {
     /// The id of the parent
     volume_id: u32,
     header: FSHeader,
-    header_sector: FSHeaderSector,
+    path: FSBufPath,
     inode: FSInode,
     /// ref of file lock state, shared between FileObjects with the same inode
     lock_state: Arc<LockStateData>,
@@ -79,9 +79,9 @@ pub struct FileObject {
 
 impl FileObject {
     pub fn new(
+        path: FSBufPath,
         volume_id: u32,
         header: FSHeader,
-        header_sector: FSHeaderSector,
         inode: FSInode,
         lock_state: Arc<LockStateData>,
         mode: OpenMode,
@@ -91,9 +91,9 @@ impl FileObject {
             _ => 0,
         };
         Self {
+            path,
             volume_id,
             header,
-            header_sector,
             inode,
             cursor,
             lock_state,
@@ -235,6 +235,12 @@ impl FileObject {
     }
     /// Body of `cwrite_buffer`, split out so `?` cannot return while the lock is held
     fn write_buffer_positioned(&mut self, ctx: &mut IOCtx, buffer: &[u8]) -> Result<(), FSError> {
+        if self.mode != OpenMode::Write && self.mode != OpenMode::Append {
+            return Err(FSError::PermissionDenied {
+                permission: "read",
+                needs: "write OR append",
+            });
+        }
         self.check_size(buffer.len() as u64, ctx)?;
         let limit = self.max_cursor();
 

@@ -7,7 +7,7 @@ use alloc::vec::{self, Vec};
 use collections::hashmap::HashMap;
 
 use crate::core::locator::FSLocator;
-use crate::core::mutpath::FSMutPath;
+use crate::core::mutpath::FSBufPath;
 use crate::core::path::FSPath;
 
 pub type NodeId = usize;
@@ -142,7 +142,7 @@ impl FSRouteTrie {
         Some(current_idx)
     }
 
-    pub fn path(&self, id: NodeId) -> Option<FSMutPath> {
+    pub fn path(&self, id: NodeId) -> Option<FSBufPath> {
         let mut cur_id = Some(id);
         let mut path_cmps: Vec<&str> = alloc::vec![];
         while let Some(_id) = cur_id {
@@ -153,7 +153,7 @@ impl FSRouteTrie {
         }
         path_cmps.reverse();
         let path_str = path_cmps.join("/");
-        let path = FSMutPath::from_string(path_str);
+        let path = FSBufPath::from_string(path_str);
         Some(path)
     }
 

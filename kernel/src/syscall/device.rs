@@ -9,9 +9,13 @@ pub enum DevOp {
 }
 
 impl SysOp for DevOp {
-    fn call(&self, ktx: &mut super::context::KernelContext, args: super::SyscallArgs) {
+    fn call(
+        &self,
+        ktx: &mut super::context::KernelContext,
+        args: super::SyscallArgs,
+    ) -> Result<(), SyscallError> {
         match self {
-            Poweroff => sys_poweroff(),
+            Poweroff => Ok(sys_poweroff()),
         }
     }
 }

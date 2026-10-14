@@ -44,6 +44,9 @@ impl Display for FSError {
         match self {
             Self::FileNotFound(path) => f.write_fmt(format_args!("File not found: {}", path)),
             Self::Read(msg) => f.write_fmt(format_args!("Read error: {}", msg)),
+            Self::PermissionDenied { permission, needs } => f.write_fmt(format_args!(
+                "Operation failed, requires {needs} permissions, found {permission}"
+            )),
             _ => f.write_str("Type error"),
         }
     }

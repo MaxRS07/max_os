@@ -78,7 +78,7 @@ where
         }
 
         let inode = self.io.read_inode_address(inode_sector)?;
-        let mut contents = self.io.children_inode(header, sector, inode)?;
+        let mut contents = self.io.children_inode(path.to_owned(), header, inode)?;
         let mut children: Vec<(String, FSHeaderSector)> = Vec::new();
 
         while let Some(located) = contents.next(&mut self.io.ctx()) {
@@ -115,7 +115,7 @@ where
 
             let mut children = self
                 .io
-                .children_inode(current_header, current_sector, inode)?;
+                .children_inode(path.to_owned(), current_header, inode)?;
 
             let mut found = None;
 
@@ -208,27 +208,24 @@ where
     }
     // Gets a file object from the file located at `path`.
     pub fn open_read<'v>(&'v mut self, path: &FSPath) -> Result<FileObject, FSError> {
-        let (header, header_sector, inode) = self.get_open_context(path)?;
+        let (header, inode) = self.get_open_context(path)?;
         self.io
-            .get_fileobj_inode(header, header_sector, inode, OpenMode::Read)
+            .get_fileobj_inode(path.to_owned(), header, inode, OpenMode::Read)
     }
 
     pub fn open_write<'v>(&'v mut self, path: &FSPath) -> Result<FileObject, FSError> {
-        let (header, header_sector, inode) = self.get_open_context(path)?;
+        let (header, inode) = self.get_open_context(path)?;
         self.io
-            .get_fileobj_inode(header, header_sector, inode, OpenMode::Write)
+            .get_fileobj_inode(path.to_owned(), header, inode, OpenMode::Write)
     }
 
     pub fn open_append<'v>(&'v mut self, path: &FSPath) -> Result<FileObject, FSError> {
-        let (header, header_sector, inode) = self.get_open_context(path)?;
+        let (header, inode) = self.get_open_context(path)?;
         self.io
-            .get_fileobj_inode(header, header_sector, inode, OpenMode::Append)
+            .get_fileobj_inode(path.to_owned(), header, inode, OpenMode::Append)
     }
 
-    fn get_open_context(
-        &mut self,
-        path: &FSPath,
-    ) -> Result<(FSHeader, FSHeaderSector, FSInode), FSError> {
+    fn get_open_context(&mut self, path: &FSPath) -> Result<(FSHeader, FSInode), FSError> {
         let header_sector = self.resolve_path(path)?;
         let header = self.io.read_header_address(header_sector)?;
 
@@ -236,7 +233,7 @@ where
             .inode_addr()
             .ok_or(FSError::IOError("Failed to open file"))
             .map(|inode_address| self.io.read_inode_address(inode_address))?;
-        Ok((header, header_sector, inode?))
+        Ok((header, inode?))
     }
     /// Allocates an Inode in the volume and attributes it to `header`. Inode will be preallocated with `size` bytes
     fn allocate_header(
