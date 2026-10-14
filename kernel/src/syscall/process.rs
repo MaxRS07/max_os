@@ -61,14 +61,17 @@ impl SysOp for ProcessOp {
                 let (name_ptr, name_len, entry, ..) = args;
                 let name = unsafe { str_from_args(name_ptr, name_len)? };
                 let entry_ptr = entry as *mut u32;
-                let pid = ktx.process()?.fork(&name, entry_ptr)?;
+                let pid = ktx
+                    .process()?
+                    .fork(&name, entry_ptr)
+                    .map_err(|error| SyscallError::Failed(error.to_string()));
                 write_return!(ktx, pid);
                 Ok(())
             }
             Self::Kill => {
                 let (pid, ..) = args;
                 let process = ktx.remove_process(pid as u32)?;
-                process.destroy(); // deallocate process and drop asid + fd
+                unsafe { *process.destroy() }; // deallocate process and drop asid + fd
                 Ok(())
             }
             Self::Wait => todo!(),

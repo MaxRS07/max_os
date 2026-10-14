@@ -78,18 +78,16 @@ where
         }
 
         let inode = self.io.read_inode_address(inode_sector)?;
-        let children: Vec<(String, FSHeaderSector)> = self
-            .io
-            .children_inode(header, sector, inode)?
-            .map(|located| {
-                let header = located.value();
-                (
-                    // TODO: error handling on name
-                    header.name().unwrap_or("name error").to_string(),
-                    FSHeaderSector::new(located.addr()),
-                )
-            })
-            .collect();
+        let mut contents = self.io.children_inode(header, sector, inode)?;
+        let mut children: Vec<(String, FSHeaderSector)> = Vec::new();
+
+        while let Some(located) = contents.next(&mut self.io.ctx()) {
+            let header = located.value();
+            children.push((
+                header.name()?.to_string(),
+                FSHeaderSector::new(located.addr()),
+            ));
+        }
 
         for (name, child_sector) in children {
             let child_path = if path.is_root() {
@@ -119,9 +117,13 @@ where
                 .io
                 .children_inode(current_header, current_sector, inode)?;
 
-            let found = children
-                .find(|child| child.value().name().is_ok_and(|name| name == component))
-                .map(|child| child.addr());
+            let mut found = None;
+
+            while let Some(child) = children.next(&mut self.io.ctx()) {
+                if child.value().name().is_ok_and(|name| name == component) {
+                    found = Some(child.addr())
+                }
+            }
 
             current_sector = FSHeaderSector::new(
                 found.ok_or_else(|| FSError::FileNotFound(path.as_ref().to_owned()))?,
@@ -254,7 +256,7 @@ where
                 "Expected directory, {path:?} is a file"
             )));
         }
-        self.open_read(path).map(|fobj| fobj.dir_contents())
+        self.open_read(path)?.dir_contents()
     }
     /* Reformat on mount, write superblock and create root folder */
     pub fn format(blk_dev: &'a mut dyn BlockDevice, opts: FormatOptions) -> Result<(), FSError> {

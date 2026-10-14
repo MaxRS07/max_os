@@ -1,8 +1,4 @@
-use core::{
-    error::Error,
-    fmt::{Display, write},
-    ops::MulAssign,
-};
+use core::{error::Error, fmt::Display};
 
 #[derive(Clone, Copy, Debug)]
 pub enum MemoryError {

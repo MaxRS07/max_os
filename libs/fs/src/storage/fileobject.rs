@@ -311,6 +311,13 @@ impl FileObject {
         self.cursor = next;
         Ok(())
     }
+
+    pub fn dir_contents(self) -> Result<DirContents, FSError> {
+        if !self.is_dir() {
+            return Err(FSError::IOError("Expected directory"));
+        }
+        Ok(DirContents::from_fileobj(self))
+    }
     // moves the cursor `bytes` bytes forward. Returns None if the the advance is greater than the size of the file
     fn advance(&mut self, bytes: u64) {
         self.cursor += bytes;
@@ -357,9 +364,6 @@ impl FileObject {
     fn max_cursor(&self) -> u64 {
         self.inode.size() * BLOCK_SIZE
     }
-    pub fn dir_contents(self) -> DirContents {
-        DirContents::from_fileobj(self)
-    }
 }
 
 /// Iterator over file headers in a directory
@@ -370,12 +374,8 @@ impl DirContents {
     pub fn from_fileobj(file_obj: FileObject) -> Self {
         Self { file_obj }
     }
-}
-impl Iterator for DirContents {
-    type Item = Located<FSHeader>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let header = self.file_obj.read_next_header()?;
+    pub fn next(&mut self, ctx: &mut IOCtx) -> Option<Located<FSHeader>> {
+        let header = self.file_obj.read_next_header(ctx)?;
         Some(header)
     }
 }

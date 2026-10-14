@@ -148,7 +148,7 @@ impl Process {
 
     pub fn destroy(&mut self) {
         self.address_space.destroy();
-        drop(self.fds)
+        drop(&self.fds)
     }
 
     /* Address Space Helpers */

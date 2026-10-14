@@ -26,6 +26,7 @@ impl Display for ProcessError {
         match self {
             Self::FileDescriptorsFull(msg) => f.write_str(msg),
             Self::NullFileDescriptor(msg) => f.write_str(msg),
+            Self::OutOfResources(msg) => f.write_str(msg),
         }
     }
 }

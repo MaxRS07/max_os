@@ -1,7 +1,7 @@
 use core::{arch::asm, ops::DerefMut};
 
 use alloc::string::ToString;
-use log::warn;
+use log::{error, warn};
 
 use crate::{
     drivers::time::GLOBAL_TIME,
@@ -105,7 +105,13 @@ impl Syscall {
 pub fn handle_ecall(frame: *mut usize) {
     let ktx = &mut KernelContext::new(frame);
     let mut id = 0usize;
-    let args = load_args(&mut id, ktx);
+    let args = match load_args(&mut id, ktx) {
+        Ok(args) => args,
+        Err(msg) => {
+            error!("{msg}");
+            return;
+        }
+    };
     match Syscall::try_from(id) {
         Ok(op) => {
             let _ = op.call(ktx, args);
@@ -114,9 +120,13 @@ pub fn handle_ecall(frame: *mut usize) {
     }
 }
 /// Loads the syscall registers from frame and returns them
-pub fn load_args(id: &mut usize, ktx: &mut KernelContext) -> SyscallArgs {
+pub fn load_args(id: &mut usize, ktx: &mut KernelContext) -> Result<SyscallArgs, SyscallError> {
     let frame = ktx.trap_frame();
-    let [a0, a1, a2, a3, a4, a5, a6, ..] = frame[5..12];
+    let [a0, a1, a2, a3, a4, a5, a6, ..] = frame[5..12] else {
+        return Err(SyscallError::InvalidArg(
+            "Failed to load syscall arguments".to_string(),
+        ));
+    };
     *id = frame[12];
-    (a0, a1, a2, a3, a4, a5)
+    Ok((a0, a1, a2, a3, a4, a5))
 }

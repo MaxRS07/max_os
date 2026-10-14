@@ -172,10 +172,11 @@ impl<'a> VolumeIO<'a> {
             && let Some(inode_sector) = header.inode_addr()
         {
             let inode = self.read_inode_address(inode_sector)?;
-            let children: Vec<FSHeaderSector> = self
-                .children_inode(header, sector, inode)?
-                .map(|located| FSHeaderSector::new(located.addr()))
-                .collect();
+            let mut contents = self.children_inode(header, sector, inode)?;
+            let mut children: Vec<FSHeaderSector> = Vec::new();
+            while let Some(child) = contents.next(&mut self.ctx()) {
+                children.push(FSHeaderSector::new(child.addr()));
+            }
 
             for child_sector in children {
                 self.delete_at(child_sector)?;
@@ -193,10 +194,8 @@ impl<'a> VolumeIO<'a> {
         header_sector: FSHeaderSector,
         inode: FSInode,
     ) -> Result<DirContents, FSError> {
-        let contents = self
-            .get_fileobj_inode(header, header_sector, inode, OpenMode::Read)?
-            .dir_contents();
-        Ok(contents)
+        self.get_fileobj_inode(header, header_sector, inode, OpenMode::Read)?
+            .dir_contents()
     }
 
     pub(crate) fn read_inode_address(

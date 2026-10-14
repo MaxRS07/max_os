@@ -6,7 +6,7 @@ pub(crate) trait SysOp: Sized + TryFrom<usize, Error = SyscallError> {
     fn call(&self, ktx: &mut KernelContext, args: SyscallArgs) -> Result<(), SyscallError>;
 }
 
-/* Arg Utils */
+/* Arg Helpers */
 
 pub unsafe fn str_from_args(address: usize, len: usize) -> Result<String, SyscallError> {
     unsafe {
