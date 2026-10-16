@@ -4,7 +4,7 @@ use core::{
     sync::atomic::{Ordering, fence},
 };
 
-use alloc::{boxed::Box, format, vec::Vec};
+use alloc::{boxed::Box, fmt::format, format, vec::Vec};
 use log::{debug, error, info, warn};
 use mem::{
     error::MemoryError,
@@ -55,8 +55,9 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
     if let Err(msg) = map_boot_pages(table) {
         error!("{msg}")
     }
-    let kspace = AddressSpace::alloc_new(allocator, table, ASID::MAIN, Vec::new());
-    Process::kernel(tid, kspace).inspect_err(|err| error!("{err}"))?;
+    let kspace = AddressSpace::alloc_new(allocator, ASID::MAIN, Vec::new())
+        .map_err(|err| ThreadError::Other(format!("{err}")))?;
+    Process::kernel(tid, kspace)?;
     SCHEDULER.wait().lock().set_running(main_thread);
 
     info!("Created main thread");

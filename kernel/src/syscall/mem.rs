@@ -3,13 +3,8 @@ use log::error;
 use mem::{error::MemoryError, page_table::permissions::PagePermissions};
 
 use crate::{
-    exit,
     sched::{PROCESS_TABLE, SCHEDULER},
-    syscall::{
-        context::KernelContext,
-        error::SyscallError,
-        op::{SysOp, exit},
-    },
+    syscall::{context::KernelContext, error::SyscallError, op::SysOp},
 };
 
 pub enum MemOp {
@@ -55,12 +50,7 @@ impl SysOp for MemOp {
                     SyscallError::Failed(err.to_string())
                 })
             }
-            Self::Lock => {
-                todo!()
-            }
-            Self::Unlock => {
-                todo!()
-            }
+            Self::Lock | Self::Unlock => Err(SyscallError::InvalidOperation("MemOp", 0)),
         }
     }
 }

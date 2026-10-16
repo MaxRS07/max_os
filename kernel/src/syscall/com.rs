@@ -9,7 +9,13 @@ pub enum ComOp {
 }
 
 impl SysOp for ComOp {
-    fn call(&self, ktx: &mut super::context::KernelContext, args: SyscallArgs) {}
+    fn call(
+        &self,
+        ktx: &mut super::context::KernelContext,
+        args: SyscallArgs,
+    ) -> Result<(), SyscallError> {
+        Ok(())
+    }
 }
 
 impl TryFrom<usize> for ComOp {

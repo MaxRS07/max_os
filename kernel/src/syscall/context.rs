@@ -1,4 +1,8 @@
-use core::{cell::RefCell, ops::DerefMut, sync::atomic::Ordering};
+use core::{
+    cell::{RefCell, RefMut},
+    ops::DerefMut,
+    sync::atomic::Ordering,
+};
 
 use alloc::{borrow::ToOwned, format};
 use fs::vfs::{self, Vfs};
@@ -56,8 +60,11 @@ impl KernelContext {
                 "Failed to kill process, invalid pid: {pid}"
             )))
     }
-    pub fn vfs(&self) -> Result<&mut Vfs<'static>, SyscallError> {
-        let mut slot = self.vfs.borrow_mut();
+    pub fn vfs(&self) -> Result<RefMut<'_, Vfs<'static>>, SyscallError> {
+        let mut slot = self
+            .vfs
+            .try_borrow_mut()
+            .map_err(|_| SyscallError::Busy("VFS already borrowed in this context".to_owned()))?;
         if slot.is_none() {
             *slot = Some(
                 GLOBAL_FS
@@ -68,9 +75,7 @@ impl KernelContext {
                     })?,
             )
         }
-        let vfs = &mut **slot.as_mut().unwrap();
-        drop(slot);
-        Ok(&mut *vfs)
+        Ok(RefMut::map(slot, |s| &mut **s.as_mut().unwrap()))
     }
     /// This is the trap frame saved before ecall. Writes to this persist after interrupt.
     /// ## Registers

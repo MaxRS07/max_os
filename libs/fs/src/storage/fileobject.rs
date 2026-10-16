@@ -63,6 +63,7 @@ pub enum SeekMode {
     End = 2,
 }
 
+#[derive(Clone, Debug)]
 /// Open file object in RAM
 pub struct FileObject {
     /// The id of the parent

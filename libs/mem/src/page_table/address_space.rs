@@ -156,7 +156,7 @@ impl AddressSpace {
         })
     }
     // Copies the region mappings to a new address space
-    pub fn fork(&mut self, asid: ASID) -> Result<AddressSpace, MemoryError> {
+    pub fn fork(&self, asid: ASID) -> Result<AddressSpace, MemoryError> {
         let mut fork_space = Self::alloc_new(self.page_allocator, asid, Vec::new())?;
         for region in &self.regions {
             // copy 1-1 physical mapping if the pages are readonly

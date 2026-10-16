@@ -1,5 +1,6 @@
 use core::arch::asm;
 
+use alloc::{borrow::ToOwned, string::ToString};
 use log::{error, warn};
 
 use crate::{
@@ -12,6 +13,7 @@ use crate::{
         error::SyscallError,
         op::{SysOp, exit, str_from_args},
     },
+    write_return,
 };
 
 /// Threading and process control system call operations
@@ -33,48 +35,37 @@ pub enum ThreadOp {
 }
 
 impl SysOp for ThreadOp {
-    fn call(&self, ktx: &mut super::context::KernelContext, args: super::SyscallArgs) {
+    fn call(
+        &self,
+        ktx: &mut super::context::KernelContext,
+        args: super::SyscallArgs,
+    ) -> Result<(), SyscallError> {
         match self {
             Self::Spawn => {
                 let (pid, name, name_len, priority, entry, out_addr, ..) = args;
                 let out_ptr = out_addr as *mut u32;
-                let name_str = unsafe {
-                    match str_from_args(name, name_len) {
-                        Ok(value) => value,
-                        Err(err) => {
-                            exit(ktx, -1);
-                            error!("{err}");
-                            return;
-                        }
-                    }
-                };
-                if let Some(id) = Thread::spawn(
+                let name_str = unsafe { str_from_args(name, name_len)? };
+                match Thread::spawn(
                     pid as u32,
                     name_str.as_str(),
                     Priority::from(priority),
                     entry,
                 ) {
-                    // exit ok (0)
-                    unsafe {
-                        core::arch::asm!("mv a0, x0");
-                        core::ptr::write(out_ptr, id);
+                    Some(tid) => {
+                        write_return!(ktx, tid as isize);
+                        Ok(())
                     }
-                } else {
-                    // Exit with error (-1)
-                    exit(ktx, -1);
+                    None => Err(SyscallError::Failed("Failed to queue thread".to_owned())),
                 }
             }
             Self::Cancel => {
                 let (id, ..) = args;
-                match SCHEDULER.wait().lock().canel_id(id as u32) {
-                    Ok(_) => exit(ktx, 0),
-                    Err(msg) => {
-                        exit(ktx, -1);
-                        error!("{msg}")
-                    }
-                }
+                SCHEDULER.wait().lock().canel_id(id as u32).map_err(|err| {
+                    error!("{err}");
+                    SyscallError::Failed(err.to_string())
+                })
             }
-            Self::Yield => SCHEDULER.wait().lock().yield_thread(),
+            Self::Yield => Ok(SCHEDULER.wait().lock().yield_thread()),
         }
     }
 }

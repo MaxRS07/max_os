@@ -55,8 +55,8 @@ impl SysOp for FsOp {
                 let fo = process
                     .file_mut(fd as u32)
                     .map_err(|err| SyscallError::Failed(err.to_string()))?;
-                let volume = ktx
-                    .vfs()?
+                let mut vfs = ktx.vfs()?;
+                let volume = vfs
                     .get_volume(fo.volume_id())
                     .ok_or(SyscallError::Failed(format!("Invalid volume id")))?;
                 let buf_ptr = buf_addr as *mut u8;
@@ -73,8 +73,8 @@ impl SysOp for FsOp {
                 let fo = process
                     .file_mut(fd as u32)
                     .map_err(|err| SyscallError::Failed(err.to_string()))?;
-                let volume = ktx
-                    .vfs()?
+                let mut vfs = ktx.vfs()?;
+                let volume = vfs
                     .get_volume(fo.volume_id())
                     .ok_or(SyscallError::Failed(format!("Invalid volume id")))?;
                 let buf_ptr = buf_addr as *const u8;
@@ -131,7 +131,7 @@ impl TryFrom<usize> for FsOp {
 }
 
 fn open(ktx: &mut KernelContext, path: &str, mode: u8) -> Result<FileObject, SyscallError> {
-    let vfs = ktx.vfs()?;
+    let mut vfs = ktx.vfs()?;
     let mode = OpenMode::from(mode);
     let fspath = FSPath::new(path);
     vfs.open(fspath, mode)

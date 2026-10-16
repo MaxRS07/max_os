@@ -41,7 +41,7 @@ impl<'a> FSMountTable<'a> {
             next_id: AtomicU32::new(0),
         }
     }
-    pub fn get_mut(&'a mut self, id: u32) -> Option<&mut FSVolume> {
+    pub fn get_mut(&mut self, id: u32) -> Option<&mut FSVolume<'a>> {
         self.table
             .iter_mut()
             .find(|entry| entry.id == id)

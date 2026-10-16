@@ -86,7 +86,7 @@ impl Process {
             .fork(fork_asid)
             .map_err(|err| ProcessError::OutOfResources(err.to_string()))?;
         let pid = alloc_pid();
-        let process = Self::new(name, pid, address_space, threads);
+        let process = Self::new(name, pid, address_space, BTreeSet::new());
         PROCESS_TABLE.wait().lock().insert(pid, process);
         Ok(pid)
     }
@@ -97,7 +97,8 @@ impl Process {
             .lock()
             .alloc_id()
             .ok_or(ThreadError::Other(format!("No free ASIDs")))?; // TODO Make this not unwrap
-        let addr_space = AddressSpace::alloc_new(PAGE_ALLOCATOR.wait(), asid, Vec::new())?;
+        let addr_space = AddressSpace::alloc_new(PAGE_ALLOCATOR.wait(), asid, Vec::new())
+            .map_err(|memerr| ThreadError::Other(format!("{memerr}")))?;
 
         let pid = alloc_pid();
         let thread = Thread::new(pid, &name, Priority::Normal, entry as usize);
@@ -187,15 +188,19 @@ impl Process {
         if fd > MAX_FDS {
             return Err(ProcessError::InvalidFileDescriptor);
         }
-        self.fds.get_mut(fd as usize).and_then(Option::as_mut)
+        match self.fds.get_mut(fd as usize) {
+            Some(fo) => Ok(fo.as_mut().unwrap()),
+            None => Err(ProcessError::BadFileDescriptor(fd)),
+        }
     }
     /// Returns the closed file object
     pub fn close_fd(&mut self, fd: u32) -> Result<(), ProcessError> {
         if fd > MAX_FDS {
             return Err(ProcessError::BadFileDescriptor(fd));
         }
-        let fo = self.file_mut(fd).ok_or(err);
+        let fo = self.file_mut(fd)?;
         self.fds[fd as usize] = None;
+        Ok(())
     }
 }
 
