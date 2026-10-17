@@ -79,14 +79,18 @@ impl SysOp for FsOp {
                     .ok_or(SyscallError::Failed(format!("Invalid volume id")))?;
                 let buf_ptr = buf_addr as *const u8;
                 let buf = core::slice::from_raw_parts(buf_ptr, buf_len);
-                volume.write(fo, buf);
+                volume
+                    .write(fo, buf)
+                    .map_err(|err| SyscallError::Failed(format!("{err}")))?;
                 return Ok(());
             },
             // close the file descriptor for this process
             Self::Close => {
                 let (fd, ..) = args;
                 let process = ktx.process()?;
-                process.close_fd(fd as u32);
+                process
+                    .close_fd(fd as u32)
+                    .map_err(|err| SyscallError::Failed(format!("{err}")))?;
                 return Ok(());
             }
             Self::Seek => {
