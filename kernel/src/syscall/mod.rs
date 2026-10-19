@@ -25,6 +25,7 @@ mod context;
 mod device;
 mod error;
 mod fs;
+mod gfx;
 mod mem;
 mod op;
 mod process;

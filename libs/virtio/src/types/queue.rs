@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
+use time::global_time::GlobalTimer;
 
-use crate::{QUEUE_SIZE, VIRTIO_MMIO_QUEUE_NOTIFY};
+use crate::{QUEUE_SIZE, VIRTIO_MMIO_QUEUE_NOTIFY, error::VirtioError};
 
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Default, Debug)]
@@ -132,6 +133,25 @@ impl VirtQueue {
 
             core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
         }
+    }
+
+    pub fn wait_used_timeout(
+        &self,
+        last: u16,
+        clock: &dyn GlobalTimer,
+        timeout: u64,
+    ) -> Result<(), VirtioError> {
+        let now = clock.now_ms();
+        unsafe {
+            while core::ptr::read_volatile(&self.used.idx) == last {
+                if clock.now_ms() - now >= timeout {
+                    return Err(VirtioError::TimeoutError);
+                }
+                core::hint::spin_loop();
+            }
+            core::sync::atomic::fence(core::sync::atomic::Ordering::Acquire);
+        }
+        Ok(())
     }
 
     /// Pushes a descriptor chain head onto the avail ring, making it visible to the device.

@@ -1,10 +1,10 @@
-use core::{alloc::Layout, net::AddrParseError};
+use core::{alloc::Layout, convert::identity, net::AddrParseError};
 
 use alloc::{
     boxed::Box,
     vec::{self, Vec},
 };
-use graphics::{device::GpuDevice, types::Brga};
+use graphics::{bgra::Brga, device::GpuDevice, error::GpuDeviceError};
 use log::{debug, error, warn};
 use mem::error::MemoryError;
 use sdt::fdt::FDT;
@@ -15,7 +15,7 @@ use virtio::{
     types::{
         VirtioGpuCtrlHdr, VirtioGpuDisplayInfo, VirtioGpuMemEntry, VirtioGpuRect,
         VirtioGpuResourceAttachBacking, VirtioGpuResourceCreate2d, VirtioGpuResourceFlush,
-        VirtioGpuSetScanout, VirtioGpuTransferToHost2d,
+        VirtioGpuResourceUnref, VirtioGpuSetScanout, VirtioGpuTransferToHost2d,
         device::verify_virtio_magic,
         queue::{DescBuf, VirtQueue},
     },
@@ -26,8 +26,8 @@ use crate::drivers::gpu::{
     virtio::cmd::{
         VIRTIO_GPU_CMD_GET_DISPLAY_INFO, VIRTIO_GPU_CMD_RESOURCE_ATTACH_BACKING,
         VIRTIO_GPU_CMD_RESOURCE_CREATE_2D, VIRTIO_GPU_CMD_RESOURCE_FLUSH,
-        VIRTIO_GPU_CMD_SET_SCANOUT, VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D,
-        VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM,
+        VIRTIO_GPU_CMD_RESOURCE_UNREF, VIRTIO_GPU_CMD_SET_SCANOUT,
+        VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D, VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM,
     },
 };
 
@@ -42,7 +42,7 @@ const MAX_BUFFER_SIZE: usize = MAX_RESOLUTION.0 * MAX_RESOLUTION.1;
 #[derive(Default)]
 pub struct VirtioGpu {
     mmio_addr: usize,
-    framebuffer: Box<[graphics::types::Brga]>,
+    framebuffer: Box<[graphics::bgra::Brga]>,
     width: u32,
     height: u32,
     resource_id: u32,
@@ -117,6 +117,18 @@ impl VirtioGpu {
         request.format = VIRTIO_GPU_FORMAT_B8G8R8A8_UNORM;
         request.width = width;
         request.height = height;
+
+        let mut response = VirtioGpuCtrlHdr::default();
+
+        self.controlq
+            .push_desc(self.mmio_addr, &request, &mut response);
+
+        response
+    }
+    fn destroy_resource(&mut self, resource_id: u32) -> VirtioGpuCtrlHdr {
+        let mut request = VirtioGpuResourceUnref::default();
+        request.hdr.hdr_type = VIRTIO_GPU_CMD_RESOURCE_UNREF;
+        request.resource_id = resource_id;
 
         let mut response = VirtioGpuCtrlHdr::default();
 
@@ -253,17 +265,28 @@ impl VirtioGpu {
 }
 
 impl GpuDevice for VirtioGpu {
-    type Error = GpuError;
+    /// Creates a memory backed resource for the GPU, returns [`Ok`] containing the resourece ID on success
+    fn create_resource(
+        &mut self,
+        resource_id: u32,
+        width: u32,
+        height: u32,
+    ) -> Result<u32, GpuDeviceError> {
+        self.create_resource(resource_id, width, height)
+    }
+    fn destroy_resource(&mut self, resource_id: u32) -> Result<(), GpuDeviceError> {
+        self.flush_resources()
+    }
 
     fn dimensions(&self) -> (u32, u32) {
         (self.width, self.height)
     }
 
-    fn framebuffer(&mut self) -> &mut [graphics::types::Brga] {
+    fn framebuffer(&mut self) -> &mut [graphics::bgra::Brga] {
         self.framebuffer.as_mut()
     }
 
-    fn flush(&mut self) -> Result<(), GpuError> {
+    fn flush(&mut self) -> Result<(), GpuDeviceError> {
         self.flush_resources()
     }
 }

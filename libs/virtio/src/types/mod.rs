@@ -1,3 +1,5 @@
+use core::default;
+
 pub mod device;
 pub mod queue;
 
@@ -48,6 +50,13 @@ pub struct VirtioGpuResourceCreate2d {
     pub format: u32, // 1 = BGRA8
     pub width: u32,
     pub height: u32,
+}
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct VirtioGpuResourceUnref {
+    pub hdr: VirtioGpuCtrlHdr,
+    pub resource_id: u32,
+    padding: u32,
 }
 
 #[repr(C)]
