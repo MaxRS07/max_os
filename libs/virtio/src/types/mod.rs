@@ -8,9 +8,9 @@ pub mod queue;
 pub struct VirtioGpuCtrlHdr {
     pub hdr_type: u32,
     pub flags: u32,
-    pub fence_id: u64, // was u32 — wrong, spec says u64
+    pub fence_id: u64,
     pub ctx_id: u32,
-    pub padding: u32, // was ring_idx + [u8;3] — wrong layout
+    pub padding: u32,
 }
 impl VirtioGpuCtrlHdr {
     pub fn is_ok_nodata(&self) -> bool {
@@ -101,4 +101,24 @@ pub struct VirtioGpuResourceFlush {
     pub r: VirtioGpuRect,
     pub resource_id: u32,
     pub padding: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct VirtioGpuCursorPos {
+    scanout_id: u32,
+    x: u32,
+    y: u32,
+    padding: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct VirtioGpuUpdateCursor {
+    hdr: VirtioGpuCtrlHdr,
+    pos: VirtioGpuCursorPos,
+    resource_id: u32,
+    hot_x: u32,
+    hot_y: u32,
+    padding: u32,
 }

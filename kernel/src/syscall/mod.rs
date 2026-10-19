@@ -4,7 +4,6 @@ use alloc::string::ToString;
 use log::{error, warn};
 
 use crate::{
-    drivers::time::GLOBAL_TIME,
     fs::{GLOBAL_FS, call},
     syscall::{
         com::ComOp,

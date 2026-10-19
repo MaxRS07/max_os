@@ -1,4 +1,9 @@
-use crate::{drivers::gpu::GPU_DEVICE, syscall::op::SysOp};
+use core::todo;
+
+use crate::{
+    drivers::gpu::GPU_DEVICE,
+    syscall::{error::SyscallError, op::SysOp},
+};
 
 pub enum GfxOp {
     /// Creates a gpu resource for writing output
@@ -19,6 +24,22 @@ pub enum GfxOp {
     Wait,
 }
 
+impl TryFrom<usize> for GfxOp {
+    type Error = SyscallError;
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        Ok(match value {
+            0 => Self::CreateResource,
+            1 => Self::DestroyResource,
+            2 => Self::WriteFrame,
+            3 => Self::LockFrame,
+            4 => Self::RelseaseFrame,
+            5 => Self::Flip,
+            6 => Self::Wait,
+            _ => return Err(SyscallError::InvalidOperation("GfxOp", value)),
+        })
+    }
+}
+
 impl SysOp for GfxOp {
     fn call(
         &self,
@@ -26,9 +47,7 @@ impl SysOp for GfxOp {
         args: super::SyscallArgs,
     ) -> Result<(), super::error::SyscallError> {
         match self {
-            GfxOp::CreateResource => {
-                GPU_DEVICE.wait().lock().
-            }
+            GfxOp::CreateResource => todo!(),
             GfxOp::CreateResource => todo!(),
             GfxOp::DestroyResource => todo!(),
             GfxOp::WriteFrame => todo!(),

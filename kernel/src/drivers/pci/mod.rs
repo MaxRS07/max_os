@@ -5,6 +5,7 @@ use core::{
         Ordering::{Acquire, SeqCst},
         fence,
     },
+    time::Duration,
 };
 
 use config::*;
@@ -15,8 +16,6 @@ use sdt::fdt::FDT;
 use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use virtio::VIRTIO_DEV_GPU;
-
-use crate::drivers::time::GLOBAL_TIME;
 
 pub mod config;
 pub mod pci_bump;
@@ -101,7 +100,7 @@ pub fn ping_virtio(ecam: usize, bus: u8, dev: u8, func: u8, offset: u16) {
         let size = (!(size_mask & PCI_BAR_ADDR_MASK)).wrapping_add(1) as usize;
 
         if size > 0
-            && let Ok(mut alloc) = ALLOCATOR.wait().lock_timeout(GLOBAL_TIME.wait(), 1000)
+            && let Ok(mut alloc) = ALLOCATOR.wait().lock_timeout(Duration::from_secs(1))
             && let Some(addr) = alloc.alloc_non_pref(size)
         {
             pci_write::<u32>(ecam, bus, dev, 0, offset, addr as u32);

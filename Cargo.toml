@@ -13,6 +13,6 @@ members = [
     "libs/net",
     "libs/sdt",
     "libs/sync",
-    "libs/time",
+    "libs/systime",
     "libs/virtio",
 ]

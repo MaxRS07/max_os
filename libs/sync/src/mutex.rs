@@ -2,9 +2,10 @@ use core::{
     cell::UnsafeCell,
     fmt::Debug,
     sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
 };
 
-use time::global_time::GlobalTimer;
+use systime::elapsed_ms;
 
 use crate::mutex_guard::MutexGuard;
 
@@ -42,12 +43,8 @@ impl<T> Mutex<T> {
         }
     }
     /// attempts to lock for
-    pub fn lock_timeout(
-        &self,
-        timer: &dyn GlobalTimer,
-        max_time: u64,
-    ) -> Result<MutexGuard<'_, T>, &'static str> {
-        let start = timer.now_ms();
+    pub fn lock_timeout(&self, max_time: Duration) -> Result<MutexGuard<'_, T>, &'static str> {
+        let start = systime::now_ms();
         loop {
             match self.try_lock() {
                 Some(value) => return Ok(value),
@@ -55,7 +52,7 @@ impl<T> Mutex<T> {
                     core::hint::spin_loop();
                 }
             }
-            if timer.elapsed(start, max_time) {
+            if elapsed_ms(start, max_time) {
                 return Err("Failed to get instace, lock timeout");
             }
         }

@@ -2,6 +2,7 @@ use core::{
     cell::{RefCell, RefMut},
     ops::DerefMut,
     sync::atomic::Ordering,
+    time::Duration,
 };
 
 use alloc::{borrow::ToOwned, format};
@@ -10,7 +11,6 @@ use log::error;
 use sync::mutex_guard::MutexGuard;
 
 use crate::{
-    drivers::time::GLOBAL_TIME,
     fs::GLOBAL_FS,
     sched::{PROCESS_TABLE, process::Process, scheduler::CURRENT_PROCESS},
     syscall::error::SyscallError,
@@ -69,7 +69,7 @@ impl KernelContext {
             *slot = Some(
                 GLOBAL_FS
                     .wait()
-                    .lock_timeout(GLOBAL_TIME.wait(), 1000)
+                    .lock_timeout(Duration::from_secs(1))
                     .map_err(|err| {
                         SyscallError::Busy(format!("Failed to retrieve lock on file: {err}"))
                     })?,

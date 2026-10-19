@@ -25,7 +25,6 @@ use mem::page_table::{
 };
 
 use crate::{
-    drivers::time::GLOBAL_TIME,
     kernel_main,
     mm::heap::PAGE_ALLOCATOR,
     sched::{

@@ -7,7 +7,6 @@ use log::{debug, info, warn};
 use mem::page_table::table::Table;
 use sdt::fdt::{FDT, GLOBAL_FDT};
 
-use crate::drivers::time::start_system_clock;
 use crate::mm::boot::map_boot_pages;
 use crate::mm::heap::{PAGE_ALLOCATOR, setup_boot_mem};
 use crate::{console, println};
@@ -27,7 +26,6 @@ pub fn init(fdt_ptr: *const u8) {
     setup_boot_mem();
     match FDT::from_ptr(fdt_ptr) {
         Ok(mmap) => {
-            start_system_clock();
             console::init(mmap.get_arg("debug"));
             debug!("Intialized FDT");
             sdt::fdt::GLOBAL_FDT.set(mmap);

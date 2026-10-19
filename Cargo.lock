@@ -48,7 +48,7 @@ dependencies = [
  "net",
  "sdt",
  "sync",
- "time",
+ "systime",
  "virtio",
 ]
 
@@ -86,11 +86,11 @@ dependencies = [
 name = "sync"
 version = "0.1.0"
 dependencies = [
- "time",
+ "systime",
 ]
 
 [[package]]
-name = "time"
+name = "systime"
 version = "0.1.0"
 
 [[package]]
@@ -99,5 +99,5 @@ version = "0.1.0"
 dependencies = [
  "mem",
  "mmio",
- "time",
+ "systime",
 ]

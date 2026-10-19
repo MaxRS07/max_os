@@ -1,15 +1,23 @@
-use core::{alloc::Layout, convert::identity, net::AddrParseError};
+use core::{
+    alloc::Layout,
+    convert::identity,
+    net::AddrParseError,
+    sync::atomic::{AtomicU32, Ordering},
+    time::Duration,
+};
 
 use alloc::{
     boxed::Box,
+    collections::BTreeMap,
     vec::{self, Vec},
 };
-use graphics::{bgra::Brga, device::GpuDevice, error::GpuDeviceError};
+use graphics::{bgra::Brga, device::GpuDevice, error::GpuError};
 use log::{debug, error, warn};
 use mem::error::MemoryError;
 use sdt::fdt::FDT;
 use virtio::{
     ALL_FEATURES,
+    error::VirtioError,
     init::{init_state, signal_driver_ok},
     queue::init_virtqueue,
     types::{
@@ -38,16 +46,21 @@ pub mod cmd;
 const MAX_RESOLUTION: (usize, usize) = (1920, 1080);
 const MAX_BUFFER_SIZE: usize = MAX_RESOLUTION.0 * MAX_RESOLUTION.1;
 
+enum VirtioGpuResource {
+    TwoD { width: u32, height: u32 },
+    ThreeD {},
+    Blob(),
+}
 /// VirtIO GPU Device
 #[derive(Default)]
 pub struct VirtioGpu {
     mmio_addr: usize,
-    framebuffer: Box<[graphics::bgra::Brga]>,
     width: u32,
     height: u32,
-    resource_id: u32,
+    id_allocator: AtomicU32,
     controlq: VirtQueue,
     cursorq: VirtQueue,
+    resources: BTreeMap<u32, VirtioGpuResource>,
 }
 
 impl VirtioGpu {
@@ -69,10 +82,10 @@ impl VirtioGpu {
             mmio_addr,
             controlq,
             cursorq,
-            framebuffer: Box::new([]), // placeholder, replaced in initialize_framebuffer
             width: 0,
             height: 0,
-            resource_id: 0,
+            id_allocator: AtomicU32::new(0),
+            resources: BTreeMap::new(),
         };
 
         if let Err(error) = init_virtqueue(&mut virtio_gpu.controlq, mmio_addr, 0) {
@@ -110,7 +123,8 @@ impl VirtioGpu {
         response
     }
 
-    fn create_resource(&mut self, resource_id: u32, width: u32, height: u32) -> VirtioGpuCtrlHdr {
+    fn create_resource(&mut self, width: u32, height: u32) -> Result<u32, VirtioError> {
+        let resource_id = self.id_allocator.fetch_add(1, Ordering::Acquire);
         let mut request = VirtioGpuResourceCreate2d::default();
         request.hdr.hdr_type = VIRTIO_GPU_CMD_RESOURCE_CREATE_2D;
         request.resource_id = resource_id; // fb uuid, TODO: add id utility
@@ -120,24 +134,43 @@ impl VirtioGpu {
 
         let mut response = VirtioGpuCtrlHdr::default();
 
-        self.controlq
-            .push_desc(self.mmio_addr, &request, &mut response);
+        self.controlq.push_desc_timeout(
+            self.mmio_addr,
+            &request,
+            &mut response,
+            Duration::from_secs(1),
+        )?;
 
-        response
+        if !response.is_ok_nodata() {
+            return Err(VirtioError::ErrorResponse(response.hdr_type));
+        }
+
+        Ok(resource_id)
     }
-    fn destroy_resource(&mut self, resource_id: u32) -> VirtioGpuCtrlHdr {
+    /* Cursor operation */
+    pub fn create_cursor_resource(&mut self) -> Result<u32, VirtioError> {
+        let cursor_id = self.create_resource(64, 64)?;
+        self.attach_backing(cursor_id)?;
+        Ok(cursor_id)
+    }
+    /// Removes a resource from this gpu, deallocating the attached backing
+    fn destroy_resource(&mut self, resource_id: u32) -> Result<(), VirtioError> {
         let mut request = VirtioGpuResourceUnref::default();
         request.hdr.hdr_type = VIRTIO_GPU_CMD_RESOURCE_UNREF;
         request.resource_id = resource_id;
 
         let mut response = VirtioGpuCtrlHdr::default();
 
-        self.controlq
-            .push_desc(self.mmio_addr, &request, &mut response);
+        self.controlq.push_desc_timeout(
+            self.mmio_addr,
+            &request,
+            &mut response,
+            Duration::from_secs(1),
+        )?;
 
-        response
+        Ok(())
     }
-
+    /// Allocates memory for a gpu resource given a device id
     fn attach_backing(&mut self, resource_id: u32) -> VirtioGpuCtrlHdr {
         let mut request = Box::new(VirtioGpuResourceAttachBacking {
             hdr: VirtioGpuCtrlHdr {
@@ -147,8 +180,8 @@ impl VirtioGpu {
             resource_id,
             nr_entries: 1,
         });
-        let fb_addr = &self.framebuffer[0] as *const Brga as u64;
-        let fb_size = self.framebuffer.len() * size_of::<Brga>();
+        self.get_resource(resource_id);
+        let buffer= Box::new(x)
         let mut entry = Box::new(VirtioGpuMemEntry {
             addr: fb_addr,
             length: fb_size as u32,
@@ -186,7 +219,7 @@ impl VirtioGpu {
         *response
     }
 
-    fn scanout(&mut self, resource_id: u32, rect: VirtioGpuRect) {
+    fn scanout(&mut self, resource_id: u32, rect: VirtioGpuRect) -> Result<(), VirtioError> {
         let request = VirtioGpuSetScanout {
             hdr: VirtioGpuCtrlHdr {
                 hdr_type: VIRTIO_GPU_CMD_SET_SCANOUT,
@@ -197,8 +230,12 @@ impl VirtioGpu {
             resource_id,
         };
         let mut response = VirtioGpuCtrlHdr::default();
-        self.controlq
-            .push_desc(self.mmio_addr, &request, &mut response);
+        self.controlq.push_desc_timeout(
+            self.mmio_addr,
+            &request,
+            &mut response,
+            Duration::from_secs(1),
+        )
     }
 
     fn flush_resources(&mut self) -> Result<(), GpuError> {
@@ -242,40 +279,21 @@ impl VirtioGpu {
             .push_desc(self.mmio_addr, &flush_req, &mut response);
         Ok(())
     }
-
-    fn initialize_framebuffer(&mut self, width: u32, height: u32) -> Result<(), MemoryError> {
-        let id = 1;
-        if self.create_resource(id, width, height).is_ok_nodata() {
-            debug!("Created resource");
-            let size = (width * height) as usize;
-
-            // FIX: Allocates directly on the heap without cloning on the stack
-            let framebuffer: Box<[Brga]> = core::iter::repeat_with(Brga::default)
-                .take(size)
-                .collect::<Box<[Brga]>>();
-            self.framebuffer = framebuffer;
-
-            let response = self.attach_backing(id);
-            if response.is_ok_nodata() {
-                return Ok(());
-            }
-        }
-        Err(MemoryError::AccessViolation(""))
-    }
 }
 
 impl GpuDevice for VirtioGpu {
     /// Creates a memory backed resource for the GPU, returns [`Ok`] containing the resourece ID on success
-    fn create_resource(
-        &mut self,
-        resource_id: u32,
-        width: u32,
-        height: u32,
-    ) -> Result<u32, GpuDeviceError> {
-        self.create_resource(resource_id, width, height)
+    fn create_resource(&mut self, width: u32, height: u32) -> Result<u32, GpuError> {
+        self.create_resource(width, height)
+            .map_err(|err| GpuError::ResourceCreateFailed)
     }
-    fn destroy_resource(&mut self, resource_id: u32) -> Result<(), GpuDeviceError> {
-        self.flush_resources()
+    fn destroy_resource(&mut self, resource_id: u32) -> Result<(), GpuError> {
+        self.destroy_resource(resource_id)
+            .map_err(|_| GpuError::ResourceDestroyFailed)
+    }
+    /// query resources by resource id
+    fn get_resource(&mut self, resource_id: u32) -> Option<VirtioGpuResource> {
+        self.resources.get(&resource_id)
     }
 
     fn dimensions(&self) -> (u32, u32) {
@@ -286,7 +304,11 @@ impl GpuDevice for VirtioGpu {
         self.framebuffer.as_mut()
     }
 
-    fn flush(&mut self) -> Result<(), GpuDeviceError> {
+    fn flush(&mut self) -> Result<(), GpuError> {
         self.flush_resources()
+    }
+
+    fn flip(&mut self) -> Result<(), GpuError> {
+        todo!()
     }
 }

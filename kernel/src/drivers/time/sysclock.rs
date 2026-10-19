@@ -1,4 +1,4 @@
-use time::global_time::GlobalTimer;
+use systime::global_time::GlobalTimer;
 
 use crate::drivers::time::timer;
 

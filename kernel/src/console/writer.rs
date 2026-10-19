@@ -13,9 +13,9 @@ pub fn println(s: &str) {
     }
     write_byte(10u8);
 }
-pub struct Terminal;
+pub struct ConsoleOut;
 
-impl Write for Terminal {
+impl Write for ConsoleOut {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for byte in s.bytes() {
             write_byte(byte);
@@ -26,7 +26,7 @@ impl Write for Terminal {
 
 #[doc(hidden)]
 pub fn _print(args: fmt::Arguments) {
-    let mut writer = Terminal;
+    let mut writer = ConsoleOut;
     let _ = writer.write_fmt(args);
 }
 

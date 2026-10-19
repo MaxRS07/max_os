@@ -1,6 +1,5 @@
 use core::{arch::naked_asm, ops::DerefMut, sync::atomic::Ordering};
 
-use ::time::global_time::GlobalTimer;
 use log::{debug, error, info, warn};
 use sdt::fdt::{self, FDT, GLOBAL_FDT};
 
@@ -12,7 +11,6 @@ use crate::{
             route::{ExceptionCode, InterruptCode, Trap, parse_cause, parse_scause},
         },
     },
-    drivers::time::GLOBAL_TIME,
     sched::{SCHEDULER, context::switch_context_impl},
     syscall::handle_ecall,
 };
@@ -192,7 +190,7 @@ const MTIME_CMP_OFFSET: usize = 0x4000;
 pub fn schedule_interrupt_timer(interval: u64) {
     if let Some(fdt) = GLOBAL_FDT.get() {
         let addr = fdt.clint.base_address + MTIME_CMP_OFFSET;
-        let cur = GLOBAL_TIME.wait().ticks();
+        let cur = systime::ticks();
         let irq_time = interval + cur;
 
         let interval_low = (irq_time >> 32) as u32;

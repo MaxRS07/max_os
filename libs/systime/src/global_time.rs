@@ -1,3 +1,8 @@
+use core::{
+    ptr::{null, null_mut},
+    sync::atomic::{AtomicPtr, Ordering},
+};
+
 /// A rd-time backed global system time accessor
 pub trait GlobalTimer {
     /// Returns the current number of ticks since boot
@@ -22,11 +27,11 @@ pub trait GlobalTimer {
 
     /// whether `duration` ticks have elapsed since `start` ticks
     #[inline(always)]
-    fn elapsed(&self, start: u64, duration: u64) -> bool {
-        (self.ticks().wrapping_sub(start)) >= duration
+    fn elapsed(&self, start: u64, ticks: u64) -> bool {
+        (self.ticks().wrapping_sub(start)) >= ticks
     }
     /// whether `duration` ms have elapsed since `start` ms
-    fn elapsed_ms(&self, start: u64, duration: u64) -> bool {
-        (self.now_ms().wrapping_sub(start)) >= duration
+    fn elapsed_ms(&self, start: u64, duration: core::time::Duration) -> bool {
+        (self.now_ms().wrapping_sub(start)) >= duration.as_millis() as u64
     }
 }

@@ -1,5 +1,6 @@
+use core::time::Duration;
+
 use alloc::boxed::Box;
-use time::global_time::GlobalTimer;
 
 use crate::{QUEUE_SIZE, VIRTIO_MMIO_QUEUE_NOTIFY, error::VirtioError};
 
@@ -73,6 +74,31 @@ impl VirtQueue {
         );
         self.wait_used(last);
     }
+    pub fn push_desc_timeout<Req, Resp>(
+        &mut self,
+        mmio_addr: usize,
+        request: &Req,
+        response: &mut Resp,
+        duration: Duration,
+    ) -> Result<(), VirtioError> {
+        let last = self.push_desc_raw(
+            mmio_addr,
+            &[
+                DescBuf {
+                    addr: request as *const Req as u64,
+                    len: size_of::<Req>() as u32,
+                    flags: 0x0,
+                },
+                DescBuf {
+                    addr: response as *mut Resp as u64,
+                    len: size_of::<Resp>() as u32,
+                    flags: 0x2,
+                },
+            ],
+            0,
+        );
+        self.wait_used_timeout(last, duration)
+    }
     /// Submits the descriptor chain but doesnt wait on the write, you must call wait_used manually
     pub fn push_desc_raw(&mut self, mmio_addr: usize, bufs: &[DescBuf], desc_start: u16) -> u16 {
         assert!(
@@ -135,16 +161,11 @@ impl VirtQueue {
         }
     }
 
-    pub fn wait_used_timeout(
-        &self,
-        last: u16,
-        clock: &dyn GlobalTimer,
-        timeout: u64,
-    ) -> Result<(), VirtioError> {
-        let now = clock.now_ms();
+    pub fn wait_used_timeout(&self, last: u16, duration: Duration) -> Result<(), VirtioError> {
+        let start = systime::now_ms();
         unsafe {
             while core::ptr::read_volatile(&self.used.idx) == last {
-                if clock.now_ms() - now >= timeout {
+                if systime::elapsed_ms(start, duration) {
                     return Err(VirtioError::TimeoutError);
                 }
                 core::hint::spin_loop();
