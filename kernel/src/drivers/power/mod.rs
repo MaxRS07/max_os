@@ -1,5 +1,5 @@
 use log::{info, warn};
-use sdt::{fdt::GLOBAL_FDT, stream::FDTElement};
+use fdt::{tree::GLOBAL_FDT, stream::FDTElement};
 
 use crate::println;
 

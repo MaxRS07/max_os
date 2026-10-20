@@ -6,7 +6,7 @@ use mem::{
     error::MemoryError,
     page_table::{page_alloc::Pager, table::Table},
 };
-use sdt::{fdt::GLOBAL_FDT, region::FDTRegion};
+use fdt::{tree::GLOBAL_FDT, region::FDTRegion};
 
 use crate::{arch::riscv::csr::Csr::SATP, mm::heap::PAGE_ALLOCATOR};
 

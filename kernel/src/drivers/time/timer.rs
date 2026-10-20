@@ -1,6 +1,6 @@
 use core::arch::{asm, global_asm};
 
-use sdt::fdt::GLOBAL_FDT;
+use fdt::tree::GLOBAL_FDT;
 
 global_asm!(include_str!("time.s"));
 

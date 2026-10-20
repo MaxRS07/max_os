@@ -1,6 +1,6 @@
 use alloc::{boxed::Box, str::from_boxed_utf8_unchecked};
 use log::{debug, info, warn};
-use sdt::fdt::FDT;
+use fdt::tree::FDT;
 
 use crate::{
     console::writer::println,

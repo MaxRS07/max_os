@@ -1,4 +1,4 @@
-use sdt::fdt::FDT;
+use fdt::tree::FDT;
 
 pub struct PciAllocator {
     non_pref_next: usize, // next free address

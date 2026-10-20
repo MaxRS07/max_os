@@ -5,7 +5,7 @@ use alloc::{
 use log::warn;
 use mmio::mmio_read;
 use net::{device::NetDevice, error::NetError};
-use sdt::fdt::FDT;
+use fdt::fdt::FDT;
 use virtio::{
     ALL_FEATURES, VIRTIO_MMIO_QUEUE_NUM,
     init::init_state,

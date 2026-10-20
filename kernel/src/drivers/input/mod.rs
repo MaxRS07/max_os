@@ -1,6 +1,6 @@
 use input::device::KeyboardDevice;
 use log::info;
-use sdt::fdt::FDT;
+use fdt::tree::FDT;
 use sync::shared_cell::SharedCell;
 
 use crate::drivers::input::keyboard::GlobalKeyboard;

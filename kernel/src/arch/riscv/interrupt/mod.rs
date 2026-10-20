@@ -1,7 +1,7 @@
 use core::sync::atomic::AtomicUsize;
 
 use log::info;
-use sdt::fdt::FDT;
+use fdt::tree::FDT;
 
 pub mod handler;
 pub mod machine;

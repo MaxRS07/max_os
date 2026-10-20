@@ -1,8 +1,8 @@
 #![no_std]
 
 use alloc::string::ToString;
+use fdt::{region::FDTRegion, stream::FDTElement, tree::FDT};
 use log::{Level::Info, info, warn};
-use sdt::{fdt::FDT, region::FDTRegion, stream::FDTElement};
 
 pub fn mmio_write<T>(base: usize, offset: u32, val: T) {
     let ptr = (base + offset as usize) as *mut T;

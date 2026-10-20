@@ -1,7 +1,7 @@
 use core::{arch::naked_asm, ops::DerefMut, sync::atomic::Ordering};
 
 use log::{debug, error, info, warn};
-use sdt::fdt::{self, FDT, GLOBAL_FDT};
+use tree::fdt::{self, FDT, GLOBAL_FDT};
 
 use crate::{
     arch::riscv::{

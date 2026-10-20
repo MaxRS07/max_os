@@ -1,12 +1,11 @@
 use alloc::sync::Arc;
+use fdt::tree::FDT;
 use graphics::device::GpuDevice;
 use log::{info, warn};
-use sdt::fdt::FDT;
 use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use crate::drivers::gpu::virtio::VirtioGpu;
 
-pub mod error;
 pub mod virtio;
 
 pub static GPU_DEVICE: OnceLock<Mutex<Arc<VirtioGpu>>> = OnceLock::new();

@@ -27,7 +27,7 @@ pub const VIRTIO_MMIO_DEV_SOUND: u32 = 25;
 // VirtIO MMIO Register Offsets
 pub const VIRTIO_MMIO_MAGIC: u32 = 0x000;
 pub const VIRTIO_MMIO_VERSION: u32 = 0x004;
-pub const VIRTIO_MMIO_DEVICE_ID: u32 = 0x010;
+pub const VIRTIO_MMIO_DEVICE_ID: u32 = 0x008;
 pub const VIRTIO_MMIO_VENDOR_ID: u32 = 0x00C;
 
 pub const VIRTIO_MMIO_DEV_FEATURES: u32 = 0x010;
@@ -46,6 +46,11 @@ pub const VIRTIO_MMIO_INT_STATUS: u32 = 0x060;
 pub const VIRTIO_MMIO_INT_ACK: u32 = 0x064;
 
 pub const VIRTIO_MMIO_STATUS: u32 = 0x070;
+
+pub const VIRTIO_STATUS_RESET: u32 = 0;
+pub const VIRTIO_STATUS_ACKNOWLEDGE: u32 = 1 << 0;
+pub const VIRTIO_STATUS_DRIVER: u32 = 1 << 1;
+pub const VIRTIO_STATUS_FEATURES_OK: u32 = 1 << 3;
 
 pub const VIRTIO_MMIO_QUEUE_DESC: u32 = 0x080;
 pub const VIRTIO_MMIO_QUEUE_DRIVER: u32 = 0x090;

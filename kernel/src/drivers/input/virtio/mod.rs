@@ -8,7 +8,7 @@ use input::{
 };
 use log::{debug, error, info, warn};
 use mmio::{mmio_read, mmio_write};
-use sdt::fdt::FDT;
+use fdt::tree::FDT;
 use virtio::{
     ALL_FEATURES, QUEUE_SIZE,
     init::{init_state, signal_driver_ok},

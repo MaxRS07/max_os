@@ -1,6 +1,6 @@
 #![no_std]
 
-pub mod bgra;
+pub mod color;
 pub mod device;
 pub mod error;
 pub mod resource;

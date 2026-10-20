@@ -11,7 +11,7 @@ members = [
     "libs/mem",
     "libs/mmio",
     "libs/net",
-    "libs/sdt",
+    "libs/fdt",
     "libs/sync",
     "libs/systime",
     "libs/virtio",

@@ -1,4 +1,4 @@
-use crate::{error::SdtError, stream::FdtStream};
+use crate::{error::FdtError, stream::FdtStream};
 
 /// representaion of a flattend device tree header
 #[derive(Clone, Copy, Debug)]
@@ -16,7 +16,7 @@ pub struct FdtHeader {
     pub size_dt_struct: u32,
 }
 impl FdtHeader {
-    pub fn from_raw_ptr(fdt_ptr: *const u8) -> core::result::Result<Self, SdtError> {
+    pub fn from_raw_ptr(fdt_ptr: *const u8) -> core::result::Result<Self, FdtError> {
         let data = FdtHeader::read(fdt_ptr).unwrap();
         if let [
             magic,
@@ -56,10 +56,10 @@ impl FdtHeader {
                 size_dt_struct,
             })
         } else {
-            Err(SdtError::ParseError("One or more values are missing"))
+            Err(FdtError::ParseError("One or more values are missing"))
         }
     }
-    fn read(fdt_ptr: *const u8) -> core::result::Result<&'static [u32], SdtError> {
+    fn read(fdt_ptr: *const u8) -> core::result::Result<&'static [u32], FdtError> {
         unsafe {
             let val = (fdt_ptr as *const u32).read_volatile();
             let magic = val.swap_bytes();
@@ -70,7 +70,7 @@ impl FdtHeader {
                     let parts = core::slice::from_raw_parts(data_ptr, read_size / 4); // read_size / 4 for u32 
                     Ok(parts)
                 }
-                false => Err(SdtError::ValidationError("Failed to validate FDT struct")),
+                false => Err(FdtError::ValidationError("Failed to validate FDT struct")),
             }
         }
     }

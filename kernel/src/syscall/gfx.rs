@@ -22,6 +22,7 @@ pub enum GfxOp {
     Flip,
     ///
     Wait,
+    Info,
 }
 
 impl TryFrom<usize> for GfxOp {
@@ -35,6 +36,7 @@ impl TryFrom<usize> for GfxOp {
             4 => Self::RelseaseFrame,
             5 => Self::Flip,
             6 => Self::Wait,
+            7 => Self::Info,
             _ => return Err(SyscallError::InvalidOperation("GfxOp", value)),
         })
     }
@@ -55,6 +57,7 @@ impl SysOp for GfxOp {
             GfxOp::RelseaseFrame => todo!(),
             GfxOp::Flip => todo!(),
             GfxOp::Wait => todo!(),
+            GfxOp::Info => todo!(),
         }
     }
 }

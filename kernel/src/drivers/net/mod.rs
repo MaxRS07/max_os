@@ -1,4 +1,4 @@
-use sdt::fdt::FDT;
+use fdt::fdt::FDT;
 
 pub mod virtio;
 

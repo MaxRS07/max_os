@@ -6,9 +6,9 @@ use core::{
 
 use alloc::vec::Vec;
 use block::{device::BlockDevice, error::BlockError};
+use fdt::tree::FDT;
 use log::{error, warn};
 use mmio::mmio_read;
-use sdt::fdt::FDT;
 use virtio::{
     ALL_FEATURES,
     init::{init_state, signal_driver_ok},

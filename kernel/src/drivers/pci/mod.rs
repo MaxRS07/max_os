@@ -12,7 +12,7 @@ use config::*;
 use core::panic;
 use log::info;
 use log::warn;
-use sdt::fdt::FDT;
+use fdt::tree::FDT;
 use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use virtio::VIRTIO_DEV_GPU;

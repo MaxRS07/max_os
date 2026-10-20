@@ -27,15 +27,6 @@ impl<'a> FDTRegion<'a> {
             size,
         }
     }
-    /// ## Args
-    /// `ptr`: address of the start tag of the `MemoryRegion` (0x00000003).
-    ///
-    /// ## Returns
-    /// `Ok(MemoryRegion)`\
-    /// `SdtError`: if validation fails or YOU put the wrong element here.
-    ///
-    /// ## Safety
-    ///
     pub unsafe fn from_reg(name: &'a str, el: FDTElement) -> Option<Self> {
         match el {
             FDTElement::BeginNode { name: _ } | FDTElement::EndNode => None,

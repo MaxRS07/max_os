@@ -5,7 +5,7 @@ use core::sync::atomic::{compiler_fence, fence};
 use log::{debug, info, warn};
 
 use mem::page_table::table::Table;
-use sdt::fdt::{FDT, GLOBAL_FDT};
+use fdt::tree::{FDT, GLOBAL_FDT};
 
 use crate::mm::boot::map_boot_pages;
 use crate::mm::heap::{PAGE_ALLOCATOR, setup_boot_mem};
@@ -28,7 +28,7 @@ pub fn init(fdt_ptr: *const u8) {
         Ok(mmap) => {
             console::init(mmap.get_arg("debug"));
             debug!("Intialized FDT");
-            sdt::fdt::GLOBAL_FDT.set(mmap);
+            fdt::tree::GLOBAL_FDT.set(mmap);
             if let Some(fdt) = GLOBAL_FDT.get() {
                 heap::setup_system_mem(fdt.memory.size);
             } else {

@@ -2,8 +2,8 @@ use core::cell::OnceCell;
 
 use alloc::boxed::Box;
 use block::device::BlockDevice;
+use fdt::tree::FDT;
 use log::warn;
-use sdt::fdt::FDT;
 use sync::oncelock::OnceLock;
 
 use crate::{drivers::block::virtio::VirtioBlock, println};

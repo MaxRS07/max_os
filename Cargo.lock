@@ -14,6 +14,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "fdt"
+version = "0.1.0"
+dependencies = [
+ "collections",
+ "log",
+ "mem",
+ "sync",
+]
+
+[[package]]
 name = "fs"
 version = "0.1.0"
 dependencies = [
@@ -39,6 +49,7 @@ version = "0.1.0"
 dependencies = [
  "block",
  "collections",
+ "fdt",
  "fs",
  "graphics",
  "input",
@@ -46,7 +57,6 @@ dependencies = [
  "mem",
  "mmio",
  "net",
- "sdt",
  "sync",
  "systime",
  "virtio",
@@ -64,23 +74,13 @@ dependencies = [
 name = "mmio"
 version = "0.1.0"
 dependencies = [
+ "fdt",
  "log",
- "sdt",
 ]
 
 [[package]]
 name = "net"
 version = "0.1.0"
-
-[[package]]
-name = "sdt"
-version = "0.1.0"
-dependencies = [
- "collections",
- "log",
- "mem",
- "sync",
-]
 
 [[package]]
 name = "sync"
@@ -97,6 +97,7 @@ version = "0.1.0"
 name = "virtio"
 version = "0.1.0"
 dependencies = [
+ "fdt",
  "mem",
  "mmio",
  "systime",

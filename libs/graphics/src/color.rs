@@ -1,12 +1,12 @@
 #[derive(Clone, Copy, Default, Debug)]
-pub struct Brga {
+pub struct Color {
     pub b: u8,
     pub g: u8,
     pub r: u8,
     pub a: u8,
 }
 
-impl Brga {
+impl Color {
     pub fn new(b: u8, g: u8, r: u8, a: u8) -> Self {
         Brga { b, g, r, a }
     }
@@ -18,4 +18,5 @@ impl Brga {
         let a = (a * 255f32) as u8;
         Brga { b, g, r, a }
     }
+    pub fn bgra()
 }

@@ -13,8 +13,8 @@ pub mod syscall;
 
 use core::{arch::global_asm, panic};
 
+use fdt::tree::GLOBAL_FDT;
 use log::{debug, error, info, warn};
-use sdt::fdt::GLOBAL_FDT;
 
 use crate::{
     arch::riscv::{self, interrupt::handler::schedule_interrupt_timer},
