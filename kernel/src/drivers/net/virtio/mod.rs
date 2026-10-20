@@ -2,12 +2,13 @@ use alloc::{
     boxed::Box,
     vec::{self, Vec},
 };
+use fdt::fdt::FDT;
 use log::warn;
 use mmio::mmio_read;
 use net::{device::NetDevice, error::NetError};
-use fdt::fdt::FDT;
 use virtio::{
     ALL_FEATURES, VIRTIO_MMIO_QUEUE_NUM,
+    error::VirtioError,
     init::init_state,
     types::{device::verify_virtio_magic, queue::VirtQueue},
 };
@@ -119,7 +120,7 @@ impl VirtioNet {
             self.transmitqs.get_mut(index / 2 + 1)
         }
     }
-    fn verify_cfg_flags(cfg_flags: u64) -> Result<(), &'static str> {
+    fn verify_cfg_flags(cfg_flags: u64) -> Result<(), VirtioError> {
         let has_tsox_guest =
             Self::has_flag(cfg_flags, VIRTIO_NET_F_GUEST_TSO4 | VIRTIO_NET_F_GUEST_TSO6);
         let has_tsox_host =

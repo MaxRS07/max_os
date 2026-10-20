@@ -8,7 +8,7 @@ pub fn verify_virtio_magic(self.mmio: usize) -> Result<(), VirtioError> {
     
     Ok(())
 }
-/// Shared boilerplate for all virtio devices
+/// Shared basic functionality for all virtio devices
 pub struct VirtioDevice {
     mmio: usize,
 }
@@ -120,7 +120,16 @@ impl VirtioDevice {
         Ok(())
     }
     /// Returns configuration information about this device
-    pub fn read_config<T>(&self) -> T {}
+    pub fn read_config<T>(&self) -> T {
+
+    }
     /// Sets the driver status to DRIVER_OK, enabling regular device operation.
-    pub fn finish(self) -> ... {}
+    pub fn finish(self) {
+        mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_STATUS, 
+            VIRTIO_STATUS_ACKNOWLEDGE | 
+            VIRTIO_STATUS_DRIVER |
+            VIRTIO_STATUS_FEATURES_OK | 
+            VIRITO_STATUS_DRIVER_OK
+        );
+    }
 }

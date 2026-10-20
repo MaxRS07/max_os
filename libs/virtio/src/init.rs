@@ -47,10 +47,3 @@ pub fn init_state(mmio_addr: usize, select: u64) -> Result<(), &'static str> {
     }
     Ok(())
 }
-
-/// Signals DRIVER_OK, telling the device the driver is ready to use the queues it just set up.
-/// Must be called after all virtqueues for the device are initialized.
-pub fn signal_driver_ok(mmio_addr: usize) {
-    // ACKNOWLEDGE | DRIVER | FEATURES_OK | DRIVER_OK
-    mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_STATUS, 1 | 2 | 8 | 4);
-}
