@@ -1,4 +1,4 @@
-use alloc::sync::Arc;
+use alloc::{boxed::Box, sync::Arc};
 use fdt::tree::FDT;
 use graphics::device::GpuDevice;
 use log::{info, warn};
@@ -8,7 +8,7 @@ use crate::drivers::gpu::virtio::VirtioGpu;
 
 pub mod virtio;
 
-pub static GPU_DEVICE: OnceLock<Mutex<Arc<VirtioGpu>>> = OnceLock::new();
+pub static GPU_DEVICE: OnceLock<Mutex<&'static mut dyn GpuDevice>> = OnceLock::new();
 
 /// GPU initialization for VirtIO device only
 /// TODO: Detect hardware and initialize
@@ -16,7 +16,8 @@ pub fn init(fdt: &FDT, mmio_idx: usize) {
     info!("Initializing MMIO GPU on: {}", mmio_idx);
     match virtio::VirtioGpu::new(fdt, mmio_idx) {
         Ok(gpu) => {
-            GPU_DEVICE.set(Mutex::new(Arc::new(gpu)));
+            let ptr = Box::into_raw(Box::new(gpu));
+            GPU_DEVICE.set(Mutex::new(unsafe { &mut *ptr }));
             info!("Created VirtIO GpuDevice")
         }
         Err(error) => {

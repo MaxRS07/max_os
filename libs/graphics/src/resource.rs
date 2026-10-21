@@ -14,3 +14,14 @@ pub enum GpuResouce {
     },
     Resource3D,
 }
+impl GpuResouce {
+    pub fn mut_buffer(&self) -> &mut [u8] {
+        match self {
+            Self::Resource2D { address, len, .. } => unsafe {
+                let ptr = *address as *mut u8;
+                &mut *core::ptr::slice_from_raw_parts_mut(ptr, *len)
+            },
+            Self::Resource3D => todo!(),
+        }
+    }
+}

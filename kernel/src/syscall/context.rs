@@ -5,12 +5,14 @@ use core::{
     time::Duration,
 };
 
-use alloc::{borrow::ToOwned, format};
+use alloc::{borrow::ToOwned, fmt::format, format};
 use fs::vfs::{self, Vfs};
+use graphics::device::GpuDevice;
 use log::error;
 use sync::mutex_guard::MutexGuard;
 
 use crate::{
+    drivers::gpu::GPU_DEVICE,
     fs::GLOBAL_FS,
     sched::{PROCESS_TABLE, process::Process, scheduler::CURRENT_PROCESS},
     syscall::error::SyscallError,
@@ -18,12 +20,10 @@ use crate::{
 
 pub type TrapFrame = [usize; 32];
 
-// Context for the syscall operations
-/// Kernel context struct
-///
-/// Using
+/// Context for syscall operations, providing lazy locked global statics owned by the kernel
 pub struct KernelContext {
     vfs: RefCell<Option<MutexGuard<'static, vfs::Vfs<'static>>>>,
+    gpu: RefCell<Option<MutexGuard<'static, &'static mut dyn GpuDevice>>>,
     trap_frame: *mut TrapFrame,
 }
 
@@ -31,6 +31,7 @@ impl KernelContext {
     pub fn new(trap_frame: *mut usize) -> Self {
         Self {
             vfs: RefCell::new(None),
+            gpu: RefCell::new(None),
             trap_frame: trap_frame as *mut TrapFrame,
         }
     }
@@ -74,6 +75,26 @@ impl KernelContext {
                         SyscallError::Busy(format!("Failed to retrieve lock on file: {err}"))
                     })?,
             )
+        }
+        Ok(RefMut::map(slot, |s| &mut **s.as_mut().unwrap()))
+    }
+    /// get an instance of the active gpu driver
+    pub fn gpu(&self) -> Result<RefMut<'_, &'static mut dyn GpuDevice>, SyscallError> {
+        let mut slot = self
+            .gpu
+            .try_borrow_mut()
+            .map_err(|_| SyscallError::Busy("GPU already borrowed in this context".to_owned()))?;
+        if slot.is_none() {
+            *slot = Some(
+                GPU_DEVICE
+                    .wait()
+                    .lock_timeout(Duration::from_secs(1))
+                    .map_err(|err| {
+                        SyscallError::Busy(format!(
+                            "Failed to retrive the global GPU driver: {err}"
+                        ))
+                    })?,
+            );
         }
         Ok(RefMut::map(slot, |s| &mut **s.as_mut().unwrap()))
     }
