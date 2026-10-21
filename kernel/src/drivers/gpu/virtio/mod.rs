@@ -78,6 +78,18 @@ pub struct VirtioGpu {
 impl VirtioGpu {
     pub fn new(fdt: &FDT, mmio_idx: usize) -> Result<Self, VirtioError> {
         let gpu_device = VirtioDevice::probe(fdt, mmio_idx, 16)?;
+
+        let mut controlq = VirtQueue::default();
+        let mut cursorq = VirtQueue::default();
+
+        gpu_device.setup_queue(&mut controlq, 0)?;
+        gpu_device.setup_queue(&mut cursorq, 1)?;
+
+        let features = gpu_device.select_features(u64::MAX)?;
+        gpu_device.finish();
+        let info = virtio_gpu.get_display_info()?;
+        let rect = info.pmodes[0].r;
+
         let mut virtio_gpu = VirtioGpu {
             device: gpu_device,
             controlq,
@@ -87,16 +99,6 @@ impl VirtioGpu {
             id_allocator: AtomicU32::new(0),
             resources: BTreeMap::new(),
         };
-
-        if let Err(error) = init_virtqueue(&mut virtio_gpu.controlq, mmio_addr, 0) {
-            error!("Failed to initialize virtqueue: {}", error);
-            return None;
-        }
-        debug!("initialized virtqueue");
-        signal_driver_ok(mmio_addr);
-        let info = virtio_gpu.get_display_info()?;
-        let rect = info.pmodes[0].r;
-
         debug!("initialized framebuffer");
         virtio_gpu.scanout(1, rect);
         if let Err(error) = virtio_gpu.flush_resources() {
@@ -104,7 +106,7 @@ impl VirtioGpu {
         }
         debug!("flushed resources");
 
-        Some(virtio_gpu)
+        Ok(virtio_gpu)
     }
 
     fn get_display_info(&mut self) -> Result<VirtioGpuDisplayInfo, VirtioError> {
@@ -115,7 +117,7 @@ impl VirtioGpu {
         let mut response = VirtioGpuDisplayInfo::default();
 
         self.controlq.push_desc_timeout(
-            self.mmio_addr,
+            self.device.mmio,
             &request,
             &mut response,
             Duration::from_secs(1),
@@ -144,7 +146,7 @@ impl VirtioGpu {
         let mut response = VirtioGpuCtrlHdr::default();
 
         self.controlq.push_desc_timeout(
-            self.mmio_addr,
+            self.device.mmio,
             &request,
             &mut response,
             Duration::from_secs(1),
@@ -196,7 +198,7 @@ impl VirtioGpu {
         let mut response = VirtioGpuCtrlHdr::default();
 
         self.controlq.push_desc_timeout(
-            self.mmio_addr,
+            self.device.mmio,
             &request,
             &mut response,
             Duration::from_secs(1),
@@ -236,17 +238,17 @@ impl VirtioGpu {
                 width,
                 height,
                 format,
-                addr: ptr,
+                addr,
                 size,
             } => {
                 // 4 bytes per pixel
-                let buf_size = (width * height * 4) as usize;
+                let buf_size = (*width * *height * 4) as usize;
                 let mut buffer = alloc::vec![0; buf_size];
-                let buf_ptr = buffer.as_mut_ptr() as usize;
-                *ptr = buf_ptr;
+                let buf_addr = buffer.as_mut_ptr() as usize;
+                *ptr = buf_addr;
                 *size = buf_size;
                 let mut entry = Box::new(VirtioGpuMemEntry {
-                    addr: buf_ptr.addr() as u64,
+                    addr: buf_addr as u64,
                     length: buf_size as u32,
                     _padding: 0,
                 });
@@ -257,7 +259,7 @@ impl VirtioGpu {
                 let address = &mut *response as *mut VirtioGpuCtrlHdr as usize;
 
                 let last = self.controlq.push_desc_raw(
-                    self.mmio_addr,
+                    self.device.mmio,
                     &[
                         DescBuf {
                             addr: req_addr as u64,
@@ -318,7 +320,7 @@ impl VirtioGpu {
         };
         let mut response = VirtioGpuCtrlHdr::default();
         self.controlq.push_desc_timeout(
-            self.mmio_addr,
+            self.device.mmio,
             &request,
             &mut response,
             Duration::from_secs(1),
@@ -345,7 +347,7 @@ impl VirtioGpu {
 
         let mut response = VirtioGpuCtrlHdr::default();
         self.controlq
-            .push_desc(self.mmio_addr, &transfer_req, &mut response);
+            .push_desc(self.device.mmio, &transfer_req, &mut response);
 
         // flush to scanout
         let flush_req = VirtioGpuResourceFlush {
@@ -363,7 +365,7 @@ impl VirtioGpu {
             _padding: 0,
         };
         self.controlq
-            .push_desc(self.mmio_addr, &flush_req, &mut response);
+            .push_desc(self.device.mmio, &flush_req, &mut response);
         Ok(())
     }
 }

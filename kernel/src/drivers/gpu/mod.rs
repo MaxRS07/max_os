@@ -14,10 +14,13 @@ pub static GPU_DEVICE: OnceLock<Mutex<Arc<VirtioGpu>>> = OnceLock::new();
 /// TODO: Detect hardware and initialize
 pub fn init(fdt: &FDT, mmio_idx: usize) {
     info!("Initializing MMIO GPU on: {}", mmio_idx);
-    if let Some(virtio_gpu) = virtio::VirtioGpu::from_mmio(fdt, mmio_idx) {
-        GPU_DEVICE.set(Mutex::new(Arc::new(virtio_gpu)));
-        info!("Created VirtIO GpuDevice")
-    } else {
-        warn!("Failed to create VirtIO GpuDevice")
+    match virtio::VirtioGpu::new(fdt, mmio_idx) {
+        Ok(gpu) => {
+            GPU_DEVICE.set(Mutex::new(Arc::new(virtio_gpu)));
+            info!("Created VirtIO GpuDevice")
+        }
+        Err(error) => {
+            warn!("Failed to create VirtIO GpuDevice: {error}")
+        }
     }
 }

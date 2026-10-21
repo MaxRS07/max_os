@@ -10,7 +10,7 @@ use crate::{
 /// Shared basic functionality for all virtio devices
 #[derive(Clone, Debug)]
 pub struct VirtioDevice {
-    mmio: usize,
+    pub mmio: usize,
 }
 
 impl VirtioDevice {

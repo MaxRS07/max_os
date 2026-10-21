@@ -34,22 +34,3 @@ fn setup_queue(
     mmio_write::<u32>(mmio_addr, 0xA4, 0);
     Ok(())
 }
-
-pub fn init_virtqueue(
-    queue: &mut VirtQueue,
-    mmio_addr: usize,
-    queue_idx: u32,
-) -> Result<(), &'static str> {
-    queue.desc = Box::new([VirtqDesc::default(); QUEUE_SIZE]);
-    queue.avail = Box::new(VirtqAvail::default());
-    queue.used = Box::new(VirtqUsed::default());
-    queue.queue_idx = queue_idx;
-    queue.last_used_idx = 0;
-
-    // select queue and set addresses
-    setup_queue(mmio_addr, queue, queue_idx)?;
-
-    mmio_write::<u32>(mmio_addr, 0x44, 1);
-
-    Ok(())
-}
