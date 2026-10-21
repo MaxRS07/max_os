@@ -13,10 +13,10 @@ use alloc::{
     format,
     vec::{self, Vec},
 };
+use fdt::tree::FDT;
 use graphics::{bgra::Brga, device::GpuDevice, error::GpuError};
 use log::{debug, error, warn};
 use mem::error::MemoryError;
-use fdt::tree::FDT;
 use virtio::{
     ALL_FEATURES,
     error::VirtioError,
@@ -27,7 +27,7 @@ use virtio::{
         VirtioGpuResourceAttachBacking, VirtioGpuResourceCreate2D, VirtioGpuResourceCreate3D,
         VirtioGpuResourceFlush, VirtioGpuResourceUnref, VirtioGpuSetScanout,
         VirtioGpuTransferToHost2d,
-        device::verify_virtio_magic,
+        device::{VirtioDevice, verify_virtio_magic},
         queue::{DescBuf, VirtQueue},
     },
 };
@@ -65,9 +65,8 @@ enum VirtioGpuResource {
     },
 }
 /// VirtIO GPU Device
-#[derive(Default)]
 pub struct VirtioGpu {
-    mmio_addr: usize,
+    device: VirtioDevice,
     width: u32,
     height: u32,
     id_allocator: AtomicU32,
@@ -77,22 +76,10 @@ pub struct VirtioGpu {
 }
 
 impl VirtioGpu {
-    pub fn from_mmio(fdt: &FDT, mmio_idx: usize) -> Option<Self> {
-        let mmio_addr = fdt.virtio_mmio[mmio_idx].base_address;
-        if let Err(error) = verify_virtio_magic(mmio_addr) {
-            warn!("{}", error);
-            return None;
-        }
-        if let Err(error) = init_state(mmio_addr, ALL_FEATURES) {
-            warn!("Failed to initialize GPU state: {}", error);
-            return None;
-        }
-
-        let controlq = VirtQueue::default();
-        let cursorq = VirtQueue::default();
-
+    pub fn new(fdt: &FDT, mmio_idx: usize) -> Result<Self, VirtioError> {
+        let gpu_device = VirtioDevice::probe(fdt, mmio_idx, 16)?;
         let mut virtio_gpu = VirtioGpu {
-            mmio_addr,
+            device: gpu_device,
             controlq,
             cursorq,
             width: 0,
@@ -107,7 +94,7 @@ impl VirtioGpu {
         }
         debug!("initialized virtqueue");
         signal_driver_ok(mmio_addr);
-        let info = virtio_gpu.get_display_info();
+        let info = virtio_gpu.get_display_info()?;
         let rect = info.pmodes[0].r;
 
         debug!("initialized framebuffer");
@@ -120,17 +107,23 @@ impl VirtioGpu {
         Some(virtio_gpu)
     }
 
-    fn get_display_info(&mut self) -> VirtioGpuDisplayInfo {
+    fn get_display_info(&mut self) -> Result<VirtioGpuDisplayInfo, VirtioError> {
         let request = VirtioGpuCtrlHdr {
             hdr_type: VIRTIO_GPU_CMD_GET_DISPLAY_INFO,
             ..Default::default()
         };
         let mut response = VirtioGpuDisplayInfo::default();
 
-        self.controlq
-            .push_desc_timeout(self.mmio_addr, &request, &mut response, Duration::from_secs(1));
-        if response.hdr.is_ok_nodata()
-        response
+        self.controlq.push_desc_timeout(
+            self.mmio_addr,
+            &request,
+            &mut response,
+            Duration::from_secs(1),
+        );
+        if !response.hdr.is_ok_nodata() {
+            return Err(VirtioError::ErrorResponse(response.hdr.hdr_type));
+        }
+        Ok(response)
     }
 
     fn register_resource(&mut self, width: u32, height: u32) -> Result<u32, VirtioError> {
@@ -294,7 +287,10 @@ impl VirtioGpu {
                 return Ok(*response);
             }
             VirtioGpuResource::ThreeD { .. } => {
-                return Err(VirtioError::NotImplemented("VirtioGPU", "3D buffer allocation"));
+                return Err(VirtioError::NotImplemented(
+                    "VirtioGPU",
+                    "3D buffer allocation",
+                ));
             }
         }
     }

@@ -3,6 +3,23 @@ use core::default;
 pub mod device;
 pub mod queue;
 
+/* success responses */
+pub const VIRTIO_GPU_RESP_OK_NODATA: u32 = 0x1100;
+pub const VIRTIO_GPU_RESP_OK_DISPLAY_INFO: u32 = 0x1101;
+pub const VIRTIO_GPU_RESP_OK_CAPSET_INFO: u32 = 0x1102;
+pub const VIRTIO_GPU_RESP_OK_CAPSET: u32 = 0x1103;
+pub const VIRTIO_GPU_RESP_OK_EDID: u32 = 0x1104;
+pub const VIRTIO_GPU_RESP_OK_RESOURCE_UUID: u32 = 0x1105;
+pub const VIRTIO_GPU_RESP_OK_MAP_INFO: u32 = 0x1106;
+
+/* error responses */
+pub const VIRTIO_GPU_RESP_ERR_UNSPEC: u32 = 0x1200;
+pub const VIRTIO_GPU_RESP_ERR_OUT_OF_MEMORY: u32 = 0x1201;
+pub const VIRTIO_GPU_RESP_ERR_INVALID_SCANOUT_ID: u32 = 0x1202;
+pub const VIRTIO_GPU_RESP_ERR_INVALID_RESOURCE_ID: u32 = 0x1203;
+pub const VIRTIO_GPU_RESP_ERR_INVALID_CONTEXT_ID: u32 = 0x1204;
+pub const VIRTIO_GPU_RESP_ERR_INVALID_PARAMETER: u32 = 0x1205;
+
 #[repr(C)]
 #[derive(Default, Clone, Copy, Debug)]
 pub struct VirtioGpuCtrlHdr {

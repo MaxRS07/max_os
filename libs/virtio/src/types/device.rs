@@ -2,19 +2,19 @@ use alloc::boxed::Box;
 use fdt::tree::FDT;
 use mmio::{mmio_read, mmio_write};
 
-use crate::{error::VirtioError, types::queue::{VirtQueue, VirtqAvail, VirtqDesc, VirtqUsed}, *};
-
-pub fn verify_virtio_magic(self.mmio: usize) -> Result<(), VirtioError> {
-    
-    Ok(())
-}
+use crate::{
+    error::VirtioError,
+    types::queue::{VirtQueue, VirtqAvail, VirtqDesc, VirtqUsed},
+    *,
+};
 /// Shared basic functionality for all virtio devices
+#[derive(Clone, Debug)]
 pub struct VirtioDevice {
     mmio: usize,
 }
 
 impl VirtioDevice {
-    /// Creates a device by probing MMIO port `idx`. 
+    /// Creates a device by probing MMIO port `idx`.
     /// Returns [`Ok`] containing an instance of self if the device is located on the given port and it's id matches `device_id`.
     pub fn probe(fdt: &FDT, idx: usize, device_id: u32) -> Result<Self, VirtioError> {
         let mmio = fdt.virtio_mmio[idx].base_address;
@@ -36,7 +36,11 @@ impl VirtioDevice {
         // write status 1 = OS acknowledgement
         mmio_write::<u32>(self.mmio, VIRTIO_MMIO_STATUS, VIRTIO_STATUS_ACKNOWLEDGE);
         // write status driver ready + OS acknowledge
-        mmio_write::<u32>(self.mmio, VIRTIO_MMIO_STATUS, VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_ACKNOWLEDGE);
+        mmio_write::<u32>(
+            self.mmio,
+            VIRTIO_MMIO_STATUS,
+            VIRTIO_STATUS_DRIVER | VIRTIO_STATUS_ACKNOWLEDGE,
+        );
 
         // Read device features
         // select + read lower 32 bits
@@ -84,7 +88,7 @@ impl VirtioDevice {
         queue.last_used_idx = 0;
 
         // set the selected queue to idx, the following register access will apply to idx
-        mmio_write::<u32>(self.mmio, VIRTIO_MMIO_QUEUE_SEL, idx); 
+        mmio_write::<u32>(self.mmio, VIRTIO_MMIO_QUEUE_SEL, idx);
 
         // read max number of queues
         let max = mmio_read::<u32>(self.mmio, VIRTIO_MMIO_QUEUE_MAX); // QueueNumMax
@@ -121,15 +125,17 @@ impl VirtioDevice {
     }
     /// Returns configuration information about this device
     pub fn read_config<T>(&self) -> T {
-
+        mmio::mmio_read(self.mmio, VIRTIO_MMIO_CONFIG)
     }
     /// Sets the driver status to DRIVER_OK, enabling regular device operation.
     pub fn finish(self) {
-        mmio_write::<u32>(mmio_addr, VIRTIO_MMIO_STATUS, 
-            VIRTIO_STATUS_ACKNOWLEDGE | 
-            VIRTIO_STATUS_DRIVER |
-            VIRTIO_STATUS_FEATURES_OK | 
-            VIRITO_STATUS_DRIVER_OK
+        mmio_write::<u32>(
+            self.mmio,
+            VIRTIO_MMIO_STATUS,
+            VIRTIO_STATUS_ACKNOWLEDGE
+                | VIRTIO_STATUS_DRIVER
+                | VIRTIO_STATUS_FEATURES_OK
+                | VIRITO_STATUS_DRIVER_OK,
         );
     }
 }
