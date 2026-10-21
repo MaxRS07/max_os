@@ -11,10 +11,9 @@ use log::{error, warn};
 use mmio::mmio_read;
 use virtio::{
     ALL_FEATURES,
-    init::{init_state, signal_driver_ok},
-    queue::init_virtqueue,
+    error::VirtioError,
     types::{
-        device::verify_virtio_magic,
+        device::VirtioDevice,
         queue::{DescBuf, VirtQueue},
     },
 };
@@ -54,41 +53,30 @@ pub const VIRTIO_BLK_F_WRITE_ZEROES: u64 = 1 << 14;
 pub const VIRTIO_BLK_F_SCSI: u64 = 1 << 7;
 
 pub struct VirtioBlock {
-    mmio_addr: usize,
+    device: VirtioDevice,
     /// queues for operation requests, not necissarily in order according the the spec
     requestq: VirtQueue,
     pub cfg: VirtioBlkConfig,
 }
 
 impl VirtioBlock {
-    pub fn from_mmio(fdt: &FDT, mmio_idx: usize) -> Option<Self> {
-        let mmio_addr = fdt.virtio_mmio[mmio_idx].base_address;
-        if let Err(error) = verify_virtio_magic(mmio_addr) {
-            warn!("{}", error);
-            return None;
-        }
-        // select all features before reading config. Use all features except RO
-        if let Err(error) = init_state(mmio_addr, ALL_FEATURES & !VIRTIO_BLK_F_RO) {
-            warn!("{}", error);
-            return None;
-        }
+    pub fn new(fdt: &FDT, mmio_idx: usize) -> Result<Self, VirtioError> {
+        let mut device = VirtioDevice::probe(fdt, mmio_idx, 0)?;
 
-        let mut requestq = VirtQueue::default();
-        let cfg: VirtioBlkConfig = mmio::mmio_read(mmio_addr, VIRTIO_BLK_CFG_OFFSET);
+        let _ = device.select_features(ALL_FEATURES & !VIRTIO_BLK_F_RO);
 
-        if let Err(error) = init_virtqueue(&mut requestq, mmio_addr, 0) {
-            error!("Failed to initialize block request queue: {}", error);
-            return None;
-        }
-        signal_driver_ok(mmio_addr);
+        let requestq = device.setup_queue(0)?;
+        let cfg: VirtioBlkConfig = device.read_config();
+
+        device.finish();
 
         let blk = VirtioBlock {
-            mmio_addr,
+            device,
             requestq,
             cfg,
         };
 
-        Some(blk)
+        Ok(blk)
     }
     pub fn blk_read(&mut self, sector: u64, len: u32) -> Result<Vec<u8>, BlockError> {
         let hdr = VirtioBlkOutHeader {
@@ -117,7 +105,7 @@ impl VirtioBlock {
             },
         ];
 
-        let last = self.requestq.push_desc_raw(self.mmio_addr, &bufs, 0);
+        let last = self.requestq.push_desc_raw(self.device.mmio, &bufs, 0);
         self.requestq.wait_used(last);
 
         match status {
@@ -155,7 +143,7 @@ impl VirtioBlock {
             },
         ];
 
-        let last = self.requestq.push_desc_raw(self.mmio_addr, &bufs, 0);
+        let last = self.requestq.push_desc_raw(self.device.mmio, &bufs, 0);
         self.requestq.wait_used(last);
 
         // len covers all writable descriptors in the chain (data buffer + 1-byte status)
@@ -229,7 +217,7 @@ impl VirtioBlock {
             },
         ];
 
-        let last = self.requestq.push_desc_raw(self.mmio_addr, &bufs, 0);
+        let last = self.requestq.push_desc_raw(self.device.mmio, &bufs, 0);
         self.requestq.wait_used(last);
 
         match status {

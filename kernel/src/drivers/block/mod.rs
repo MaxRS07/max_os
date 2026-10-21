@@ -13,13 +13,14 @@ pub mod virtio;
 pub static BLOCK_DEVICE: OnceLock<&'static mut dyn BlockDevice> = OnceLock::new();
 
 pub fn init(fdt: &FDT, mmio_idx: usize) {
-    if let Some(blk_drv) = VirtioBlock::from_mmio(fdt, mmio_idx) {
-        let boxed = Box::new(blk_drv);
-        let raw_box = Box::into_raw(boxed);
-        unsafe {
-            BLOCK_DEVICE.set(&mut *raw_box);
+    match VirtioBlock::new(fdt, mmio_idx) {
+        Ok(blk_drv) => {
+            let boxed = Box::new(blk_drv);
+            let raw_box = Box::into_raw(boxed);
+            unsafe {
+                BLOCK_DEVICE.set(&mut *raw_box);
+            }
         }
-    } else {
-        warn!("Failed to intialize VirtIO BLK")
+        Err(error) => warn!("Failed to intialize VirtIO BLK: {error}"),
     }
 }

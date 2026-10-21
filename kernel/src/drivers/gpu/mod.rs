@@ -16,7 +16,7 @@ pub fn init(fdt: &FDT, mmio_idx: usize) {
     info!("Initializing MMIO GPU on: {}", mmio_idx);
     match virtio::VirtioGpu::new(fdt, mmio_idx) {
         Ok(gpu) => {
-            GPU_DEVICE.set(Mutex::new(Arc::new(virtio_gpu)));
+            GPU_DEVICE.set(Mutex::new(Arc::new(gpu)));
             info!("Created VirtIO GpuDevice")
         }
         Err(error) => {

@@ -11,7 +11,13 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct VirtioDevice {
     pub mmio: usize,
+    pub features: u64,
 }
+
+const QUEUE_DESC_HIGH: u32 = 0x84;
+const QUEUE_DRIVER_HIGH: u32 = 0x94;
+const QUEUE_DEVICE_HIGH: u32 = 0xA4;
+const QUEUE_READY: u32 = 0x44;
 
 impl VirtioDevice {
     /// Creates a device by probing MMIO port `idx`.
@@ -26,10 +32,10 @@ impl VirtioDevice {
         if magic != VIRTIO_MMIO_MAGIC_VALUE {
             return Err(VirtioError::BadMagic(magic));
         }
-        Ok(Self { mmio })
+        Ok(Self { mmio, features: 0 })
     }
     /// Negotiates `features` with the device. Returns [`Ok`] containing the agreed feature bits from the device.
-    pub fn select_features(&self, features: u64) -> Result<u64, VirtioError> {
+    pub fn select_features(&mut self, features: u64) -> Result<u64, VirtioError> {
         // Reset status, causing a hardware reset
         mmio_write::<u32>(self.mmio, VIRTIO_MMIO_STATUS, 0); // Status = 0
 
@@ -76,11 +82,13 @@ impl VirtioDevice {
         if status & VIRTIO_STATUS_FEATURES_OK == 0 {
             return Err(VirtioError::FeaturesRejected);
         }
+        self.features = selected_features;
         Ok(selected_features)
     }
     /// Intitializes and allocates a virtqueue with the given idx on this device
-    pub fn setup_queue(&self, queue: &mut VirtQueue, idx: u32) -> Result<(), VirtioError> {
+    pub fn setup_queue(&self, idx: u32) -> Result<VirtQueue, VirtioError> {
         // heap allocate queues
+        let mut queue = VirtQueue::default();
         queue.desc = Box::new([VirtqDesc::default(); QUEUE_SIZE]);
         queue.avail = Box::new(VirtqAvail::default());
         queue.used = Box::new(VirtqUsed::default());
@@ -102,40 +110,40 @@ impl VirtioDevice {
         // set the descriptor table physical address
         let desc_addr = &mut *queue.desc as *mut VirtqDesc as u32;
         mmio_write::<u32>(self.mmio, VIRTIO_MMIO_QUEUE_DESC, desc_addr);
-        const QUEUE_DESC_HIGH: u32 = 0x84;
+
         mmio_write::<u32>(self.mmio, QUEUE_DESC_HIGH, 0);
 
         // set the avail queue address
         let avail_addr = &mut *queue.avail as *mut VirtqAvail as u32;
         mmio_write::<u32>(self.mmio, VIRTIO_MMIO_QUEUE_DRIVER, avail_addr);
-        const QUEUE_DRIVER_HIGH: u32 = 0x94;
+
         mmio_write::<u32>(self.mmio, QUEUE_DRIVER_HIGH, 0);
 
         // set used address
         let used_addr = &mut *queue.used as *mut VirtqUsed as u32;
         mmio_write::<u32>(self.mmio, VIRTIO_MMIO_QUEUE_DEVICE, used_addr);
-        const QUEUE_DEVICE_HIGH: u32 = 0xA4;
+
         mmio_write::<u32>(self.mmio, QUEUE_DEVICE_HIGH, 0);
 
         // set queue ready to true
-        const QUEUE_READY: u32 = 0x44;
+
         mmio_write::<u32>(self.mmio, QUEUE_READY, 1);
 
-        Ok(())
+        Ok(queue)
     }
     /// Returns configuration information about this device
     pub fn read_config<T>(&self) -> T {
         mmio::mmio_read(self.mmio, VIRTIO_MMIO_CONFIG)
     }
     /// Sets the driver status to DRIVER_OK, enabling regular device operation.
-    pub fn finish(self) {
+    pub fn finish(&self) {
         mmio_write::<u32>(
             self.mmio,
             VIRTIO_MMIO_STATUS,
             VIRTIO_STATUS_ACKNOWLEDGE
                 | VIRTIO_STATUS_DRIVER
                 | VIRTIO_STATUS_FEATURES_OK
-                | VIRITO_STATUS_DRIVER_OK,
+                | VIRTIO_STATUS_DRIVER_OK,
         );
     }
 }

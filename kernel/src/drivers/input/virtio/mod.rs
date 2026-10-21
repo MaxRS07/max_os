@@ -2,19 +2,18 @@ use core::{mem, ptr::addr_of};
 
 use alloc::boxed::Box;
 use alloc::vec::Vec;
+use fdt::tree::FDT;
 use input::{
     device::DeviceType,
     event_codes::{ABS_X, ABS_Y, KEY_A, REL_X, REL_Y},
 };
 use log::{debug, error, info, warn};
 use mmio::{mmio_read, mmio_write};
-use fdt::tree::FDT;
 use virtio::{
     ALL_FEATURES, QUEUE_SIZE,
-    init::{init_state, signal_driver_ok},
-    queue::init_virtqueue,
+    error::VirtioError,
     types::{
-        device::verify_virtio_magic,
+        device::VirtioDevice,
         queue::{DescBuf, VirtQueue},
     },
 };
@@ -40,8 +39,8 @@ static INPUT_DEVICES: OnceLock<Mutex<Vec<VirtioInput>>> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 pub struct VirtioInput {
+    device: VirtioDevice,
     device_type: DeviceType,
-    mmio_addr: usize,
     status_queue: VirtQueue,
     event_queue: VirtQueue,
     /// actual events in memory
@@ -49,49 +48,28 @@ pub struct VirtioInput {
 }
 
 impl VirtioInput {
-    pub fn from_mmio(fdt: &FDT, mmio_idx: usize) -> Option<DeviceType> {
+    pub fn new(fdt: &FDT, mmio_idx: usize) -> Result<DeviceType, VirtioError> {
         let mutex_devices = INPUT_DEVICES.get_or_set(Mutex::new(Vec::new()));
-        let mmio_addr = fdt.virtio_mmio[mmio_idx].base_address;
-        if verify_virtio_magic(mmio_addr).is_err() {
-            return None;
-        }
-        let version = mmio_read::<u32>(mmio_addr, 0x04);
-        if version != 2 {
-            return None;
-        }
-        info!("VirtIO input device detected");
+        let mut device = VirtioDevice::probe(fdt, mmio_idx, 2)?;
+
+        let _ = device.select_features(ALL_FEATURES)?;
 
         let empty_buffer = [VirtioInputEvent::default(); QUEUE_SIZE];
+
+        let event_queue = device.setup_queue(VIRTIO_INPUT_QUEUE_EVENT)?;
+        let status_queue = device.setup_queue(VIRTIO_INPUT_QUEUE_STATUS)?;
+
+        device.finish();
+
         let mut input = VirtioInput {
-            mmio_addr,
+            device,
             device_type: DeviceType::NONE,
-            status_queue: VirtQueue::default(),
-            event_queue: VirtQueue::default(),
+            status_queue,
+            event_queue,
             event_buffer: Box::new(empty_buffer),
         };
-        if let Err(error) = init_state(mmio_addr, ALL_FEATURES) {
-            error!("{}", error);
-            return None;
-        }
         input.set_device_type();
-
-        // Setup event queue
-        if let Err(error) =
-            init_virtqueue(&mut input.event_queue, mmio_addr, VIRTIO_INPUT_QUEUE_EVENT)
-        {
-            error!("Failed to initialize event queue: {}", error)
-        }
         input.populate_event_queue();
-
-        // Setup status queue
-        if let Err(error) = init_virtqueue(
-            &mut input.status_queue,
-            mmio_addr,
-            VIRTIO_INPUT_QUEUE_STATUS,
-        ) {
-            error!("Failed to initialize status queue: {}", error)
-        }
-        signal_driver_ok(mmio_addr);
 
         let device_type = input.device_type;
 
@@ -117,11 +95,11 @@ impl VirtioInput {
             }
         });
 
-        Some(device_type)
+        Ok(device_type)
     }
 
     pub fn handle_interrupt(&mut self) {
-        let status = mmio_read::<u32>(self.mmio_addr, 0x60);
+        let status = mmio_read::<u32>(self.device.mmio, 0x60);
 
         if status == 0 {
             return;
@@ -140,23 +118,23 @@ impl VirtioInput {
         }
 
         // write back to acknowledge interrupt recived
-        mmio_write(self.mmio_addr, 0x64, status);
+        mmio_write(self.device.mmio, 0x64, status);
     }
     pub fn device_type(&self) -> DeviceType {
         self.device_type
     }
     fn get_input_config(&self, select: u8, subsel: u8) -> VirtioInputConfig {
         // reset first for change detection
-        mmio_write::<u8>(self.mmio_addr, CONFIG_BASE, 0);
-        mmio_write::<u8>(self.mmio_addr, CONFIG_BASE + 1, 0);
+        mmio_write::<u8>(self.device.mmio, CONFIG_BASE, 0);
+        mmio_write::<u8>(self.device.mmio, CONFIG_BASE + 1, 0);
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
         // write correct select values
-        mmio_write::<u8>(self.mmio_addr, CONFIG_BASE, select);
-        mmio_write::<u8>(self.mmio_addr, CONFIG_BASE + 1, subsel);
+        mmio_write::<u8>(self.device.mmio, CONFIG_BASE, select);
+        mmio_write::<u8>(self.device.mmio, CONFIG_BASE + 1, subsel);
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 
-        let cfg_ptr = (self.mmio_addr + CONFIG_BASE as usize) as *const VirtioInputConfig;
+        let cfg_ptr = (self.device.mmio + CONFIG_BASE as usize) as *const VirtioInputConfig;
         unsafe { cfg_ptr.read_unaligned() }
     }
     /// sets the device for supported event types
@@ -200,7 +178,7 @@ impl VirtioInput {
             // complete once a real input event arrives, which may never
             // happen, so we must not wait on the used ring here.
             self.event_queue
-                .push_desc_raw(self.mmio_addr, &buf, i as u16);
+                .push_desc_raw(self.device.mmio, &buf, i as u16);
         }
     }
     /// returns a Vec of all input events and resets the buffer
@@ -215,7 +193,7 @@ impl VirtioInput {
             self.event_queue.avail_push(desc_idx);
         }
         if !events.is_empty() {
-            self.event_queue.notify(self.mmio_addr);
+            self.event_queue.notify(self.device.mmio);
         }
         events
     }

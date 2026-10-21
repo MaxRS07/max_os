@@ -1,6 +1,6 @@
-use input::device::KeyboardDevice;
-use log::info;
 use fdt::tree::FDT;
+use input::device::KeyboardDevice;
+use log::{error, info};
 use sync::shared_cell::SharedCell;
 
 use crate::drivers::input::keyboard::GlobalKeyboard;
@@ -16,7 +16,8 @@ pub static KEYBOARD: SharedCell<GlobalKeyboard> = SharedCell::new(GlobalKeyboard
 // pub static MOUSE: SharedCell<dyn KeyboardDevice>;
 
 pub fn init(fdt: &FDT, mmio_idx: usize) {
-    if let Some(device_type) = virtio::VirtioInput::from_mmio(fdt, mmio_idx) {
-        info!("Initialized VirtIO {:?} device", device_type);
+    match virtio::VirtioInput::new(fdt, mmio_idx) {
+        Ok(device_type) => info!("Initialized VirtIO {:?} device", device_type),
+        Err(error) => error!("Failed to initialize input driver: {error}"),
     }
 }

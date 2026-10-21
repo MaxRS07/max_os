@@ -1,6 +1,6 @@
 use core::u32;
 
-use crate::error::GpuError;
+use crate::{error::GpuError, resource::GpuResouce};
 
 /// Common api-facing gpu device
 pub trait GpuDevice {
@@ -10,7 +10,7 @@ pub trait GpuDevice {
     /// Destroys the resource with the given `resource_id` and deallocates the backing.
     /// Returns [`Ok`] containing the size of the freed backing in bytes
     fn destroy_resource(&mut self, resource_id: u32) -> Result<usize, GpuError>;
-    fn get_resource(&mut self, resource_id: u32) -> ();
+    fn get_resource(&self, resource_id: u32) -> Option<GpuResouce>;
 
     /*  */
     fn dimensions(&self) -> (u32, u32);

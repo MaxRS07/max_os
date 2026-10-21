@@ -1,14 +1,13 @@
 use core::{arch::naked_asm, ops::DerefMut, sync::atomic::Ordering};
 
-use log::{debug, error, info, warn};
-use tree::fdt::{self, FDT, GLOBAL_FDT};
+use fdt::tree::{self, FDT, GLOBAL_FDT};
 
 use crate::{
     arch::riscv::{
-        csr::Csr::{MIE, MSTATUS, MTVEC, SEPC, SIE, SIP, SSTATUS, STVAL, STVEC},
+        csr::Csr::{SEPC, SIE, SIP, SSTATUS, STVAL, STVEC},
         interrupt::{
             notifier::{INTERRUPT_NOTIFIER, InterruptNotifier},
-            route::{ExceptionCode, InterruptCode, Trap, parse_cause, parse_scause},
+            route::{ExceptionCode, InterruptCode, Trap, parse_scause},
         },
     },
     sched::{SCHEDULER, context::switch_context_impl},

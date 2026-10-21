@@ -1,4 +1,11 @@
 #[derive(Clone, Copy, Default, Debug)]
+pub enum ColorFormat {
+    #[default]
+    Rgba,
+    Bgra,
+    Gbra,
+}
+#[derive(Clone, Copy, Default, Debug)]
 pub struct Color {
     pub r: u8,
     pub g: u8,
