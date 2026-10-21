@@ -7,7 +7,7 @@ use core::{
 
 use alloc::{borrow::ToOwned, fmt::format, format};
 use fs::vfs::{self, Vfs};
-use graphics::device::GpuDevice;
+use graphics::display_driver::DisplayDriver;
 use log::error;
 use sync::mutex_guard::MutexGuard;
 
@@ -23,7 +23,7 @@ pub type TrapFrame = [usize; 32];
 /// Context for syscall operations, providing lazy locked global statics owned by the kernel
 pub struct KernelContext {
     vfs: RefCell<Option<MutexGuard<'static, vfs::Vfs<'static>>>>,
-    gpu: RefCell<Option<MutexGuard<'static, &'static mut dyn GpuDevice>>>,
+    gpu: RefCell<Option<MutexGuard<'static, &'static mut dyn DisplayDriver>>>,
     trap_frame: *mut TrapFrame,
 }
 
@@ -79,7 +79,7 @@ impl KernelContext {
         Ok(RefMut::map(slot, |s| &mut **s.as_mut().unwrap()))
     }
     /// get an instance of the active gpu driver
-    pub fn gpu(&self) -> Result<RefMut<'_, &'static mut dyn GpuDevice>, SyscallError> {
+    pub fn gpu(&self) -> Result<RefMut<'_, &'static mut dyn DisplayDriver>, SyscallError> {
         let mut slot = self
             .gpu
             .try_borrow_mut()

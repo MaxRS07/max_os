@@ -68,7 +68,7 @@ impl SysOp for GfxOp {
             GfxOp::DestroyResource => {
                 let (resource_id, ..) = args;
                 let mut gpu = ktx.gpu()?;
-                let bytes = gpu.destroy_resource(resource_id).map_err(|err| {
+                let bytes = gpu.destroy_resource(resource_id as u32).map_err(|err| {
                     SyscallError::Failed(format!("Failed to destroy GPU resource: {err}"))
                 })?;
                 write_return!(ktx, bytes);
@@ -79,11 +79,11 @@ impl SysOp for GfxOp {
                 let gpu = ktx.gpu()?;
                 let buffer_ptr = buffer_addr as *mut u8;
                 let buffer = unsafe { &*core::ptr::slice_from_raw_parts(buffer_ptr, buffer_len) };
-                let resource =
-                    gpu.get_resource(resource_id)
-                        .ok_or(SyscallError::Failed(format!(
-                            "Failed to write to resource {resource_id}, not found"
-                        )))?;
+                let resource = gpu
+                    .get_resource(resource_id as u32)
+                    .ok_or(SyscallError::Failed(format!(
+                        "Failed to write to resource {resource_id}, not found"
+                    )))?;
                 resource.mut_buffer().copy_from_slice(buffer);
                 Ok(())
             }

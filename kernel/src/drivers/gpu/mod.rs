@@ -1,6 +1,6 @@
 use alloc::{boxed::Box, sync::Arc};
 use fdt::tree::FDT;
-use graphics::device::GpuDevice;
+use graphics::display_driver::DisplayDriver;
 use log::{info, warn};
 use sync::{mutex::Mutex, oncelock::OnceLock};
 
@@ -8,7 +8,7 @@ use crate::drivers::gpu::virtio::VirtioGpu;
 
 pub mod virtio;
 
-pub static GPU_DEVICE: OnceLock<Mutex<&'static mut dyn GpuDevice>> = OnceLock::new();
+pub static GPU_DEVICE: OnceLock<Mutex<&'static mut dyn DisplayDriver>> = OnceLock::new();
 
 /// GPU initialization for VirtIO device only
 /// TODO: Detect hardware and initialize

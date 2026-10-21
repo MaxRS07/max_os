@@ -15,7 +15,7 @@ use alloc::{
 use fdt::tree::FDT;
 use graphics::{
     color::{Color, ColorFormat},
-    device::GpuDevice,
+    display_driver::DisplayDriver,
     error::GpuError,
     resource::GpuResouce,
 };
@@ -379,10 +379,10 @@ impl VirtioGpu {
     }
 }
 
-impl GpuDevice for VirtioGpu {
+impl DisplayDriver for VirtioGpu {
     /// Creates a resource for the GPU allocating the backing in memory, returns [`Ok`] containing the resourece ID on success
-    fn create_resource(&mut self, width: u32, height: u32) -> Result<u32, GpuError> {
-        self.register_resource(width, height)
+    fn create_resource(&mut self, width: usize, height: usize) -> Result<u32, GpuError> {
+        self.register_resource(width as u32, height as u32)
             .map_err(|_| GpuError::ResourceCreateFailed)
     }
     fn destroy_resource(&mut self, resource_id: u32) -> Result<usize, GpuError> {
@@ -411,8 +411,8 @@ impl GpuDevice for VirtioGpu {
             })
     }
 
-    fn dimensions(&self) -> (u32, u32) {
-        (self.width, self.height)
+    fn dimensions(&self) -> (usize, usize) {
+        (self.width as usize, self.height as usize)
     }
 
     fn flush(&mut self) -> Result<(), GpuError> {
