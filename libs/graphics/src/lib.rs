@@ -1,7 +1,8 @@
 #![no_std]
-
-pub mod color;
-pub mod display_driver;
+#[cfg(test)]
+pub extern crate alloc;
+pub mod compositor;
+pub mod device;
 pub mod error;
-pub mod resource;
+pub mod primitives;
 pub mod text;
