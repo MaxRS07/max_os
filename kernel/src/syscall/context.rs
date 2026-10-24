@@ -7,7 +7,7 @@ use core::{
 
 use alloc::{borrow::ToOwned, fmt::format, format};
 use fs::vfs::{self, Vfs};
-use graphics::display_driver::DisplayDriver;
+use graphics::device::driver::DisplayDriver;
 use log::error;
 use sync::mutex_guard::MutexGuard;
 
@@ -79,7 +79,9 @@ impl KernelContext {
         Ok(RefMut::map(slot, |s| &mut **s.as_mut().unwrap()))
     }
     /// get an instance of the active gpu driver
-    pub fn gpu(&self) -> Result<RefMut<'_, &'static mut dyn DisplayDriver>, SyscallError> {
+    pub fn display_driver(
+        &self,
+    ) -> Result<RefMut<'_, &'static mut dyn DisplayDriver>, SyscallError> {
         let mut slot = self
             .gpu
             .try_borrow_mut()

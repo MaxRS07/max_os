@@ -1,6 +1,6 @@
 use alloc::{boxed::Box, sync::Arc};
 use fdt::tree::FDT;
-use graphics::display_driver::DisplayDriver;
+use graphics::device::driver::DisplayDriver;
 use log::{info, warn};
 use sync::{mutex::Mutex, oncelock::OnceLock};
 

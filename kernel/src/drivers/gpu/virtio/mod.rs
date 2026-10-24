@@ -16,10 +16,7 @@ use alloc::{
 };
 use fdt::tree::FDT;
 use graphics::{
-    color::{Color, ColorFormat},
-    display_driver::DisplayDriver,
-    error::DisplayError,
-    surface::Surface,
+    device::driver::DisplayDriver, error::DisplayError, primitives::color::ColorFormat,
 };
 use log::{debug, error, warn};
 use mem::error::MemoryError;
@@ -196,11 +193,11 @@ impl VirtioGpu {
                 )))?;
         Ok(next + 1)
     }
-    pub fn create_cursor_resource(&mut self) -> Result<u32, VirtioError> {
-        let cursor_id = self.create_resource2d(64, 64)?;
-        self.attach_backing(cursor_id)?;
-        Ok(cursor_id)
-    }
+    // pub fn create_cursor_resource(&mut self) -> Result<u32, VirtioError> {
+    //     let cursor_id = self.create_resource2d(64, 64, ColorFormat::Rgba, )?;
+    //     self.attach_backing(cursor_id)?;
+    //     Ok(cursor_id)
+    // }
     /// Removes a resource from this gpu, deallocating the attached backing. Returns [`Ok`] on success conraining the size of the freed backing in bytes.
     fn destroy_resource(&mut self, resource_id: u32) -> Result<usize, VirtioError> {
         let mut request = VirtioGpuResourceUnref::default();
@@ -228,13 +225,12 @@ impl VirtioGpu {
             resource_id,
             nr_entries: 1,
         });
-        let resource = self.resources[resource_id as usize - 1]
-            .ok_or(VirtioError::DeviceError(String::new()))?;
-        
-        if resource.height
+        // let resource = self.resources[resource_id as usize - 1]
+        //     .ok_or(VirtioError::DeviceError(String::new()))?;
+
         let mut entry = Box::new(VirtioGpuMemEntry {
-            addr: buf_addr as u64,
-            length: buf_size as u32,
+            addr: 0 as u64,
+            length: 0 as u32,
             _padding: 0,
         });
         let mut response = Box::new(VirtioGpuCtrlHdr::default());
@@ -278,16 +274,16 @@ impl VirtioGpu {
         &mut self,
         resource_id: u32,
     ) -> Result<&mut VirtioGpuResource, VirtioError> {
-        self.resources
-            .get_mut(&resource_id)
+        self.resources[resource_id as usize]
+            .as_mut()
             .ok_or(VirtioError::DeviceError(format!(
                 "Invalid resource id: {resource_id}"
             )))
     }
 
     fn get_resource(&self, resource_id: u32) -> Result<&VirtioGpuResource, VirtioError> {
-        self.resources
-            .get(&resource_id)
+        self.resources[resource_id as usize]
+            .as_ref()
             .ok_or(VirtioError::DeviceError(format!(
                 "Invalid resource id: {resource_id}"
             )))
@@ -356,40 +352,49 @@ impl VirtioGpu {
 }
 
 impl DisplayDriver for VirtioGpu {
-    /// Creates a resource for the GPU allocating the backing in memory, returns [`Ok`] containing the resourece ID on success
-    fn create_surface(&mut self, width: usize, height: usize) -> Result<u32, DisplayError> {
-        self.register_resource(width as u32, height as u32)
-            .map_err(|_| DisplayError::ResourceCreateFailed)
-    }
-    fn destroy_surface(&mut self, resource_id: u32) -> Result<usize, DisplayError> {
-        self.destroy_resource(resource_id)
-            .map_err(|_| DisplayError::ResourceDestroyFailed)
-    }
-    /// query resources by resource id
-    fn get_surface_info(&self, resource_id: u32) -> Option<GpuResouce> {
-        self.resources
-            .get(&resource_id)
-            .map(|virtio_resource| match virtio_resource {
-                VirtioGpuResource::TwoD {
-                    width,
-                    height,
-                    format,
-                    addr,
-                    size,
-                } => Surface::new(resource_id, size, 0, width, height, format),
-                VirtioGpuResource::ThreeD { .. } => todo!(),
-            })
+    fn info(&self) -> graphics::device::display::DisplayInfo {
+        todo!()
     }
 
-    fn dimensions(&self) -> (usize, usize) {
-        (self.width as usize, self.height as usize)
+    fn requirements(&self) -> graphics::device::backing::BackingMode {
+        todo!()
     }
 
-    fn flush(&mut self) -> Result<(), DisplayError> {
-        self.flush_resources()
+    fn create_resource(
+        &mut self,
+        desc: &graphics::device::resource::ResourceDesc,
+        backing: &graphics::device::backing::Backing,
+    ) -> Result<graphics::device::resource::ResourceHandle, DisplayError> {
+        todo!()
     }
 
-    fn flip(&mut self) -> Result<(), DisplayError> {
+    fn destroy_resource(
+        &mut self,
+        h: graphics::device::resource::ResourceHandle,
+    ) -> Result<(), DisplayError> {
+        todo!()
+    }
+
+    fn scanout(
+        &mut self,
+        h: graphics::device::resource::ResourceHandle,
+    ) -> Result<(), DisplayError> {
+        todo!()
+    }
+
+    fn flush(
+        &mut self,
+        h: graphics::device::resource::ResourceHandle,
+        rect: Option<graphics::primitives::rect::ScreenRect>,
+    ) -> Result<(), DisplayError> {
+        todo!()
+    }
+
+    fn wait(&mut self) -> Result<(), DisplayError> {
+        todo!()
+    }
+
+    fn set_cursor(&mut self, x: u32, y: u32) -> Result<(), DisplayError> {
         todo!()
     }
 }
