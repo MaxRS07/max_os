@@ -51,7 +51,8 @@ pub struct Process {
     /// address space that this process operates in
     address_space: AddressSpace,
     /// list of thread IDs owned by this process
-    threads: BTreeSet<u32>,
+    threads: Vec<Option<u32>>,
+    next_tid: Vec<u32>,
     fds: Vec<Option<FileObject>>,
 }
 
@@ -62,9 +63,11 @@ impl Process {
             pid,
             address_space,
             threads,
+            next_tid: AtomicU32::new(0),
             fds: Vec::new(),
         }))
     }
+    /// returns the next
     /// Creates the kernel process and adds it to the
     pub fn kernel(main_tid: u32, address_space: AddressSpace) -> Result<u32, ThreadError> {
         let mut thread_set = BTreeSet::new();

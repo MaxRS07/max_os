@@ -77,6 +77,13 @@ impl Default for State {
         Self::Waiting
     }
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ThreadId {
+    pid: u32,
+    tid: u32,
+}
+
 const THREAD_STACK_SIZE: usize = 0x3000;
 
 #[derive(Debug, Clone, Default)]
@@ -117,7 +124,6 @@ pub struct Thread {
     pub prev: *mut Thread,
 }
 /// Records the last used thread id. IDs are assigned incrementally, every id this value or greater is unused
-static TID_ALLOCATOR: AtomicU32 = AtomicU32::new(1);
 
 impl Thread {
     /// Returns a preconfigured main thread. Does not have an entry point. Does not allocate stack or tls in memory.
