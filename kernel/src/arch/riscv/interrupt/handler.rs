@@ -2,6 +2,7 @@ use core::{arch::naked_asm, ops::DerefMut, sync::atomic::Ordering};
 
 use ::time::global_time::GlobalTimer;
 use log::{debug, error, info, warn};
+use mem::page_table::address_space::Addresser;
 use sdt::fdt::{self, FDT, GLOBAL_FDT};
 
 use crate::{
@@ -13,7 +14,11 @@ use crate::{
         },
     },
     drivers::time::GLOBAL_TIME,
-    sched::{SCHEDULER, context::switch_context_impl},
+    sched::{
+        SCHEDULER,
+        context::{switch_address_space, thread_context_switch},
+        scheduler::CURRENT_PROCESS,
+    },
     syscall::handle_ecall,
 };
 
@@ -135,13 +140,18 @@ pub extern "C" fn s_trap_handler(frame: *mut usize) {
                     }
                     InterruptCode::SupervisorSoftware => {
                         SIP.read_clear(1 << 1);
-                        let run_next = SCHEDULER
-                            .wait()
-                            .try_lock()
-                            .and_then(|mut sched| sched.handle_interrupt().ok());
-                        if let Some((old_sp, new_sp, new_satp)) = run_next {
-                            switch_context_impl(old_sp, new_sp, new_satp);
+                        let Some(mut scheduler) = SCHEDULER.wait().try_lock() else {
+                            error!("Something went wrong");
+                            return;
                         };
+                        let run_next = scheduler.handle_interrupt();
+                        match run_next {
+                            Ok((old_sp, new_sp, new_satp)) => {
+                                new_satp.inspect(|satp| switch_address_space(*satp));
+                                thread_context_switch(old_sp, new_sp);
+                            }
+                            Err(msg) => error!("Failed to schedule next thread: {msg}"),
+                        }
                     }
                     // match int {
                     // }

@@ -1,10 +1,11 @@
+use ::mem::page_table::address_space::Addresser;
 use alloc::{boxed::Box, str::from_boxed_utf8_unchecked};
 use log::{debug, info, warn};
 use sdt::fdt::FDT;
 
 use crate::{
     console::writer::println,
-    sched::{SCHEDULER, thread},
+    sched::{SCHEDULER, context::switch_address_space, scheduler::CURRENT_PROCESS, thread},
 };
 use core::{
     alloc::Layout,
@@ -327,7 +328,7 @@ extern "C" fn thread_wrapper(entry: u32) -> ! {
         let func: fn() -> () = core::mem::transmute(func_ptr);
         func();
 
-        // stop the timer from switching between terminating and switching ourselves
+        // stop the timer from switching between terminating and switching
         core::arch::asm!("csrci sstatus, 2");
         // release the scheduler lock before switching, this stack is never resumed
         let next = {
@@ -336,7 +337,8 @@ extern "C" fn thread_wrapper(entry: u32) -> ! {
             sched.run_next()
         };
         if let Ok((old_sp, new_sp, new_satp)) = next {
-            crate::sched::context::switch_context_impl(old_sp, new_sp, new_satp);
+            new_satp.inspect(|satp| switch_address_space(*satp));
+            crate::sched::context::thread_context_switch(old_sp, new_sp);
         }
         loop {
             core::arch::asm!("wfi");

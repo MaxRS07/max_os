@@ -38,7 +38,7 @@ impl Scheduler {
     /// Dont call run next directly in case interrupt logic
     pub fn handle_interrupt(
         &mut self,
-    ) -> Result<(*mut *mut usize, *mut usize, usize), ThreadError> {
+    ) -> Result<(*mut *mut usize, *mut usize, Option<usize>), ThreadError> {
         // if there is only the running, dont interrupt
         self.run_next()
     }
@@ -63,7 +63,9 @@ impl Scheduler {
     /// Interrupts the running thread and attempts to requeue it with the next available thread.
     ///
     /// If there is no next thread available to run, returns [`Err`] and does not interrupt the current thread. Returns [`Ok`] containing a pointer to the next available thread if the exchange was successful.
-    pub fn run_next(&mut self) -> Result<(*mut *mut usize, *mut usize, usize), ThreadError> {
+    pub fn run_next(
+        &mut self,
+    ) -> Result<(*mut *mut usize, *mut usize, Option<usize>), ThreadError> {
         // check next thread
         let next_ready = self.queue.dequeue_ready();
         if next_ready.is_null() {
@@ -71,6 +73,7 @@ impl Scheduler {
         }
         if !self.running.is_null() {
             unsafe {
+                let old_pid = (*self.running).pid;
                 // if the thread is not terminated, requeue it. otherwise put it in the dead slot
                 if (*self.running).state != State::Terminated {
                     (*self.running).state = State::Ready;
@@ -87,9 +90,14 @@ impl Scheduler {
                 let old_sp_ptr = &mut (*self.running).context.stack_pointer as *mut *mut usize;
                 self.set_running(next_ready);
 
+                let new_satp = if (*next_ready).pid != old_pid {
+                    Some(Self::get_process(next_ready)?.address_space().satp())
+                } else {
+                    None
+                };
+
                 // Switch context from old running thread to new
                 let new_sp = (*next_ready).context.stack_pointer;
-                let new_satp = Self::get_process(next_ready)?.address_space().satp();
 
                 return Ok((old_sp_ptr, new_sp, new_satp));
             }

@@ -29,8 +29,9 @@ use crate::{
     kernel_main,
     mm::heap::PAGE_ALLOCATOR,
     sched::{
-        ASID_ALLOCATOR, PROCESS_TABLE, SCHEDULER,
+        ASID_ALLOCATOR, KERNEL_ROOT, PROCESS_TABLE, SCHEDULER,
         error::{ProcessError, ThreadError},
+        kernel_root,
         scheduler::CURRENT_PROCESS,
         thread::{Priority, Thread},
     },
@@ -83,7 +84,7 @@ impl Process {
             .ok_or(ProcessError::OutOfResources(format!("ASIDs exhausted")))?;
         let address_space = self
             .address_space
-            .fork(fork_asid)
+            .fork(kernel_root(), fork_asid)
             .map_err(|err| ProcessError::OutOfResources(err.to_string()))?;
         let pid = alloc_pid();
         let process = Self::new(name, pid, address_space, BTreeSet::new());
@@ -97,7 +98,7 @@ impl Process {
             .lock()
             .alloc_id()
             .ok_or(ThreadError::Other(format!("No free ASIDs")))?; // TODO Make this not unwrap
-        let addr_space = AddressSpace::alloc_new(PAGE_ALLOCATOR.wait(), asid, Vec::new())
+        let addr_space = AddressSpace::new(PAGE_ALLOCATOR.wait(), kernel_root(), asid, Vec::new())
             .map_err(|memerr| ThreadError::Other(format!("{memerr}")))?;
 
         let pid = alloc_pid();
@@ -148,7 +149,7 @@ impl Process {
     }
 
     pub fn destroy(&mut self) {
-        self.address_space.destroy();
+        let _ = self.address_space.destroy();
         drop(&self.fds)
     }
 
@@ -164,7 +165,7 @@ impl Process {
         perms: PagePermissions,
     ) -> Result<(), mem::error::MemoryError> {
         let pages = size.div_ceil(0x1000);
-        self.address_space.map_pages(virt_addr, size, pages, perms)
+        self.address_space.map_pages(virt_addr, pages, flags, perms)
     }
     /// Unmaps `size` from this process's address space beggining at `virt_addr`
     pub fn unmap_size(&mut self, virt_addr: usize, size: usize) {

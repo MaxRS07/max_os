@@ -1,7 +1,8 @@
 use core::{
     cell::OnceCell,
     fmt::Error,
-    sync::atomic::{Ordering, fence},
+    ptr::{null, null_mut},
+    sync::atomic::{AtomicPtr, Ordering, fence},
 };
 
 use alloc::{boxed::Box, fmt::format, format, vec::Vec};
@@ -12,6 +13,7 @@ use mem::{
         address_space::AddressSpace,
         asid::{ASID, ASIDBitmapSV32, MAX_ASID},
         table::Table,
+        table_entry::TableEntry,
     },
 };
 use sync::{mutex::Mutex, oncelock::OnceLock};
@@ -39,6 +41,12 @@ pub static ASID_ALLOCATOR: OnceLock<Mutex<ASIDBitmapSV32>> = OnceLock::new();
 pub static SCHEDULER: OnceLock<Mutex<Scheduler>> = OnceLock::new();
 /// Global process table
 pub static PROCESS_TABLE: OnceLock<Mutex<ProcessTable>> = OnceLock::new();
+/// The root kernel table, the base mapping will be copied onto all threads
+pub static KERNEL_ROOT: OnceLock<usize> = OnceLock::new();
+
+pub fn kernel_root() -> &'static Table {
+    unsafe { &*(*KERNEL_ROOT.wait() as *const Table) }
+}
 
 /// intialize threading globals, setup main thread.
 pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(), ThreadError> {
@@ -55,7 +63,8 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
     if let Err(msg) = map_boot_pages(table) {
         error!("{msg}")
     }
-    let kspace = AddressSpace::alloc_new(allocator, ASID::MAIN, Vec::new())
+    KERNEL_ROOT.set(table.addr());
+    let kspace = AddressSpace::new(allocator, kernel_root(), ASID::MAIN, Vec::new())
         .map_err(|err| ThreadError::Other(format!("{err}")))?;
     Process::kernel(tid, kspace)?;
     SCHEDULER.wait().lock().set_running(main_thread);

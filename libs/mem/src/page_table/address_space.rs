@@ -9,7 +9,12 @@ use alloc::vec::{self, Vec};
 use crate::{
     align::aligned_down,
     error::MemoryError,
-    page_table::{asid::ASID, page_alloc::Pager, permissions::PagePermissions, table::Table},
+    page_table::{
+        asid::ASID,
+        page_alloc::Pager,
+        permissions::PagePermissions,
+        table::{Table, USER_ROOT_END},
+    },
 };
 
 /// An address space for a process. Manages the process' virtual addresses for contiguity
@@ -17,7 +22,11 @@ use crate::{
 pub trait Addresser {
     /// Creates a new empty address space using an ASID. ASIDs must be between 0 and 511. This method will `Err` if the page
     /// allocator runs out of pages or fails to allocate
-    fn new(page_allocator: &'static dyn Pager, asid: ASID) -> Result<Self, MemoryError>
+    fn new(
+        page_allocator: &'static dyn Pager,
+        root: &Table,
+        asid: ASID,
+    ) -> Result<Self, MemoryError>
     where
         Self: Sized;
     /// Force-unmaps this address space, freeing all of its owned regions
@@ -107,8 +116,8 @@ impl VirtualRegion {
         if self.megatable == next.megatable
             && self.backing == next.backing
             && self.perms == next.perms
-            && self.phys_addr + self.size() + 1 == next.phys_addr
-            && self.virt_addr + self.size() + 1 == next.virt_addr
+            && self.phys_addr + self.size() == next.phys_addr
+            && self.virt_addr + self.size() == next.virt_addr
         {
             self.pages += next.pages;
             return true;
@@ -139,15 +148,14 @@ pub struct AddressSpace {
 }
 
 impl AddressSpace {
-    // pub fn kernel() -> Self {
-    //     Self::new(, 0, regions);
-    // }
-    pub fn alloc_new(
+    pub fn new(
         page_allocator: &'static dyn Pager,
+        root: &Table,
         asid: ASID,
         regions: Vec<VirtualRegion>,
     ) -> Result<Self, MemoryError> {
         let root_table = Table::alloc_empty(page_allocator)?;
+        unsafe { (*root_table).fork_kernel(root) }
         Ok(Self {
             page_allocator,
             root_table,
@@ -156,8 +164,8 @@ impl AddressSpace {
         })
     }
     // Copies the region mappings to a new address space
-    pub fn fork(&self, asid: ASID) -> Result<AddressSpace, MemoryError> {
-        let mut fork_space = Self::alloc_new(self.page_allocator, asid, Vec::new())?;
+    pub fn fork(&self, root: &Table, asid: ASID) -> Result<AddressSpace, MemoryError> {
+        let mut fork_space = Self::new(self.page_allocator, root, asid, Vec::new())?;
         for region in &self.regions {
             // copy 1-1 physical mapping if the pages are readonly
             // something something partial faliure
@@ -235,8 +243,12 @@ impl AddressSpace {
 }
 
 impl Addresser for AddressSpace {
-    fn new(page_allocator: &'static dyn Pager, asid: ASID) -> Result<Self, MemoryError> {
-        AddressSpace::alloc_new(page_allocator, asid, Vec::new())
+    fn new(
+        page_allocator: &'static dyn Pager,
+        root: &Table,
+        asid: ASID,
+    ) -> Result<Self, MemoryError> {
+        AddressSpace::new(page_allocator, root, asid, Vec::new())
     }
     fn destroy(&mut self) -> Result<(), MemoryError> {
         for region in self.regions.clone() {
@@ -280,8 +292,12 @@ impl Addresser for AddressSpace {
                 })?;
             }
             for i in 0..num_pages {
-                let ptr = (virt_addr + 0x1000 * i) as *mut u8;
-                self.page_allocator.free(ptr)?;
+                let virt = virt_addr + 0x1000 * i;
+                let phys_addr = region.translate(virt)?;
+                let phys_ptr = phys_addr as *mut u8;
+
+                unsafe { (*self.root_table).unmap(self.page_allocator, virt, false)? };
+                self.page_allocator.free(phys_ptr)?;
             }
 
             return Ok(());
@@ -328,7 +344,8 @@ impl Addresser for AddressSpace {
                     return Err(err);
                 }
             }
-            cur_virt += num_pages * 0x1000;
+            cur_virt += cur_pages * 0x1000;
+            cur_pages = 1;
         }
         Ok(())
     }

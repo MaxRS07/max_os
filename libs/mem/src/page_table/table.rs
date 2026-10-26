@@ -16,6 +16,12 @@ const TABLE_LEN: usize = 1024;
 const LEAF_SIZE: usize = 0x1000;
 const MEGATABLE_SIZE: usize = 0x400000;
 
+/* User region of the table (256-512) */
+/// 256
+pub const USER_ROOT_START: usize = 0x4000_0000 >> 22;
+/// 512
+pub const USER_ROOT_END: usize = 0x8000_0000 >> 22;
+
 #[repr(align(4096))]
 pub struct Table {
     pub pages: [TableEntry; TABLE_LEN],
@@ -29,6 +35,11 @@ impl Table {
     }
     pub const MEGAPAGE: usize = 1 << 8;
 
+    /// Copies kernel mappings onto this table
+    pub fn fork_kernel(&mut self, kernel: &Self) {
+        self.pages[..USER_ROOT_START].copy_from_slice(&kernel.pages[..USER_ROOT_START]);
+        self.pages[USER_ROOT_END..].copy_from_slice(&kernel.pages[USER_ROOT_END..]);
+    }
     /// Maps a single virtual address to a physical leaf.
     ///  
     /// **Note:** forces virtual alignment to 0x1000
@@ -223,7 +234,10 @@ impl Table {
         }
         Ok(frame)
     }
-
+    /// deallocates the user L0 tables
+    pub fn free_user(&mut self) {
+        self.pages[USER_ROOT_START..USER_ROOT_END].iter().for_each(|table| table.);
+    }
     /// Checks if any entries in the table are valid
     ///
     /// TODO: Possibly cache this number

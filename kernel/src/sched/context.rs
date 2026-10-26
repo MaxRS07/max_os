@@ -1,13 +1,11 @@
 use core::arch::naked_asm;
 
+use crate::arch::riscv::csr::Csr::SATP;
+
 #[unsafe(naked)]
 #[unsafe(no_mangle)]
 /// Switches context between threads by moving the stack pointer to the last executed instruction on the new thread
-pub unsafe extern "C" fn switch_context_impl(
-    old_sp: *mut *mut usize,
-    new_sp: *mut usize,
-    new_satp: usize,
-) {
+pub unsafe extern "C" fn thread_context_switch(old_sp: *mut *mut usize, new_sp: *mut usize) {
     naked_asm!(
         // shift stack pointer by 56 bytes, make room for registers
         "addi sp, sp, -56",
@@ -54,4 +52,11 @@ pub unsafe extern "C" fn switch_context_impl(
         // jump to next intruction
         "ret"
     );
+}
+
+pub fn switch_address_space(satp: usize) {
+    unsafe {
+        SATP.write(satp);
+        core::arch::asm!("sfence.vma x0, x0", options(nostack));
+    }
 }
