@@ -9,7 +9,7 @@ const ASID_MASK: u16 = 0x1ff;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ASID(u16);
 impl ASID {
-    pub const MAIN: Self = Self::new(0);
+    pub const KERNEL: Self = Self::new(0);
     /// Creates a new ASID from a value
     pub const fn new(value: u16) -> Self {
         if value > MAX_ASID {

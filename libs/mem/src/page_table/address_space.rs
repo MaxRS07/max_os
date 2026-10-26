@@ -163,6 +163,14 @@ impl AddressSpace {
             regions,
         })
     }
+    pub fn from_root(page_allocator: &'static dyn Pager, root: *mut Table, asid: ASID) -> Self {
+        Self {
+            page_allocator,
+            root_table: root,
+            asid,
+            regions: Vec::new(),
+        }
+    }
     // Copies the region mappings to a new address space
     pub fn fork(&self, root: &Table, asid: ASID) -> Result<AddressSpace, MemoryError> {
         let mut fork_space = Self::new(self.page_allocator, root, asid, Vec::new())?;
@@ -253,6 +261,9 @@ impl Addresser for AddressSpace {
     fn destroy(&mut self) -> Result<(), MemoryError> {
         for region in self.regions.clone() {
             let _ = self.unmap_pages(region.virt_addr, region.pages);
+        }
+        unsafe {
+            (*self.root_table).free_user_pages(self.page_allocator);
         }
         let root_table_ptr = self.root_table as *mut u8;
         self.page_allocator.free(root_table_ptr)

@@ -234,13 +234,18 @@ impl Table {
         }
         Ok(frame)
     }
-    /// deallocates the user L0 tables
-    pub fn free_user(&mut self) {
-        self.pages[USER_ROOT_START..USER_ROOT_END].iter().for_each(|table| table.);
+    /// deallocates the user L0 tables, freeing the physical pages
+    pub fn free_user_pages(&mut self, page_allocator: &dyn Pager) {
+        self.pages[USER_ROOT_START..USER_ROOT_END]
+            .iter()
+            .for_each(|entry| {
+                let phys_ptr = entry.addr() as *mut u8;
+                let _ = page_allocator.free(phys_ptr);
+            });
     }
     /// Checks if any entries in the table are valid
     ///
-    /// TODO: Possibly cache this number
+    /// TODO: Possibly cache this
     fn has_valid_entries(&self) -> bool {
         self.pages.iter().any(|page| page.is_valid())
     }

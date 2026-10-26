@@ -10,6 +10,7 @@ use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use crate::sched::{
     PROCESS_TABLE,
+    context::{switch_address_space, thread_context_switch},
     error::ThreadError,
     process::Process,
     queue::RunQueue,
@@ -190,6 +191,15 @@ impl Scheduler {
             .ok_or(ThreadError::Other(
                 "Failed to retrive parent process, invalid PID".to_owned(),
             ))
+    }
+}
+
+pub fn switch_to(satp: Option<usize>, old_sp: *mut *mut usize, new_sp: *mut usize) {
+    if let Some(satp) = satp {
+        switch_address_space(satp);
+    }
+    unsafe {
+        thread_context_switch(old_sp, new_sp);
     }
 }
 

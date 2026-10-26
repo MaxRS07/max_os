@@ -155,7 +155,7 @@ impl Process {
 
     /* Address Space Helpers */
 
-    /// Maps `size` bytes to this process's address space.
+    /// Maps `size` bytes to this process's address space. If `phys_addr` is greater than 0, the kernel will attempt to map `virt_addr` to it.
     pub fn map_size(
         &mut self,
         virt_addr: usize,

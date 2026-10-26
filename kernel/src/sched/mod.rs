@@ -64,8 +64,8 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
         error!("{msg}")
     }
     KERNEL_ROOT.set(table.addr());
-    let kspace = AddressSpace::new(allocator, kernel_root(), ASID::MAIN, Vec::new())
-        .map_err(|err| ThreadError::Other(format!("{err}")))?;
+    let kspace =
+        AddressSpace::from_root(allocator, (*KERNEL_ROOT.wait()) as *mut Table, ASID::KERNEL);
     Process::kernel(tid, kspace)?;
     SCHEDULER.wait().lock().set_running(main_thread);
 

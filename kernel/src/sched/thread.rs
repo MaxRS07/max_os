@@ -1,11 +1,18 @@
-use ::mem::page_table::address_space::Addresser;
-use alloc::{boxed::Box, str::from_boxed_utf8_unchecked};
+use ::mem::page_table::{address_space::Addresser, permissions::PagePermissions};
+use alloc::{boxed::Box, format, str::from_boxed_utf8_unchecked, string::ToString};
 use log::{debug, info, warn};
 use sdt::fdt::FDT;
 
 use crate::{
     console::writer::println,
-    sched::{SCHEDULER, context::switch_address_space, scheduler::CURRENT_PROCESS, thread},
+    sched::{
+        PROCESS_TABLE, SCHEDULER,
+        context::switch_address_space,
+        error::ThreadError,
+        process::ProcessTable,
+        scheduler::{CURRENT_PROCESS, switch_to},
+        thread,
+    },
 };
 use core::{
     alloc::Layout,
@@ -157,7 +164,7 @@ impl Thread {
     /// Creates and enques a thread. Returns the unique ID of the thread or None if queing failed.
     pub fn spawn(pid: u32, name: &str, priority: Priority, entry: usize) -> Option<u32> {
         let mut new = Self::new(pid, name, priority, entry);
-        if let Err(error) = new.alloc() {
+        if let Err(error) = new.map_kernel_stack() {
             warn!("Failed to construct thread: {}", error);
             drop(new); // deallocate the memory on fail
             return None;
@@ -181,18 +188,20 @@ impl Thread {
             }
         }
     }
-    /// Tries to spawn a new thread under the current running process
+    /// Tries to spawn a new thread under the current running process. Returns [`None`] if the current process is *null*
     pub fn spawn_local(name: &str, entry: usize) -> Option<u32> {
-        let pid = SCHEDULER.wait().lock().current_pid().ok()?;
+        let pptr = CURRENT_PROCESS.load(Ordering::Acquire);
+        if pptr.is_null() {
+            return None;
+        }
+        let pid = unsafe { (*pptr).pid() };
         Thread::spawn(pid, name, Priority::Normal, entry)
     }
     /// Allocates memory and assigns region addresses to self
-    fn alloc(&mut self) -> Result<(), &'static str> {
+    fn map_kernel_stack(&mut self) -> Result<(), ThreadError> {
         // Calculte TSS size using pointers, then copy it to start pointer
         unsafe {
-            // These are linker symbols: their *address* is the value we want, so
-            // take `&raw const`. Reading them directly would load whatever word
-            // lives at that address instead.
+            // linker symbols, use &raw const to load addr, not value
             let tdata_start = &raw const _tdata_start as usize;
             let tdata_end = &raw const _tdata_end as usize;
             let tbss_start = &raw const _tbss_start as usize;
@@ -217,6 +226,26 @@ impl Thread {
             self.total_size = THREAD_STACK_SIZE + self.tls_len;
         }
 
+        Ok(())
+    }
+    fn map_stack(&mut self) -> Result<(), ThreadError> {
+        if self.pid == 0 {
+            // use special mapping symbols for kernel threads
+            return Ok(self.map_kernel_stack()?);
+        }
+        let pid = &self.pid;
+        let process = PROCESS_TABLE
+            .wait()
+            .lock()
+            .get(pid)
+            .ok_or(ThreadError::Other(format!("Invalid process id: {pid}")))?;
+        let process = unsafe { &mut *process };
+        const STACK_PAGES: usize = THREAD_STACK_SIZE / 0x1000; // just 3 lol
+        const STACK_REGION_START: usize = 0x7FFF_D000;
+        const STACK_GUARD: usize = 0x7FFF_C000;
+        process
+            .map_size(STACK_GUARD, STACK_PAGES + 1, 0, 0, PagePermissions::RWXU) // map an extra page for the guard below the stack
+            .map_err(|err| ThreadError::Other(err.to_string()))?;
         Ok(())
     }
     fn name_from_str(chars: &str) -> [u8; 16] {
@@ -266,7 +295,7 @@ impl Display for Thread {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-/// Thread context, contains information about
+/// Thread context, contains information about the execution state of the thread
 pub struct Context {
     /// saved pointer in the current stack, sp will be set here when this thread's context is loaded
     pub stack_pointer: *mut usize,
@@ -336,9 +365,8 @@ extern "C" fn thread_wrapper(entry: u32) -> ! {
             sched.terminate_running();
             sched.run_next()
         };
-        if let Ok((old_sp, new_sp, new_satp)) = next {
-            new_satp.inspect(|satp| switch_address_space(*satp));
-            crate::sched::context::thread_context_switch(old_sp, new_sp);
+        if let Ok((old_sp, new_sp, satp)) = next {
+            switch_to(satp, old_sp, new_sp);
         }
         loop {
             core::arch::asm!("wfi");
