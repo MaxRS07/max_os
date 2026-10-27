@@ -24,7 +24,7 @@ use crate::{
         error::ThreadError,
         process::{Process, ProcessTable},
         scheduler::Scheduler,
-        thread::Thread,
+        thread::thread::Thread,
     },
 };
 

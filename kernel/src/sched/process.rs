@@ -13,7 +13,8 @@ use alloc::{
     fmt::format,
     format,
     string::{String, ToString},
-    vec::Vec,
+    sync::Arc,
+    vec::{self, Vec},
 };
 use collections::hashmap::HashMap;
 use fs::{collections::error::FSError, storage::fileobject::FileObject};
@@ -23,6 +24,7 @@ use mem::page_table::{
     permissions::PagePermissions,
     table::Table,
 };
+use sync::mutex::Mutex;
 
 use crate::{
     drivers::time::GLOBAL_TIME,
@@ -51,19 +53,19 @@ pub struct Process {
     /// address space that this process operates in
     address_space: AddressSpace,
     /// list of thread IDs owned by this process
-    threads: Vec<Option<u32>>,
-    next_tid: Vec<u32>,
+    threads: Vec<Option<Thread>>,
     fds: Vec<Option<FileObject>>,
 }
 
 impl Process {
-    fn new(name: &str, pid: u32, address_space: AddressSpace, threads: BTreeSet<u32>) -> *mut Self {
+    fn new(name: &str, pid: u32, address_space: AddressSpace, threads: Vec<Thread>) -> *mut Self {
+        let threads = threads.iter().map(|f| Some(f.clone())).collect();
         Box::into_raw(Box::new(Self {
             name: name.to_owned(),
             pid,
             address_space,
             threads,
-            next_tid: AtomicU32::new(0),
+            next_tid: Vec::new(),
             fds: Vec::new(),
         }))
     }
@@ -90,7 +92,7 @@ impl Process {
             .fork(kernel_root(), fork_asid)
             .map_err(|err| ProcessError::OutOfResources(err.to_string()))?;
         let pid = alloc_pid();
-        let process = Self::new(name, pid, address_space, BTreeSet::new());
+        let process = Self::new(name, pid, address_space, Vec::new());
         PROCESS_TABLE.wait().lock().insert(pid, process);
         Ok(pid)
     }
@@ -106,12 +108,7 @@ impl Process {
 
         let pid = alloc_pid();
         let thread = Thread::new(pid, &name, Priority::Normal, entry as usize);
-        let tid = thread.id();
-        let thread_ptr = Box::into_raw(Box::new(thread));
-
-        let mut thread_set = BTreeSet::new();
-        thread_set.insert(tid);
-        let process = Self::new(name, pid, addr_space, thread_set);
+        let process = Self::new(name, pid, addr_space, alloc::vec![thread]);
 
         PROCESS_TABLE
             .wait()
@@ -133,22 +130,30 @@ impl Process {
         self.threads.contains(&tid)
     }
     /// adds a new thread id to this thread's owned TIDs. If the thread ID is already present, returns [`Some`], returns [`None`] if the assignment was successful
-    pub fn assign_thread(&mut self, tid: u32) -> Option<()> {
-        if self.threads.contains(&tid) {
+    pub fn spawn_thread(&mut self, name: &str, entry: usize) -> Option<()> {
+        let tid = match self.next_tid() {
+            Some(id) => id,
+            None => {
+                self.threads.push(None);
+                self.threads.len() - 1
+            }
+        }
+        let thread = Thread::new(self.pid, name, priority, entry);
+        if self.threads.(&tid) {
             return None;
         }
         self.threads.insert(tid);
         Some(())
     }
+    pub fn next_tid(&self) -> Option<usize> {
+        self.threads.iter().position(|t| t.is_none())
+    }
     /// Removes a thread with the id `tid` from this process. Returns [`Some`] if the removal was successful or [`None`] if the process doesnt own `tid`
-    pub fn remove_thread(&mut self, tid: u32) -> Option<()> {
-        if !self.threads.contains(&tid) {
-            return None;
-        }
-        if self.threads.remove(&tid) {
-            return Some(());
-        }
-        None
+    pub fn remove_thread(&mut self, tid: u32) {
+        (*self
+            .threads
+            .iter_mut()
+            .find(|t| t.is_some_and(|t| t.id() == tid))?) = None;
     }
 
     pub fn destroy(&mut self) {

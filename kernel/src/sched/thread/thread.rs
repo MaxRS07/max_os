@@ -1,17 +1,12 @@
+use fs::meta::context;
 use ::mem::page_table::{address_space::Addresser, permissions::PagePermissions};
 use alloc::{boxed::Box, format, str::from_boxed_utf8_unchecked, string::ToString};
 use log::{debug, info, warn};
 use sdt::fdt::FDT;
 
 use crate::{
-    console::writer::println,
-    sched::{
-        PROCESS_TABLE, SCHEDULER,
-        context::switch_address_space,
-        error::ThreadError,
-        process::ProcessTable,
-        scheduler::{CURRENT_PROCESS, switch_to},
-        thread,
+    console::writer::println, sched::{
+        PROCESS_TABLE, SCHEDULER, context::switch_address_space, error::ThreadError, kstack::KernelStack, process::ProcessTable, scheduler::{CURRENT_PROCESS, switch_to}, thread::{self, kstack::KernelStack, ustack::UserStack}, ustack::UserStack,
     },
 };
 use core::{
@@ -83,18 +78,19 @@ pub struct ThreadId {
     pid: u32,
     tid: u32,
 }
+impl ThreadId {
+    /// This identifier is always reserved for the main thread of the kernel process
+    pub const fn main() -> Self {
+        Self { pid: 0, tid: 0 }
+    }
+}
 
-const THREAD_STACK_SIZE: usize = 0x3000;
-
-#[derive(Debug, Clone, Default)]
+#[derive(Debug)]
 pub struct Thread {
-    /// The id of the owning process. This can be
-    pub pid: u32,
+    /// The thread identifier. TIDs are local to the owner process.
+    pub id: ThreadId,
     /// information about the stack goes here. Contains both the stack pointer and thread pointer
     pub context: Context,
-
-    /// Unique id of the thread
-    id: u32,
     /// Thread name for debugging
     name: [u8; 16],
 
@@ -106,65 +102,39 @@ pub struct Thread {
     /// How long the thread has been alive in cpu cycles
     lifetime: u64,
 
-    /// The total size of the thread's memory region
-    total_size: usize,
-    /// TLS start pointer. Also the absolute the start of the memory region.
-    tls_start: *const u8,
-    /// size of the thread's tls region in bytes
-    tls_len: usize,
-
-    /// Pointer to of the end of the stack. Points to the highest address in the stack (inclusive)
-    stack_bottom: *const u8,
-    /// Pointer to of the end of the stack. Points to the lowest address in the stack (inclusive)
-    stack_top: *const u8,
-
-    /// Pointer to next thread in priority queue
-    pub next: *mut Thread,
-    /// Pointer to previous thread in priority queue
-    pub prev: *mut Thread,
+    /// Kernel Stack
+    kernel_stack: KernelStack,
+    /// User stack for threads part of user processes. This is mapped in virtual memory
+    user_stack: Option<UserStack>
 }
 /// Records the last used thread id. IDs are assigned incrementally, every id this value or greater is unused
 
 impl Thread {
     /// Returns a preconfigured main thread. Does not have an entry point. Does not allocate stack or tls in memory.
-    pub fn main(stack_top: *const u8, stack_bottom: *const u8) -> *mut Thread {
+    pub fn main(stack_top: *mut u8, stack_bottom: *mut u8) -> *mut Thread {
+        let kstack = KernelStack::new(stack_bottom, usize, tls_len)
         let main = Self {
-            pid: 0, // kernel process
-            id: 0,  // main thread
+            id: ThreadId::main(),  // main thread
             name: Self::name_from_str("main"),
             state: State::Running, // The main thread creates itself, hence it is running
-            stack_top,
-            stack_bottom,
             context: Context::empty(),
             priority: Priority::Normal,
             lifetime: 0,
-            tls_start: null(),
-            tls_len: 0,
-            total_size: 0,
-            next: null_mut(),
-            prev: null_mut(),
         };
         let main_box = Box::new(main);
         Box::into_raw(main_box)
     }
-    pub fn new(pid: u32, name: &str, priority: Priority, entry: usize) -> Self {
+    pub fn new(pid: u32, id: u32, name: &str, priority: Priority, entry: usize) -> Self {
         let name = Self::name_from_str(name);
-        let last_id = TID_ALLOCATOR.load(Ordering::Acquire);
+        let context = Context::new(entry, stack_bottom, tls_start)
         Self {
             pid,
             context: Context::empty(),
-            id: last_id + 1,
+            id,
             name,
             state: State::Waiting,
             priority,
             lifetime: 0,
-            tls_start: null(),
-            tls_len: 0,
-            total_size: 0,
-            next: null_mut(),
-            prev: null_mut(),
-            stack_bottom: null(),
-            stack_top: null(),
         }
     }
     /// Creates and enques a thread. Returns the unique ID of the thread or None if queing failed.
@@ -203,37 +173,7 @@ impl Thread {
         let pid = unsafe { (*pptr).pid() };
         Thread::spawn(pid, name, Priority::Normal, entry)
     }
-    /// Allocates memory and assigns region addresses to self
-    fn map_kernel_stack(&mut self) -> Result<(), ThreadError> {
-        // Calculte TSS size using pointers, then copy it to start pointer
-        unsafe {
-            // linker symbols, use &raw const to load addr, not value
-            let tdata_start = &raw const _tdata_start as usize;
-            let tdata_end = &raw const _tdata_end as usize;
-            let tbss_start = &raw const _tbss_start as usize;
-            let tbss_end = &raw const _tbss_end as usize;
 
-            let glob_tss_ptr = tdata_start as *const u8;
-            let tbss_len = tbss_end - tbss_start;
-            self.tls_len = tdata_end - tdata_start + tbss_len;
-
-            let thread_layout =
-                Layout::from_size_align(self.tls_len + THREAD_STACK_SIZE, 8).unwrap();
-            let tls_mut = alloc::alloc::alloc(thread_layout).as_mut().unwrap();
-
-            // copy data from global tls to local space
-            core::ptr::copy_nonoverlapping(glob_tss_ptr, tls_mut, self.tls_len);
-            self.tls_start = tls_mut;
-
-            // set bounds for a 12KiB stack
-            self.stack_top = self.tls_start.add(self.tls_len);
-            self.stack_bottom = self.tls_start.add(self.tls_len).add(THREAD_STACK_SIZE);
-
-            self.total_size = THREAD_STACK_SIZE + self.tls_len;
-        }
-
-        Ok(())
-    }
     fn map_stack(&mut self) -> Result<(), ThreadError> {
         if self.pid == 0 {
             // use special mapping symbols for kernel threads
@@ -294,7 +234,7 @@ impl Display for Thread {
         f.write_fmt(format_args!(
             "{}@{:x}",
             self.get_name_str(),
-            self.tls_start.addr(),
+            self.kernel_stack.addr(),
         ))
     }
 }
