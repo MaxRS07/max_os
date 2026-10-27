@@ -1,200 +1,82 @@
-use core::{
-    fmt::Debug,
-    ptr::{null, null_mut},
-};
+use core::fmt::Debug;
 
-use alloc::{borrow::ToOwned, boxed::Box, collections::LinkedList};
+use alloc::{collections::VecDeque, string::ToOwned};
 
-use crate::sched::{
-    error::ThreadError,
-    process::ProcessTable,
-    thread::{State, Thread},
-};
+use crate::sched::{error::ThreadError, thread::thread::ThreadId};
 
-/// Give thread 10k cycles (10ms i think) of runtime before swapping
 pub static THREAD_INTERVAL: usize = 10_000;
 
-/// A priority queue for executable threads
+#[derive(Debug)]
 pub struct RunQueue {
-    head: *mut Thread,
-    tail: *mut Thread,
-    len: usize,
+    threads: VecDeque<ThreadId>,
 }
 
 impl RunQueue {
-    /// creates an empty `RunQueue`
     pub const fn new() -> Self {
-        RunQueue {
-            head: null_mut(),
-            tail: null_mut(),
-            len: 0,
+        Self {
+            threads: VecDeque::new(),
         }
     }
-    /// Inserts a thread in the queue, ordered by `thread.priority`
-    #[allow(clippy::not_unsafe_ptr_arg_deref)] // force safe. Not error handling this.
-    pub fn enque(&mut self, thread: *mut Thread) -> Result<(), ThreadError> {
-        if thread.is_null() {
-            return Err(ThreadError::Other("Thread ptr is null".to_owned()));
+
+    pub fn enque(&mut self, thread: ThreadId) -> Result<(), ThreadError> {
+        if self.threads.contains(&thread) {
+            return Err(ThreadError::Other(
+                "Thread is already in the run queue".to_owned(),
+            ));
         }
 
-        unsafe {
-            (*thread).next = null_mut();
-            (*thread).prev = null_mut();
-
-            // queue is empty
-            if self.head.is_null() {
-                self.head = thread;
-                self.tail = thread;
-                self.len = 1;
-                return Ok(());
-            }
-
-            let mut current_ptr = self.head;
-
-            while !current_ptr.is_null() {
-                // Priority sorting
-                if (*thread).priority < (*current_ptr).priority {
-                    let previous_ptr = (*current_ptr).prev;
-
-                    (*thread).next = current_ptr;
-                    (*thread).prev = previous_ptr;
-                    (*current_ptr).prev = thread;
-
-                    if previous_ptr.is_null() {
-                        self.head = thread;
-                    } else {
-                        (*previous_ptr).next = thread;
-                    }
-                    self.len += 1;
-                    return Ok(());
-                }
-
-                // Node belongs at the very end of the list
-                if (*current_ptr).next.is_null() {
-                    (*current_ptr).next = thread;
-                    (*thread).prev = current_ptr;
-                    self.tail = thread; // Update tail
-                    self.len += 1;
-                    return Ok(());
-                }
-
-                current_ptr = (*current_ptr).next;
-            }
-        }
-        Err(ThreadError::Other("Failed to enqueue thread".to_owned()))
+        self.threads.push_back(thread);
+        Ok(())
     }
-    /// Removes and returns the highest priority thread from the run queue
-    pub fn dequeue(&mut self) -> *mut Thread {
-        if self.head.is_null() {
-            return null_mut(); // Guard against empty queue
-        }
 
-        let head_node = self.head;
-        unsafe {
-            self.head = (*head_node).next;
-            if self.head.is_null() {
-                self.tail = null_mut(); // Queue became empty
-            } else {
-                (*self.head).prev = null_mut();
-            }
-            (*head_node).next = null_mut();
-            (*head_node).prev = null_mut();
-        }
-        self.len -= 1;
-        head_node
+    pub fn dequeue(&mut self) -> Option<ThreadId> {
+        self.threads.pop_front()
     }
-    /// Dequeues the highest priority thread in the ready state. Returns [`null_mut`] if there are no ready threads in the queue
-    pub fn dequeue_ready(&mut self) -> *mut Thread {
-        for thread in self.iter() {
-            if unsafe { &*thread }.state == State::Ready
-                && let Ok(ready) = self.remove(thread)
-            {
-                return ready;
-            }
-        }
-        null_mut()
+
+    pub fn dequeue_ready(&mut self) -> Option<ThreadId> {
+        self.dequeue()
     }
-    // Removes the pointed thread from the queue, returning it's pointee
-    pub fn remove(&mut self, thread: *mut Thread) -> Result<&mut Thread, &'static str> {
-        if thread.is_null() {
-            return Err("Failed to dequeue thread: null");
-        }
-        unsafe {
-            let prev_node = (*thread).prev;
-            let next_node = (*thread).next;
 
-            // A node with no links is only in the queue if it is the head
-            if prev_node.is_null() && next_node.is_null() && self.head != thread {
-                return Err("Thread is not in the queue");
-            }
+    pub fn remove(&mut self, thread: ThreadId) -> Result<ThreadId, ThreadError> {
+        let index = self
+            .threads
+            .iter()
+            .position(|queued| *queued == thread)
+            .ok_or_else(|| ThreadError::Other("Thread is not in the run queue".to_owned()))?;
 
-            if prev_node.is_null() {
-                self.head = next_node;
-            } else {
-                (*prev_node).next = next_node;
-            }
-
-            if next_node.is_null() {
-                self.tail = prev_node; // update tail
-            } else {
-                (*next_node).prev = prev_node;
-            }
-
-            (*thread).next = null_mut();
-            (*thread).prev = null_mut();
-        }
-        self.len -= 1;
-        unsafe { Ok(&mut *thread) }
+        self.threads
+            .remove(index)
+            .ok_or_else(|| ThreadError::Other("Failed to remove thread".to_owned()))
     }
-    /// removes the first entry matching the predicate
-    pub fn remove_first<F>(&mut self, predicate: F) -> Option<()>
+
+    pub fn remove_first<F>(&mut self, mut predicate: F) -> Option<ThreadId>
     where
-        F: Fn(&Thread) -> bool,
+        F: FnMut(ThreadId) -> bool,
     {
-        for thread in self.iter() {
-            unsafe {
-                if predicate(&*thread) {
-                    self.remove(thread).ok().map(|_| ());
-                    drop(Box::from_raw(thread));
-                    return Some(());
-                }
-            }
-        }
-        None
+        let index = self.threads.iter().position(|thread| predicate(*thread))?;
+
+        self.threads.remove(index)
     }
-    /// removes all elements matching `predicate`. Returns the number of elements removed
-    pub fn remove_where<F>(&mut self, predicate: F) -> usize
+
+    pub fn remove_where<F>(&mut self, mut predicate: F) -> usize
     where
-        F: Fn(&Thread) -> bool,
+        F: FnMut(ThreadId) -> bool,
     {
-        let mut count = 0;
-        for thread in self.iter() {
-            unsafe {
-                if predicate(&*thread) {
-                    self.remove(thread).ok().map(|_| ());
-                    drop(Box::from_raw(thread));
-                    count += 1;
-                }
-            }
-        }
-        return count;
+        let original_len = self.threads.len();
+        self.threads.retain(|thread| !predicate(*thread));
+        original_len - self.threads.len()
     }
-    pub fn iter(&mut self) -> QueueIterator {
-        QueueIterator { next: self.head }
+
+    pub fn iter(&self) -> impl Iterator<Item = ThreadId> + '_ {
+        self.threads.iter().copied()
     }
+
     pub fn len(&self) -> usize {
-        self.len
+        self.threads.len()
     }
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-}
 
-impl IntoIterator for RunQueue {
-    type IntoIter = QueueIterator;
-    type Item = *mut Thread;
-    fn into_iter(self) -> Self::IntoIter {
-        QueueIterator { next: self.head }
+    pub fn is_empty(&self) -> bool {
+        self.threads.is_empty()
     }
 }
 
@@ -204,57 +86,14 @@ impl Default for RunQueue {
     }
 }
 
-impl Debug for RunQueue {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut binding = f.debug_struct("RunQueue");
-        let w = binding.field("len", &self.len);
+impl IntoIterator for RunQueue {
+    type IntoIter = alloc::collections::vec_deque::IntoIter<ThreadId>;
+    type Item = ThreadId;
 
-        if !self.head.is_null() {
-            w.field("head", unsafe { &*self.head });
-        }
-        w.field("queue", &QueueIterator { next: self.head });
-
-        w.finish()
+    fn into_iter(self) -> Self::IntoIter {
+        self.threads.into_iter()
     }
 }
 
 unsafe impl Send for RunQueue {}
 unsafe impl Sync for RunQueue {}
-
-#[derive(Clone, Copy)]
-pub struct QueueIterator {
-    next: *mut Thread,
-}
-
-impl Iterator for QueueIterator {
-    type Item = *mut Thread;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.next.is_null() {
-            return None;
-        }
-        unsafe {
-            let cur = self.next;
-            self.next = (*cur).next;
-            Some(cur)
-        }
-    }
-}
-impl Debug for QueueIterator {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        f.write_str("{ ")?;
-
-        // Start from the current node without mutating 'self'
-        let mut current = self.next;
-
-        while !current.is_null() {
-            unsafe {
-                let thread_ref = &*current;
-                f.write_fmt(format_args!("{}, ", thread_ref))?;
-                // Move to the next pointer in the raw linked list
-                current = (*current).next;
-            }
-        }
-
-        f.write_str("}")
-    }
-}

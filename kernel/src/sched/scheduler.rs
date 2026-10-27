@@ -14,7 +14,6 @@ use crate::sched::{
     error::ThreadError,
     process::Process,
     queue::RunQueue,
-    thread::{State, Thread},
 };
 
 pub static CURRENT_PROCESS: AtomicPtr<Process> = AtomicPtr::new(null_mut());

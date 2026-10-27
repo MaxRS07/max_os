@@ -47,8 +47,7 @@ impl SysOp for ProcessOp {
             Self::Spawn => {
                 let (name_ptr, len, entry, ..) = args;
                 let name = unsafe { str_from_args(name_ptr, len) }?;
-                let entry_fn = entry as *const fn();
-                match Process::spawn(name.as_str(), entry_fn) {
+                match Process::spawn(name.as_str(), entry) {
                     Ok(pid) => unsafe {
                         // exit 0 with value write
                         write_return!(ktx, pid);

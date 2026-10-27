@@ -4,11 +4,7 @@ use alloc::{borrow::ToOwned, string::ToString};
 use log::{error, warn};
 
 use crate::{
-    sched::{
-        SCHEDULER,
-        scheduler::Scheduler,
-        thread::{Priority, Thread},
-    },
+    sched::{SCHEDULER, scheduler::Scheduler},
     syscall::{
         error::SyscallError,
         op::{SysOp, exit, str_from_args},

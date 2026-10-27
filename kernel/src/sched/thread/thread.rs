@@ -1,12 +1,20 @@
-use fs::meta::context;
 use ::mem::page_table::{address_space::Addresser, permissions::PagePermissions};
-use alloc::{boxed::Box, format, str::from_boxed_utf8_unchecked, string::ToString};
+use alloc::{
+    borrow::ToOwned, boxed::Box, format, str::from_boxed_utf8_unchecked, string::ToString,
+};
+use fs::meta::context;
 use log::{debug, info, warn};
 use sdt::fdt::FDT;
 
 use crate::{
-    console::writer::println, sched::{
-        PROCESS_TABLE, SCHEDULER, context::switch_address_space, error::ThreadError, kstack::KernelStack, process::ProcessTable, scheduler::{CURRENT_PROCESS, switch_to}, thread::{self, kstack::KernelStack, ustack::UserStack}, ustack::UserStack,
+    console::writer::println,
+    sched::{
+        PROCESS_TABLE, SCHEDULER,
+        context::switch_address_space,
+        error::ThreadError,
+        process::ProcessTable,
+        scheduler::{CURRENT_PROCESS, switch_to},
+        thread::{self, kstack::KernelStack, ustack::UserStack},
     },
 };
 use core::{
@@ -75,8 +83,8 @@ impl Default for State {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ThreadId {
-    pid: u32,
-    tid: u32,
+    pub pid: u32,
+    pub tid: u32,
 }
 impl ThreadId {
     /// This identifier is always reserved for the main thread of the kernel process
@@ -105,94 +113,90 @@ pub struct Thread {
     /// Kernel Stack
     kernel_stack: KernelStack,
     /// User stack for threads part of user processes. This is mapped in virtual memory
-    user_stack: Option<UserStack>
+    user_stack: Option<UserStack>,
 }
 /// Records the last used thread id. IDs are assigned incrementally, every id this value or greater is unused
 
 impl Thread {
     /// Returns a preconfigured main thread. Does not have an entry point. Does not allocate stack or tls in memory.
     pub fn main(stack_top: *mut u8, stack_bottom: *mut u8) -> *mut Thread {
-        let kstack = KernelStack::new(stack_bottom, usize, tls_len)
+        let kernel_stack = KernelStack::new(stack_bottom, usize, tls_len);
         let main = Self {
-            id: ThreadId::main(),  // main thread
+            id: ThreadId::main(), // main thread
             name: Self::name_from_str("main"),
             state: State::Running, // The main thread creates itself, hence it is running
             context: Context::empty(),
             priority: Priority::Normal,
             lifetime: 0,
+            kernel_stack,
+            user_stack: None,
         };
         let main_box = Box::new(main);
         Box::into_raw(main_box)
     }
-    pub fn new(pid: u32, id: u32, name: &str, priority: Priority, entry: usize) -> Self {
+    /// attempts to create a new thread and allocate its stack in kernel and userspace
+    pub fn new(
+        pid: u32,
+        tid: u32,
+        name: &str,
+        priority: Priority,
+        entry: usize,
+    ) -> Result<Self, ThreadError> {
+        let id = ThreadId { pid, tid };
         let name = Self::name_from_str(name);
-        let context = Context::new(entry, stack_bottom, tls_start)
-        Self {
-            pid,
-            context: Context::empty(),
+        let kernel_stack = KernelStack::alloc().ok_or(Err(ThreadError::Other(
+            "Failed to allocate Kernel Stack".to_owned(),
+        )))?;
+        let user_stack = UserStack::alloc(id);
+        let context = Context::new(entry, kernel_stack.top(), kernel_stack.tls().addr());
+        Ok(Self {
             id,
+            context: Context::empty(),
             name,
             state: State::Waiting,
             priority,
             lifetime: 0,
-        }
+            kernel_stack,
+            user_stack,
+        })
     }
     /// Creates and enques a thread. Returns the unique ID of the thread or None if queing failed.
-    pub fn spawn(pid: u32, name: &str, priority: Priority, entry: usize) -> Option<u32> {
-        let mut new = Self::new(pid, name, priority, entry);
-        if let Err(error) = new.map_kernel_stack() {
-            warn!("Failed to construct thread: {}", error);
-            drop(new); // deallocate the memory on fail
-            return None;
-        }
-        unsafe {
-            let context = Context::new(entry, new.stack_bottom.addr(), new.tls_start.addr());
-            new.context = context;
-            new.state = State::Ready
-        }
+    pub fn spawn(pid: u32, name: &str, priority: Priority, entry: usize) -> Option<ThreadId> {
+        // let process = PROCESS_TABLE.wait().get();
+        // let mut new = Self::new(pid, name, priority, entry).ok()?;
+        // if let Err(error) = new.map_kernel_stack() {
+        //     warn!("Failed to construct thread: {}", error);
+        //     drop(new); // deallocate the memory on fail
+        //     return None;
+        // }
+        // unsafe {
+        //     let context = Context::new(entry, new.stack_bottom.addr(), new.tls_start.addr());
+        //     new.context = context;
+        //     new.state = State::Ready
+        // }
 
-        let boxed = Box::new(new);
-        let box_ptr = Box::into_raw(boxed);
+        // let boxed = Box::new(new);
+        // let box_ptr = Box::into_raw(boxed);
 
-        let tid = TID_ALLOCATOR.fetch_add(1, Ordering::Release);
-        match SCHEDULER.wait().lock().schedule(box_ptr) {
-            Ok(_) => return Some(tid),
-            Err(err) => {
-                warn!("{err}: Failed to queue thread: '{name}'");
-                let _ = unsafe { Box::from_raw(box_ptr) };
-                return None;
-            }
-        }
+        // let tid = TID_ALLOCATOR.fetch_add(1, Ordering::Release);
+        // match SCHEDULER.wait().lock().schedule(box_ptr) {
+        //     Ok(_) => return Some(tid),
+        //     Err(err) => {
+        //         warn!("{err}: Failed to queue thread: '{name}'");
+        //         let _ = unsafe { Box::from_raw(box_ptr) };
+        //         return None;
+        //     }
+        // }
+        None
     }
     /// Tries to spawn a new thread under the current running process. Returns [`None`] if the current process is *null*
-    pub fn spawn_local(name: &str, entry: usize) -> Option<u32> {
+    pub fn spawn_local(name: &str, entry: usize) -> Option<ThreadId> {
         let pptr = CURRENT_PROCESS.load(Ordering::Acquire);
         if pptr.is_null() {
             return None;
         }
         let pid = unsafe { (*pptr).pid() };
         Thread::spawn(pid, name, Priority::Normal, entry)
-    }
-
-    fn map_stack(&mut self) -> Result<(), ThreadError> {
-        if self.pid == 0 {
-            // use special mapping symbols for kernel threads
-            return Ok(self.map_kernel_stack()?);
-        }
-        let pid = &self.pid;
-        let process = PROCESS_TABLE
-            .wait()
-            .lock()
-            .get(pid)
-            .ok_or(ThreadError::Other(format!("Invalid process id: {pid}")))?;
-        let process = unsafe { &mut *process };
-        const STACK_PAGES: usize = THREAD_STACK_SIZE / 0x1000; // just 3 lol
-        const STACK_REGION_START: usize = 0x7FFF_D000;
-        const STACK_GUARD: usize = 0x7FFF_C000;
-        process
-            .map_size(STACK_GUARD, STACK_PAGES + 1, 0, 0, PagePermissions::RWXU) // map an extra page for the guard below the stack
-            .map_err(|err| ThreadError::Other(err.to_string()))?;
-        Ok(())
     }
     fn name_from_str(chars: &str) -> [u8; 16] {
         let mut name = [32u8; 16]; // Fill with white space
@@ -209,12 +213,15 @@ impl Thread {
     pub fn mut_ptr(&mut self) -> *mut Thread {
         core::ptr::from_mut(self)
     }
-    pub fn id(&self) -> u32 {
-        self.id
+    pub fn tid(&self) -> u32 {
+        self.id.tid
+    }
+    pub fn pid(&self) -> u32 {
+        self.id.pid
     }
     /// Whether this thread is the main thread with id 0.
     pub fn is_main(&self) -> bool {
-        self.id == 0
+        self.id == ThreadId::main()
     }
 }
 
@@ -252,7 +259,7 @@ pub struct Context {
 impl Context {
     /// Prepares the stack for initial load. Returns the new Context
     /// # Safety
-    pub unsafe fn new(entry: usize, stack_bottom: usize, tls_start: usize) -> Self {
+    pub fn new(entry: usize, stack_bottom: usize, tls_start: usize) -> Self {
         let frame_ptr = (stack_bottom - 56) as *mut u32;
         unsafe {
             // zero out all registers

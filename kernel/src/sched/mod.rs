@@ -55,7 +55,7 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
     PROCESS_TABLE.set(Mutex::new(ProcessTable::new()));
 
     let main_thread = Thread::main(stack_top, stack_bottom);
-    let tid = unsafe { &*main_thread }.id(); // should be 0
+    let tid = unsafe { &*main_thread }.id.tid; // should be 0
 
     let allocator = PAGE_ALLOCATOR.wait();
     let table =

@@ -35,7 +35,7 @@ use crate::{
         error::{ProcessError, ThreadError},
         kernel_root,
         scheduler::CURRENT_PROCESS,
-        thread::{Priority, Thread},
+        thread::thread::{Priority, Thread},
     },
 };
 
@@ -58,23 +58,20 @@ pub struct Process {
 }
 
 impl Process {
-    fn new(name: &str, pid: u32, address_space: AddressSpace, threads: Vec<Thread>) -> *mut Self {
-        let threads = threads.iter().map(|f| Some(f.clone())).collect();
+    fn new(name: &str, pid: u32, address_space: AddressSpace) -> *mut Self {
         Box::into_raw(Box::new(Self {
             name: name.to_owned(),
             pid,
             address_space,
-            threads,
-            next_tid: Vec::new(),
+            threads: Vec::new(),
             fds: Vec::new(),
         }))
     }
     /// returns the next
     /// Creates the kernel process and adds it to the
-    pub fn kernel(main_tid: u32, address_space: AddressSpace) -> Result<u32, ThreadError> {
-        let mut thread_set = BTreeSet::new();
-        thread_set.insert(main_tid);
-        let process = Self::new("Kernel", 0, address_space, thread_set);
+    pub fn kernel(main_thread: Thread, address_space: AddressSpace) -> Result<u32, ThreadError> {
+        let threads = alloc::vec![main_thread];
+        let process = Self::new("Kernel", 0, address_space);
         PROCESS_TABLE.wait().lock().insert(0, process);
         Ok(0)
     }
@@ -92,12 +89,12 @@ impl Process {
             .fork(kernel_root(), fork_asid)
             .map_err(|err| ProcessError::OutOfResources(err.to_string()))?;
         let pid = alloc_pid();
-        let process = Self::new(name, pid, address_space, Vec::new());
+        let process = Self::new(name, pid, address_space);
         PROCESS_TABLE.wait().lock().insert(pid, process);
         Ok(pid)
     }
     /// creates a new proces
-    pub fn spawn(name: &str, entry: *const fn()) -> Result<u32, ThreadError> {
+    pub fn spawn(name: &str, entry: usize) -> Result<u32, ThreadError> {
         let asid = ASID_ALLOCATOR
             .wait()
             .lock()
@@ -107,17 +104,21 @@ impl Process {
             .map_err(|memerr| ThreadError::Other(format!("{memerr}")))?;
 
         let pid = alloc_pid();
-        let thread = Thread::new(pid, &name, Priority::Normal, entry as usize);
-        let process = Self::new(name, pid, addr_space, alloc::vec![thread]);
+        let process_ptr = Self::new(name, pid, addr_space);
+        unsafe {
+            // spawn the entry thread on the process
+            (*process_ptr).spawn_thread(name, entry);
+        }
+        let thread = Thread::new(pid, 0, &name, Priority::Normal, entry as usize)?;
 
         PROCESS_TABLE
             .wait()
             .lock()
-            .insert(pid, process)
+            .insert(pid, process_ptr)
             .ok_or(ThreadError::Other(format!(
                 "Failed to insert process with id {pid} into table, already exists"
             )));
-        SCHEDULER.wait().lock().schedule(thread_ptr)?;
+        SCHEDULER.wait().lock().schedule(thread)?;
         Ok(pid)
     }
     pub fn pid(&self) -> u32 {
@@ -127,7 +128,13 @@ impl Process {
         &self.address_space
     }
     pub fn contains_thread(&self, tid: u32) -> bool {
-        self.threads.contains(&tid)
+        self.threads.iter().any(|thread| {
+            if let Some(t) = thread {
+                t.id.tid == tid
+            } else {
+                false
+            }
+        })
     }
     /// adds a new thread id to this thread's owned TIDs. If the thread ID is already present, returns [`Some`], returns [`None`] if the assignment was successful
     pub fn spawn_thread(&mut self, name: &str, entry: usize) -> Option<()> {
@@ -137,12 +144,9 @@ impl Process {
                 self.threads.push(None);
                 self.threads.len() - 1
             }
-        }
-        let thread = Thread::new(self.pid, name, priority, entry);
-        if self.threads.(&tid) {
-            return None;
-        }
-        self.threads.insert(tid);
+        };
+        let thread = Thread::new(self.pid, tid as u32, name, Priority::Normal, entry).ok();
+        self.threads.insert(tid, thread);
         Some(())
     }
     pub fn next_tid(&self) -> Option<usize> {
