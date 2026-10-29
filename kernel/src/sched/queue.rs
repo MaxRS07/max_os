@@ -1,6 +1,6 @@
 use core::fmt::Debug;
 
-use alloc::{collections::VecDeque, string::ToOwned};
+use alloc::{borrow::ToOwned, collections::VecDeque};
 
 use crate::sched::{error::ThreadError, thread::thread::ThreadId};
 
@@ -37,7 +37,7 @@ impl RunQueue {
         self.dequeue()
     }
 
-    pub fn remove(&mut self, thread: ThreadId) -> Result<ThreadId, ThreadError> {
+    pub fn remove(&mut self, thread: ThreadId) -> Result<(), ThreadError> {
         let index = self
             .threads
             .iter()
@@ -46,7 +46,8 @@ impl RunQueue {
 
         self.threads
             .remove(index)
-            .ok_or_else(|| ThreadError::Other("Failed to remove thread".to_owned()))
+            .ok_or_else(|| ThreadError::Other("Failed to remove thread".to_owned()))?;
+        Ok(())
     }
 
     pub fn remove_first<F>(&mut self, mut predicate: F) -> Option<ThreadId>

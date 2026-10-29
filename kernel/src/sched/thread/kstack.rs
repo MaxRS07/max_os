@@ -59,16 +59,19 @@ impl KernelStack {
     pub fn tls(&self) -> *mut u8 {
         self.base.as_ptr()
     }
-    /// returns the start address of the guard page
-    pub fn guard(&self) -> usize {
-        self.base.addr().get() - 0x1000
-    }
+    // TODO: Add stack guard to stop overflow
+    // returns the start address of the guard page
+    // pub fn guard(&self) -> usize {
+    //     self.base.addr().get() - 0x1000
+    // }
 
-    pub fn free(&self, page_allocator: &mut dyn Pager) {
+    pub fn free(&self) {
         for offset in 0..self.layout.size().div_ceil(0x1000) {
             let ptr = unsafe { self.tls().add(0x1000 * offset) };
-            page_allocator.free(ptr);
+            unsafe {
+                alloc::alloc::dealloc(ptr, self.layout);
+            }
         }
-        page_allocator.free(self.guard() as *mut u8);
+        // alloc::alloc::dealloc(ptr, layout); TODO: FREE GUARD
     }
 }

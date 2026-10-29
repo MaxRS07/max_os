@@ -2,8 +2,13 @@ use core::fmt::Display;
 
 use alloc::{format, string::String};
 
+use crate::sched::thread::thread::ThreadId;
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ThreadError {
+    BadPid(u32),
+    BadTid(u32),
+    BadId(ThreadId),
     Other(String),
 }
 

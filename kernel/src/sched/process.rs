@@ -35,17 +35,45 @@ use crate::{
         error::{ProcessError, ThreadError},
         kernel_root,
         scheduler::CURRENT_PROCESS,
-        thread::thread::{Priority, Thread},
+        thread::thread::{Priority, Thread, ThreadId},
     },
 };
 
 pub static PID_ALLOCATOR: AtomicU32 = AtomicU32::new(0);
 /// Process table for pid -> process lookup.
-pub type ProcessTable = HashMap<u32, *mut Process>;
+pub struct ProcessTable {
+    table: BTreeMap<u32, Process>,
+}
+
+impl ProcessTable {
+    pub fn new() -> Self {
+        Self {
+            table: BTreeMap::new(),
+        }
+    }
+    pub fn thread_mut<'a>(&'a mut self, id: ThreadId) -> Result<&'a mut Thread, ThreadError> {
+        self.process_mut(id.pid)?.thread_mut(id.tid)
+    }
+    /// drops and cleans up the thread with id: `thread_id`, removing it from it's parent process. Returns [`None`] if the thread was not found.
+    pub fn drop_thread(&mut self, id: ThreadId) -> Result<(), ThreadError> {
+        self.process_mut(id.pid)?
+            .remove_thread(id.tid)
+            .ok_or(ThreadError::BadTid(id.tid))
+    }
+    pub fn insert(&mut self, process: Process) -> Option<Process> {
+        self.table.insert(process.pid, process)
+    }
+    pub fn process_mut(&mut self, pid: u32) -> Result<&mut Process, ThreadError> {
+        self.table.get_mut(&pid).ok_or(ThreadError::BadPid(pid))
+    }
+    pub fn process(&mut self, pid: u32) -> Result<&Process, ThreadError> {
+        self.table.get(&pid).ok_or(ThreadError::BadPid(pid))
+    }
+}
 
 pub const MAX_FDS: u32 = 64;
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct Process {
     name: String,
     /// process identifier
@@ -58,21 +86,21 @@ pub struct Process {
 }
 
 impl Process {
-    fn new(name: &str, pid: u32, address_space: AddressSpace) -> *mut Self {
-        Box::into_raw(Box::new(Self {
+    fn new(name: &str, pid: u32, address_space: AddressSpace) -> Self {
+        Self {
             name: name.to_owned(),
             pid,
             address_space,
             threads: Vec::new(),
             fds: Vec::new(),
-        }))
+        }
     }
     /// returns the next
     /// Creates the kernel process and adds it to the
     pub fn kernel(main_thread: Thread, address_space: AddressSpace) -> Result<u32, ThreadError> {
         let threads = alloc::vec![main_thread];
         let process = Self::new("Kernel", 0, address_space);
-        PROCESS_TABLE.wait().lock().insert(0, process);
+        PROCESS_TABLE.wait().lock().insert(process);
         Ok(0)
     }
     /// Forks this process with a new name and entry, copying the address space
@@ -90,7 +118,7 @@ impl Process {
             .map_err(|err| ProcessError::OutOfResources(err.to_string()))?;
         let pid = alloc_pid();
         let process = Self::new(name, pid, address_space);
-        PROCESS_TABLE.wait().lock().insert(pid, process);
+        PROCESS_TABLE.wait().lock().insert(process);
         Ok(pid)
     }
     /// creates a new proces
@@ -104,21 +132,18 @@ impl Process {
             .map_err(|memerr| ThreadError::Other(format!("{memerr}")))?;
 
         let pid = alloc_pid();
-        let process_ptr = Self::new(name, pid, addr_space);
-        unsafe {
-            // spawn the entry thread on the process
-            (*process_ptr).spawn_thread(name, entry);
-        }
+        let mut process = Self::new(name, pid, addr_space);
+        process.spawn_thread(name, entry);
         let thread = Thread::new(pid, 0, &name, Priority::Normal, entry as usize)?;
 
         PROCESS_TABLE
             .wait()
             .lock()
-            .insert(pid, process_ptr)
+            .insert(process)
             .ok_or(ThreadError::Other(format!(
                 "Failed to insert process with id {pid} into table, already exists"
             )));
-        SCHEDULER.wait().lock().schedule(thread)?;
+        SCHEDULER.wait().lock().schedule(thread.id)?;
         Ok(pid)
     }
     pub fn pid(&self) -> u32 {
@@ -153,11 +178,27 @@ impl Process {
         self.threads.iter().position(|t| t.is_none())
     }
     /// Removes a thread with the id `tid` from this process. Returns [`Some`] if the removal was successful or [`None`] if the process doesnt own `tid`
-    pub fn remove_thread(&mut self, tid: u32) {
-        (*self
+    pub fn remove_thread(&mut self, tid: u32) -> Option<()> {
+        let thread = self
             .threads
             .iter_mut()
-            .find(|t| t.is_some_and(|t| t.id() == tid))?) = None;
+            .find(|t| t.as_ref().is_some_and(|t| t.id.tid == tid))?;
+        Some((*thread) = None)
+    }
+
+    pub fn thread_mut(&mut self, id: u32) -> Result<&mut Thread, ThreadError> {
+        self.threads
+            .get_mut(id as usize)
+            .ok_or(ThreadError::BadTid(id))?
+            .as_mut()
+            .ok_or(ThreadError::BadTid(id))
+    }
+    pub fn thread(&mut self, id: u32) -> Result<&Thread, ThreadError> {
+        self.threads
+            .get(id as usize)
+            .ok_or(ThreadError::BadTid(id))?
+            .as_ref()
+            .ok_or(ThreadError::BadTid(id))
     }
 
     pub fn destroy(&mut self) {

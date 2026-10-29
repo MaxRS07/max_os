@@ -1,6 +1,11 @@
 use ::mem::page_table::{address_space::Addresser, permissions::PagePermissions};
 use alloc::{
-    borrow::ToOwned, boxed::Box, format, str::from_boxed_utf8_unchecked, string::ToString,
+    borrow::ToOwned,
+    boxed::Box,
+    format,
+    str::from_boxed_utf8_unchecked,
+    string::{String, ToString},
+    vec::Vec,
 };
 use fs::meta::context;
 use log::{debug, info, warn};
@@ -119,9 +124,9 @@ pub struct Thread {
 
 impl Thread {
     /// Returns a preconfigured main thread. Does not have an entry point. Does not allocate stack or tls in memory.
-    pub fn main(stack_top: *mut u8, stack_bottom: *mut u8) -> *mut Thread {
-        let kernel_stack = KernelStack::new(stack_bottom, usize, tls_len);
-        let main = Self {
+    pub fn main() -> Thread {
+        let kernel_stack = KernelStack::alloc().unwrap();
+        Self {
             id: ThreadId::main(), // main thread
             name: Self::name_from_str("main"),
             state: State::Running, // The main thread creates itself, hence it is running
@@ -130,9 +135,7 @@ impl Thread {
             lifetime: 0,
             kernel_stack,
             user_stack: None,
-        };
-        let main_box = Box::new(main);
-        Box::into_raw(main_box)
+        }
     }
     /// attempts to create a new thread and allocate its stack in kernel and userspace
     pub fn new(
@@ -144,9 +147,9 @@ impl Thread {
     ) -> Result<Self, ThreadError> {
         let id = ThreadId { pid, tid };
         let name = Self::name_from_str(name);
-        let kernel_stack = KernelStack::alloc().ok_or(Err(ThreadError::Other(
+        let kernel_stack = KernelStack::alloc().ok_or(ThreadError::Other(
             "Failed to allocate Kernel Stack".to_owned(),
-        )))?;
+        ))?;
         let user_stack = UserStack::alloc(id);
         let context = Context::new(entry, kernel_stack.top(), kernel_stack.tls().addr());
         Ok(Self {
@@ -227,8 +230,7 @@ impl Thread {
 
 impl Drop for Thread {
     fn drop(&mut self) {
-        let layout = Layout::from_size_align(self.total_size, 8).unwrap();
-        unsafe { alloc::alloc::dealloc(self.tls_start.cast_mut(), layout) };
+        self.kernel_stack.free();
     }
 }
 
@@ -241,7 +243,7 @@ impl Display for Thread {
         f.write_fmt(format_args!(
             "{}@{:x}",
             self.get_name_str(),
-            self.kernel_stack.addr(),
+            self.kernel_stack.top(),
         ))
     }
 }
@@ -255,7 +257,6 @@ pub struct Context {
     /// pointer to the thread local storage block, tp is set to this when context is loaded
     pub thread_pointer: *mut usize,
 }
-
 impl Context {
     /// Prepares the stack for initial load. Returns the new Context
     /// # Safety

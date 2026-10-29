@@ -60,3 +60,12 @@ pub fn switch_address_space(satp: usize) {
         core::arch::asm!("sfence.vma x0, x0", options(nostack));
     }
 }
+
+pub fn switch_to(satp: Option<usize>, old_sp: *mut *mut usize, new_sp: *mut usize) {
+    if let Some(satp) = satp {
+        switch_address_space(satp);
+    }
+    unsafe {
+        thread_context_switch(old_sp, new_sp);
+    }
+}
