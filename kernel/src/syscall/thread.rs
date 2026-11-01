@@ -4,7 +4,11 @@ use alloc::{borrow::ToOwned, string::ToString};
 use log::{error, warn};
 
 use crate::{
-    sched::{SCHEDULER, scheduler::Scheduler},
+    sched::{
+        SCHEDULER,
+        scheduler::Scheduler,
+        thread::thread::{Priority, ThreadId},
+    },
     syscall::{
         error::SyscallError,
         op::{SysOp, exit, str_from_args},
@@ -41,25 +45,27 @@ impl SysOp for ThreadOp {
                 let (pid, name, name_len, priority, entry, out_addr, ..) = args;
                 let out_ptr = out_addr as *mut u32;
                 let name_str = unsafe { str_from_args(name, name_len)? };
-                match Thread::spawn(
-                    pid as u32,
-                    name_str.as_str(),
-                    Priority::from(priority),
-                    entry,
-                ) {
-                    Some(tid) => {
-                        write_return!(ktx, tid as isize);
+                let process = ktx.get_process(pid as u32)?;
+                match process.spawn_thread(name_str.as_str(), entry) {
+                    Some(id) => {
+                        let tid = id.tid;
+                        write_return!(ktx, pid as isize, tid as isize);
                         Ok(())
                     }
                     None => Err(SyscallError::Failed("Failed to queue thread".to_owned())),
                 }
             }
             Self::Cancel => {
-                let (id, ..) = args;
-                SCHEDULER.wait().lock().canel_id(id as u32).map_err(|err| {
-                    error!("{err}");
-                    SyscallError::Failed(err.to_string())
-                })
+                let (pid, tid, ..) = args;
+                let thread_id = ThreadId::new(pid as u32, tid as u32);
+                SCHEDULER
+                    .wait()
+                    .lock()
+                    .canel_thread(thread_id)
+                    .map_err(|err| {
+                        error!("{err}");
+                        SyscallError::Failed(err.to_string())
+                    })
             }
             Self::Yield => Ok(SCHEDULER.wait().lock().yield_thread()),
         }

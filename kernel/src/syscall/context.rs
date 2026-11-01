@@ -4,7 +4,7 @@ use core::{
     sync::atomic::Ordering,
 };
 
-use alloc::{borrow::ToOwned, format};
+use alloc::{borrow::ToOwned, format, string::ToString};
 use fs::vfs::{self, Vfs};
 use log::error;
 use sync::mutex_guard::MutexGuard;
@@ -35,30 +35,26 @@ impl KernelContext {
         }
     }
     pub fn process(&self) -> Result<&mut Process, SyscallError> {
-        let process = CURRENT_PROCESS.load(Ordering::Acquire);
-        if process.is_null() {
-            return Err(SyscallError::Busy(format!(
-                "Failed to retrieve running process"
-            )));
-        }
-        Ok(unsafe { &mut *process })
+        let pid = CURRENT_PROCESS.load(Ordering::Acquire);
+        let pmut = PROCESS_TABLE
+            .wait()
+            .lock()
+            .process_mut(pid)
+            .map_err(|err| SyscallError::Failed(err.to_string()))?;
+        Ok(pmut)
     }
     pub fn get_process(&self, pid: u32) -> Result<&mut Process, SyscallError> {
-        match PROCESS_TABLE.wait().lock().get(&pid) {
-            Some(process) => Ok(unsafe { &mut *process }),
-            None => Err(SyscallError::InvalidArg(
-                "Failed to get process, PID invalid".to_owned(),
-            )),
-        }
+        let mut process_table = PROCESS_TABLE.wait().lock();
+        process_table
+            .process_mut(pid)
+            .map_err(|err| SyscallError::Failed(err.to_string()))
     }
-    pub fn remove_process(&self, pid: u32) -> Result<*mut Process, SyscallError> {
+    pub fn remove_process(&self, pid: u32) -> Result<(), SyscallError> {
         PROCESS_TABLE
             .wait()
             .lock()
-            .remove(&pid)
-            .ok_or(SyscallError::InvalidArg(format!(
-                "Failed to kill process, invalid pid: {pid}"
-            )))
+            .remove_process(pid)
+            .map_err(|err| SyscallError::Failed(err.to_string()))
     }
     pub fn vfs(&self) -> Result<RefMut<'_, Vfs<'static>>, SyscallError> {
         let mut slot = self

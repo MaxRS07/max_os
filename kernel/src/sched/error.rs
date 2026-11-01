@@ -7,8 +7,7 @@ use crate::sched::thread::thread::ThreadId;
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ThreadError {
     BadPid(u32),
-    BadTid(u32),
-    BadId(ThreadId),
+    BadTid(ThreadId),
     Other(String),
 }
 
@@ -16,6 +15,10 @@ impl Display for ThreadError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Other(msg) => f.write_str(msg),
+            Self::BadPid(pid) => f.write_fmt(format_args!("Invalid PID: {pid}, process not found")),
+            Self::BadTid(thread_id) => f.write_fmt(format_args!(
+                "Invalid thread id: {thread_id:?}, thread not found"
+            )),
         }
     }
 }

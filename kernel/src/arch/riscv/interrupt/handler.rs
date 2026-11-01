@@ -147,7 +147,7 @@ pub extern "C" fn s_trap_handler(frame: *mut usize) {
                         let run_next = scheduler.handle_interrupt();
                         match run_next {
                             Ok((old_sp, new_sp, satp)) => {
-                                crate::sched::scheduler::switch_to(satp, old_sp, new_sp)
+                                crate::sched::context::switch_to(satp, old_sp, new_sp)
                             }
                             Err(msg) => error!("Failed to schedule next thread: {msg}"),
                         }

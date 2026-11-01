@@ -1,4 +1,5 @@
 use alloc::{borrow::ToOwned, format};
+use mem::page_table::permissions::PagePermissions;
 
 use crate::sched::{
     PROCESS_TABLE,
@@ -28,15 +29,9 @@ impl UserStack {
             return None;
         }
         let pid = id.pid;
-        let process_ptr =
-            PROCESS_TABLE
-                .wait()
-                .lock()
-                .get(&thread.pid())
-                .ok_or(ThreadError::Other(format!(
-                    "Invalid pid: {pid}, process not found"
-                )))?;
-        let process = unsafe { &mut *process };
+        let process_table = PROCESS_TABLE.wait().lock();
+        let process = process_table.process_mut(pid)
+        let thread = process_table.thread_mut(id).ok()?;
 
         let offset = id.tid as usize;
         let region_size = USER_GUARD_SIZE + USER_STACK_SIZE;

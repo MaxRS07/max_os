@@ -55,14 +55,15 @@ impl Scheduler {
         }
     }
     pub fn set_running(&mut self, id: ThreadId) -> Result<(), ThreadError> {
-        let pid = id.pid;
-        let tid = id.tid;
-        let thread = PROCESS_TABLE
+        // make sure thread exists
+        if !PROCESS_TABLE
             .wait()
             .lock()
-            .process_mut(pid)?
-            .thread_mut(tid)
-            .ok_or(ThreadError::Other(format!("Invalid TID on thread {pid}")))?;
+            .process_mut(id.pid)?
+            .contains_thread(id.tid)
+        {
+            return Err(ThreadError::BadTid(id));
+        }
         CURRENT_PROCESS.store(id.pid, Ordering::Release);
         self.running = Some(id);
         Ok(())

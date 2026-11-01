@@ -18,7 +18,7 @@ use crate::{
         context::switch_address_space,
         error::ThreadError,
         process::ProcessTable,
-        scheduler::{CURRENT_PROCESS, switch_to},
+        scheduler::CURRENT_PROCESS,
         thread::{self, kstack::KernelStack, ustack::UserStack},
     },
 };
@@ -92,6 +92,9 @@ pub struct ThreadId {
     pub tid: u32,
 }
 impl ThreadId {
+    pub fn new(pid: u32, tid: u32) -> Self {
+        Self { pid, tid }
+    }
     /// This identifier is always reserved for the main thread of the kernel process
     pub const fn main() -> Self {
         Self { pid: 0, tid: 0 }
@@ -194,12 +197,10 @@ impl Thread {
     }
     /// Tries to spawn a new thread under the current running process. Returns [`None`] if the current process is *null*
     pub fn spawn_local(name: &str, entry: usize) -> Option<ThreadId> {
-        let pptr = CURRENT_PROCESS.load(Ordering::Acquire);
-        if pptr.is_null() {
-            return None;
-        }
-        let pid = unsafe { (*pptr).pid() };
-        Thread::spawn(pid, name, Priority::Normal, entry)
+        let pid = CURRENT_PROCESS.load(Ordering::Acquire);
+        let mut process_table = PROCESS_TABLE.wait().lock();
+        let pmut = process_table.process_mut(pid).ok()?;
+        pmut.spawn_thread(name, entry)
     }
     fn name_from_str(chars: &str) -> [u8; 16] {
         let mut name = [32u8; 16]; // Fill with white space

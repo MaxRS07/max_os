@@ -51,14 +51,21 @@ impl ProcessTable {
             table: BTreeMap::new(),
         }
     }
-    pub fn thread_mut<'a>(&'a mut self, id: ThreadId) -> Result<&'a mut Thread, ThreadError> {
+    pub fn thread_mut(&mut self, id: ThreadId) -> Result<&mut Thread, ThreadError> {
         self.process_mut(id.pid)?.thread_mut(id.tid)
+    }
+    /// removes the process with pid `pid` from the table and deallocates all fields
+    pub fn remove_process(&mut self, pid: u32) -> Result<(), ThreadError> {
+        self.table
+            .remove(&pid)
+            .map(|mut process| process.destroy())
+            .ok_or(ThreadError::BadPid(pid))
     }
     /// drops and cleans up the thread with id: `thread_id`, removing it from it's parent process. Returns [`None`] if the thread was not found.
     pub fn drop_thread(&mut self, id: ThreadId) -> Result<(), ThreadError> {
         self.process_mut(id.pid)?
             .remove_thread(id.tid)
-            .ok_or(ThreadError::BadTid(id.tid))
+            .ok_or(ThreadError::BadTid(id))
     }
     pub fn insert(&mut self, process: Process) -> Option<Process> {
         self.table.insert(process.pid, process)
@@ -162,7 +169,7 @@ impl Process {
         })
     }
     /// adds a new thread id to this thread's owned TIDs. If the thread ID is already present, returns [`Some`], returns [`None`] if the assignment was successful
-    pub fn spawn_thread(&mut self, name: &str, entry: usize) -> Option<()> {
+    pub fn spawn_thread(&mut self, name: &str, entry: usize) -> Option<ThreadId> {
         let tid = match self.next_tid() {
             Some(id) => id,
             None => {
@@ -170,9 +177,10 @@ impl Process {
                 self.threads.len() - 1
             }
         };
-        let thread = Thread::new(self.pid, tid as u32, name, Priority::Normal, entry).ok();
-        self.threads.insert(tid, thread);
-        Some(())
+        let thread = Thread::new(self.pid, tid as u32, name, Priority::Normal, entry).ok()?;
+        let id = thread.id;
+        self.threads.insert(tid, Some(thread));
+        Some(id)
     }
     pub fn next_tid(&self) -> Option<usize> {
         self.threads.iter().position(|t| t.is_none())
@@ -186,16 +194,18 @@ impl Process {
         Some((*thread) = None)
     }
 
-    pub fn thread_mut(&mut self, id: u32) -> Result<&mut Thread, ThreadError> {
+    pub fn thread_mut(&mut self, tid: u32) -> Result<&mut Thread, ThreadError> {
+        let id = ThreadId::new(self.pid, tid);
         self.threads
-            .get_mut(id as usize)
+            .get_mut(tid as usize)
             .ok_or(ThreadError::BadTid(id))?
             .as_mut()
             .ok_or(ThreadError::BadTid(id))
     }
-    pub fn thread(&mut self, id: u32) -> Result<&Thread, ThreadError> {
+    pub fn thread(&mut self, pid: u32) -> Result<&Thread, ThreadError> {
+        let id = ThreadId::new(self.pid, tid);
         self.threads
-            .get(id as usize)
+            .get(pid as usize)
             .ok_or(ThreadError::BadTid(id))?
             .as_ref()
             .ok_or(ThreadError::BadTid(id))

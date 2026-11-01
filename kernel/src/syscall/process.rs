@@ -70,7 +70,6 @@ impl SysOp for ProcessOp {
             Self::Kill => {
                 let (pid, ..) = args;
                 let process = ktx.remove_process(pid as u32)?;
-                unsafe { (*process).destroy() }; // deallocate process and drop asid + fd
                 Ok(())
             }
             Self::Wait => todo!(),

@@ -24,7 +24,7 @@ use crate::{
         error::ThreadError,
         process::{Process, ProcessTable},
         scheduler::Scheduler,
-        thread::thread::Thread,
+        thread::thread::{Thread, ThreadId},
     },
 };
 
@@ -66,7 +66,7 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
     let kspace =
         AddressSpace::from_root(allocator, (*KERNEL_ROOT.wait()) as *mut Table, ASID::KERNEL);
     Process::kernel(main_thread, kspace)?;
-    SCHEDULER.wait().lock().set_running(main_thread.id);
+    SCHEDULER.wait().lock().set_running(ThreadId::main());
 
     info!("Created main thread");
     Ok(())
