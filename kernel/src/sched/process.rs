@@ -18,11 +18,14 @@ use alloc::{
 };
 use collections::hashmap::HashMap;
 use fs::{collections::error::FSError, storage::fileobject::FileObject};
-use mem::page_table::{
-    address_space::{AddressSpace, Addresser},
-    asid::{ASID, ASIDAllocator},
-    permissions::PagePermissions,
-    table::Table,
+use mem::{
+    error::MemoryError,
+    page_table::{
+        address_space::{AddressSpace, Addresser},
+        asid::{ASID, ASIDAllocator},
+        permissions::PagePermissions,
+        table::Table,
+    },
 };
 use sync::mutex::Mutex;
 
@@ -35,10 +38,14 @@ use crate::{
         error::{ProcessError, ThreadError},
         kernel_root,
         scheduler::CURRENT_PROCESS,
-        thread::thread::{Priority, Thread, ThreadId},
+        thread::{
+            thread::{Priority, Thread, ThreadId},
+            ustack::{PROCESS_STACK_TOP, UserStack},
+        },
     },
 };
 
+pub static PROCESS_MAP_BASE: usize = 0x4000_0000;
 pub static PID_ALLOCATOR: AtomicU32 = AtomicU32::new(0);
 /// Process table for pid -> process lookup.
 pub struct ProcessTable {
@@ -128,7 +135,7 @@ impl Process {
         PROCESS_TABLE.wait().lock().insert(process);
         Ok(pid)
     }
-    /// creates a new proces
+    /// creates a new process
     pub fn spawn(name: &str, entry: usize) -> Result<u32, ThreadError> {
         let asid = ASID_ALLOCATOR
             .wait()
@@ -140,8 +147,11 @@ impl Process {
 
         let pid = alloc_pid();
         let mut process = Self::new(name, pid, addr_space);
-        process.spawn_thread(name, entry);
-        let thread = Thread::new(pid, 0, &name, Priority::Normal, entry as usize)?;
+        let id = process
+            .spawn_thread(name, entry)
+            .ok_or(ThreadError::Other(format!(
+                "Failed to create entry thread for process"
+            )))?;
 
         PROCESS_TABLE
             .wait()
@@ -149,8 +159,8 @@ impl Process {
             .insert(process)
             .ok_or(ThreadError::Other(format!(
                 "Failed to insert process with id {pid} into table, already exists"
-            )));
-        SCHEDULER.wait().lock().schedule(thread.id)?;
+            )))?;
+        SCHEDULER.wait().lock().schedule(id)?;
         Ok(pid)
     }
     pub fn pid(&self) -> u32 {
@@ -177,9 +187,18 @@ impl Process {
                 self.threads.len() - 1
             }
         };
-        let thread = Thread::new(self.pid, tid as u32, name, Priority::Normal, entry).ok()?;
-        let id = thread.id;
-        self.threads.insert(tid, Some(thread));
+        let user_stack = UserStack::alloc(tid, &mut self.address_space).ok()?;
+        let thread = Thread::new(
+            self.pid,
+            tid as u32,
+            name,
+            Priority::Normal,
+            user_stack,
+            entry,
+        )
+        .ok()?;
+        let id: ThreadId = thread.id;
+        self.threads[tid] = Some(thread);
         Some(id)
     }
     pub fn next_tid(&self) -> Option<usize> {
@@ -191,6 +210,9 @@ impl Process {
             .threads
             .iter_mut()
             .find(|t| t.as_ref().is_some_and(|t| t.id.tid == tid))?;
+        if let Some(thread) = thread.as_mut() {
+            thread.free_ustack(&mut self.address_space);
+        }
         Some((*thread) = None)
     }
 
@@ -202,10 +224,10 @@ impl Process {
             .as_mut()
             .ok_or(ThreadError::BadTid(id))
     }
-    pub fn thread(&mut self, pid: u32) -> Result<&Thread, ThreadError> {
+    pub fn thread(&mut self, tid: u32) -> Result<&Thread, ThreadError> {
         let id = ThreadId::new(self.pid, tid);
         self.threads
-            .get(pid as usize)
+            .get(tid as usize)
             .ok_or(ThreadError::BadTid(id))?
             .as_ref()
             .ok_or(ThreadError::BadTid(id))
@@ -213,7 +235,10 @@ impl Process {
 
     pub fn destroy(&mut self) {
         let _ = self.address_space.destroy();
-        drop(&self.fds)
+        ASID_ALLOCATOR
+            .wait()
+            .lock()
+            .set_free(self.address_space.asid().value() as usize);
     }
 
     /* Address Space Helpers */
@@ -223,11 +248,19 @@ impl Process {
         &mut self,
         virt_addr: usize,
         size: usize,
-        _phys_addr: usize,
         flags: usize,
         perms: PagePermissions,
     ) -> Result<(), mem::error::MemoryError> {
         let pages = size.div_ceil(0x1000);
+        let mut virt_addr = virt_addr;
+        if virt_addr == 0 {
+            virt_addr = self
+                .address_space
+                .find_free(pages, PROCESS_MAP_BASE, PROCESS_STACK_TOP)
+                .ok_or(MemoryError::OutOfMemory(
+                    "Failed to map pages to process, address space full",
+                ))?;
+        }
         self.address_space.map_pages(virt_addr, pages, flags, perms)
     }
     /// Unmaps `size` from this process's address space beggining at `virt_addr`

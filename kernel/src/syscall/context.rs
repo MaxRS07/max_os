@@ -7,12 +7,16 @@ use core::{
 use alloc::{borrow::ToOwned, format, string::ToString};
 use fs::vfs::{self, Vfs};
 use log::error;
-use sync::mutex_guard::MutexGuard;
+use sync::{map_guard::MappedMutexGuard, mutex_guard::MutexGuard};
 
 use crate::{
     drivers::time::GLOBAL_TIME,
     fs::GLOBAL_FS,
-    sched::{PROCESS_TABLE, process::Process, scheduler::CURRENT_PROCESS},
+    sched::{
+        PROCESS_TABLE,
+        process::{Process, ProcessTable},
+        scheduler::CURRENT_PROCESS,
+    },
     syscall::error::SyscallError,
 };
 
@@ -34,20 +38,21 @@ impl KernelContext {
             trap_frame: trap_frame as *mut TrapFrame,
         }
     }
-    pub fn process(&self) -> Result<&mut Process, SyscallError> {
+    pub fn process(&self) -> Result<MappedMutexGuard<'_, ProcessTable, Process>, SyscallError> {
         let pid = CURRENT_PROCESS.load(Ordering::Acquire);
-        let pmut = PROCESS_TABLE
-            .wait()
-            .lock()
-            .process_mut(pid)
-            .map_err(|err| SyscallError::Failed(err.to_string()))?;
-        Ok(pmut)
-    }
-    pub fn get_process(&self, pid: u32) -> Result<&mut Process, SyscallError> {
-        let mut process_table = PROCESS_TABLE.wait().lock();
+        let process_table = PROCESS_TABLE.wait().lock();
         process_table
-            .process_mut(pid)
-            .map_err(|err| SyscallError::Failed(err.to_string()))
+            .try_map(|table| table.process_mut(pid))
+            .map_err(|te| SyscallError::Failed(format!("{te}")))
+    }
+    pub fn get_process(
+        &self,
+        pid: u32,
+    ) -> Result<MappedMutexGuard<'_, ProcessTable, Process>, SyscallError> {
+        let process_table = PROCESS_TABLE.wait().lock();
+        process_table
+            .try_map(|table| table.process_mut(pid))
+            .map_err(|te| SyscallError::Failed(format!("{te}")))
     }
     pub fn remove_process(&self, pid: u32) -> Result<(), SyscallError> {
         PROCESS_TABLE

@@ -41,7 +41,7 @@ impl SysOp for FsOp {
                 let (path_ptr, path_len, mode, ..) = args;
                 let path = str_from_args(path_ptr, path_len)?;
                 let fo = open(ktx, &path, mode as u8)?;
-                let process = ktx.process()?;
+                let mut process = ktx.process()?;
                 let fd = process
                     .alloc_fd(fo)
                     .map_err(|err| SyscallError::Failed(format!("{err}")))?;
@@ -51,7 +51,7 @@ impl SysOp for FsOp {
             },
             Self::Read => unsafe {
                 let (fd, buf_addr, buf_len, ..) = args;
-                let process = ktx.process()?;
+                let mut process = ktx.process()?;
                 let fo = process
                     .file_mut(fd as u32)
                     .map_err(|err| SyscallError::Failed(err.to_string()))?;
@@ -69,7 +69,7 @@ impl SysOp for FsOp {
             },
             Self::Write => unsafe {
                 let (fd, buf_addr, buf_len, ..) = args;
-                let process = ktx.process()?;
+                let mut process = ktx.process()?;
                 let fo = process
                     .file_mut(fd as u32)
                     .map_err(|err| SyscallError::Failed(err.to_string()))?;
@@ -87,7 +87,7 @@ impl SysOp for FsOp {
             // close the file descriptor for this process
             Self::Close => {
                 let (fd, ..) = args;
-                let process = ktx.process()?;
+                let mut process = ktx.process()?;
                 process
                     .close_fd(fd as u32)
                     .map_err(|err| SyscallError::Failed(format!("{err}")))?;
@@ -95,7 +95,7 @@ impl SysOp for FsOp {
             }
             Self::Seek => {
                 let (fd, offset, mode, ..) = args;
-                let process = ktx.process()?;
+                let mut process = ktx.process()?;
                 let fo = process
                     .file_mut(fd as u32)
                     .map_err(|err| SyscallError::Failed(err.to_string()))?;

@@ -45,7 +45,7 @@ impl SysOp for ThreadOp {
                 let (pid, name, name_len, priority, entry, out_addr, ..) = args;
                 let out_ptr = out_addr as *mut u32;
                 let name_str = unsafe { str_from_args(name, name_len)? };
-                let process = ktx.get_process(pid as u32)?;
+                let mut process = ktx.get_process(pid as u32)?;
                 match process.spawn_thread(name_str.as_str(), entry) {
                     Some(id) => {
                         let tid = id.tid;

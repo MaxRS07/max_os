@@ -1,4 +1,7 @@
-use ::mem::page_table::{address_space::Addresser, permissions::PagePermissions};
+use ::mem::page_table::{
+    address_space::{AddressSpace, Addresser},
+    permissions::PagePermissions,
+};
 use alloc::{
     borrow::ToOwned,
     boxed::Box,
@@ -15,7 +18,7 @@ use crate::{
     console::writer::println,
     sched::{
         PROCESS_TABLE, SCHEDULER,
-        context::switch_address_space,
+        context::{switch_address_space, switch_to},
         error::ThreadError,
         process::ProcessTable,
         scheduler::CURRENT_PROCESS,
@@ -146,6 +149,7 @@ impl Thread {
         tid: u32,
         name: &str,
         priority: Priority,
+        user_stack: UserStack,
         entry: usize,
     ) -> Result<Self, ThreadError> {
         let id = ThreadId { pid, tid };
@@ -153,17 +157,16 @@ impl Thread {
         let kernel_stack = KernelStack::alloc().ok_or(ThreadError::Other(
             "Failed to allocate Kernel Stack".to_owned(),
         ))?;
-        let user_stack = UserStack::alloc(id);
         let context = Context::new(entry, kernel_stack.top(), kernel_stack.tls().addr());
         Ok(Self {
             id,
-            context: Context::empty(),
+            context,
             name,
             state: State::Waiting,
             priority,
             lifetime: 0,
             kernel_stack,
-            user_stack,
+            user_stack: Some(user_stack),
         })
     }
     /// Creates and enques a thread. Returns the unique ID of the thread or None if queing failed.
@@ -226,6 +229,11 @@ impl Thread {
     /// Whether this thread is the main thread with id 0.
     pub fn is_main(&self) -> bool {
         self.id == ThreadId::main()
+    }
+    pub fn free_ustack(&mut self, address_space: &mut AddressSpace) {
+        if let Some(us) = &mut self.user_stack {
+            us.free(address_space);
+        }
     }
 }
 
@@ -317,7 +325,7 @@ extern "C" fn thread_wrapper(entry: u32) -> ! {
         // release the scheduler lock before switching, this stack is never resumed
         let next = {
             let mut sched = SCHEDULER.wait().lock();
-            sched.terminate_running();
+            let _ = sched.terminate_running();
             sched.run_next()
         };
         if let Ok((old_sp, new_sp, satp)) = next {

@@ -1,5 +1,11 @@
 use alloc::{borrow::ToOwned, format};
-use mem::page_table::permissions::PagePermissions;
+use mem::{
+    error::MemoryError,
+    page_table::{
+        address_space::{AddressSpace, Addresser},
+        permissions::PagePermissions,
+    },
+};
 
 use crate::sched::{
     PROCESS_TABLE,
@@ -24,23 +30,16 @@ pub struct UserStack {
     guard: usize,
 }
 impl UserStack {
-    pub fn alloc(id: ThreadId) -> Option<Self> {
-        if id.pid == 0 {
-            return None;
-        }
-        let pid = id.pid;
-        let process_table = PROCESS_TABLE.wait().lock();
-        let process = process_table.process_mut(pid)
-        let thread = process_table.thread_mut(id).ok()?;
-
-        let offset = id.tid as usize;
+    pub fn alloc(tid: usize, space: &mut AddressSpace) -> Result<Self, MemoryError> {
         let region_size = USER_GUARD_SIZE + USER_STACK_SIZE;
-        let top = PROCESS_STACK_TOP - (offset * region_size);
+        let top = PROCESS_STACK_TOP - tid * region_size;
         let base = PROCESS_STACK_TOP - USER_STACK_SIZE;
+        // guard is unmapped, prevents thread stack from writing to another. TODO: handle allocations with >0x1000 layouts
         let guard = top - region_size;
-        process
-            .map_size(guard, STACK_PAGES, 0, 0, PagePermissions::RWXU) // map an extra page for the guard below the stack
-            .map_err(|err| ThreadError::Other(err.to_string()))?;
-        Some(Self { base, top, guard })
+        space.map_pages(base, STACK_PAGES, 0x0, PagePermissions::RW)?;
+        Ok(Self { base, top, guard })
+    }
+    pub fn free(&mut self, space: &mut AddressSpace) -> Result<(), MemoryError> {
+        space.unmap_pages(self.base, STACK_PAGES)
     }
 }

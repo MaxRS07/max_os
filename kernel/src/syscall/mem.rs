@@ -4,7 +4,7 @@ use mem::{error::MemoryError, page_table::permissions::PagePermissions};
 
 use crate::{
     sched::{PROCESS_TABLE, SCHEDULER},
-    syscall::{context::KernelContext, error::SyscallError, op::SysOp},
+    syscall::{Syscall, context::KernelContext, error::SyscallError, op::SysOp},
 };
 
 pub enum MemOp {
@@ -37,18 +37,12 @@ impl SysOp for MemOp {
     ) -> Result<(), SyscallError> {
         match self {
             Self::Map => {
-                let (virt_addr, size, phys_addr, flags, perms, ..) = args;
-                mmap(ktx, virt_addr, size, phys_addr, flags, perms).map_err(|err| {
-                    error!("{err}");
-                    SyscallError::Failed(err.to_string())
-                })
+                let (virt_addr, size, flags, perms, ..) = args;
+                mmap(ktx, virt_addr, size, flags, perms)
             }
             Self::Unmap => {
                 let (virt_addr, size, ..) = args;
-                munmap(ktx, virt_addr, size).map_err(|err| {
-                    error!("{err}");
-                    SyscallError::Failed(err.to_string())
-                })
+                munmap(ktx, virt_addr, size)
             }
             Self::Lock | Self::Unlock => Err(SyscallError::InvalidOperation("MemOp", 0)),
         }
@@ -74,27 +68,19 @@ fn mmap(
     ktx: &mut KernelContext,
     virt_addr: usize,
     size: usize,
-    phys_addr: usize,
     flags: usize,
     perms: usize,
-) -> Result<(), MemoryError> {
-    if let Ok(process) = ktx.process() {
-        let perms = PagePermissions::from(perms as u8);
-        return process.map_size(virt_addr, size, phys_addr, flags, perms);
-    }
-    Err(MemoryError::AccessViolation(
-        "Failed to retrive current process",
-    ))
+) -> Result<(), SyscallError> {
+    let mut process = ktx.process()?;
+    let perms = PagePermissions::from(perms as u8);
+    process
+        .map_size(virt_addr, size, flags, perms)
+        .map_err(|err| SyscallError::Failed(err.to_string()))
 }
 
-fn munmap(ktx: &mut KernelContext, virt_addr: usize, size: usize) -> Result<(), MemoryError> {
-    if let Ok(process) = ktx.process() {
-        process.unmap_size(virt_addr, size);
-        return Ok(());
-    }
-    Err(MemoryError::AccessViolation(
-        "Failed to retrive current process",
-    ))
+fn munmap(ktx: &mut KernelContext, virt_addr: usize, size: usize) -> Result<(), SyscallError> {
+    let mut process = ktx.process()?;
+    Ok(process.unmap_size(virt_addr, size))
 }
 
 /// Locks pages

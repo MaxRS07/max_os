@@ -95,7 +95,7 @@ impl Scheduler {
             } else {
                 if let Some(dead_id) = self.dead {
                     // kill the zombie!
-                    PROCESS_TABLE.wait().lock().drop_thread(dead_id);
+                    PROCESS_TABLE.wait().lock().drop_thread(dead_id)?;
                 }
                 self.dead = self.running;
             }

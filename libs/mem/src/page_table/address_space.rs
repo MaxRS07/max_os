@@ -220,6 +220,20 @@ impl AddressSpace {
             }
         }
     }
+    pub fn find_free(&self, pages: usize, lo: usize, hi: usize) -> Option<usize> {
+        let mut cursor = lo;
+        for r in self
+            .regions
+            .iter()
+            .filter(|r| r.end() >= lo && r.virt_addr < hi)
+        {
+            if r.virt_addr >= cursor + pages * 0x1000 {
+                return Some(cursor);
+            }
+            cursor = cursor.max(r.end() + 1);
+        }
+        (cursor + pages * 0x1000 <= hi).then_some(cursor)
+    }
     fn check_overlap(&self, start: usize, len: usize) -> Result<(), MemoryError> {
         if len == 0 {
             return Ok(());
