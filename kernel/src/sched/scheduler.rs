@@ -11,7 +11,7 @@ use sync::{mutex::Mutex, oncelock::OnceLock};
 use crate::sched::{
     PROCESS_TABLE,
     context::{switch_address_space, thread_context_switch},
-    error::ThreadError,
+    error::SchedError,
     process::{Process, ProcessTable},
     queue::RunQueue,
     thread::thread::{State, Thread, ThreadId},
@@ -40,7 +40,7 @@ impl Scheduler {
     /// Dont call run next directly in case interrupt logic
     pub fn handle_interrupt(
         &mut self,
-    ) -> Result<(*mut *mut usize, *mut usize, Option<usize>), ThreadError> {
+    ) -> Result<(*mut *mut usize, *mut usize, Option<usize>), SchedError> {
         // if there is only the running, dont interrupt
         self.run_next()
     }
@@ -54,7 +54,7 @@ impl Scheduler {
             }
         }
     }
-    pub fn set_running(&mut self, id: ThreadId) -> Result<(), ThreadError> {
+    pub fn set_running(&mut self, id: ThreadId) -> Result<(), SchedError> {
         // make sure thread exists
         if !PROCESS_TABLE
             .wait()
@@ -62,7 +62,7 @@ impl Scheduler {
             .process_mut(id.pid)?
             .contains_thread(id.tid)
         {
-            return Err(ThreadError::BadTid(id));
+            return Err(SchedError::BadTid(id));
         }
         CURRENT_PROCESS.store(id.pid, Ordering::Release);
         self.running = Some(id);
@@ -71,12 +71,10 @@ impl Scheduler {
     /// Interrupts the running thread and attempts to requeue it with the next available thread.
     ///
     /// If there is no next thread available to run, returns [`Err`] and does not interrupt the current thread. Returns [`Ok`] containing a pointer to the next available thread if the exchange was successful.
-    pub fn run_next(
-        &mut self,
-    ) -> Result<(*mut *mut usize, *mut usize, Option<usize>), ThreadError> {
+    pub fn run_next(&mut self) -> Result<(*mut *mut usize, *mut usize, Option<usize>), SchedError> {
         // check next thread
         let Some(next_ready_id) = self.queue.dequeue_ready() else {
-            return Err(ThreadError::Other(
+            return Err(SchedError::Other(
                 "No ready thread, failed to run next".to_owned(),
             ));
         };
@@ -123,14 +121,14 @@ impl Scheduler {
 
             return Ok((old_sp_ptr, new_sp, new_satp));
         }
-        Err(ThreadError::Other(format!("What the fuck")))
+        Err(SchedError::Other(format!("What the fuck")))
     }
     /// Enqueues the thread with id `thread_id`, scheduling it to be run
-    pub fn schedule(&mut self, id: ThreadId) -> Result<(), ThreadError> {
+    pub fn schedule(&mut self, id: ThreadId) -> Result<(), SchedError> {
         self.queue.enque(id)
     }
     /// Removes and deallocates the thread with id `thread_id`. Cancelling the running thread is effectively identical to [`Self::run_next`] but discards [`Self::running`] instead of requeuing it
-    pub fn canel_thread(&mut self, id: ThreadId) -> Result<(), ThreadError> {
+    pub fn canel_thread(&mut self, id: ThreadId) -> Result<(), SchedError> {
         let mut process_table = PROCESS_TABLE.wait().lock();
         if self.running.is_some_and(|t| t.tid == id.tid) {
             self.running = None;
@@ -142,7 +140,7 @@ impl Scheduler {
     /// Terminates the current thread, runs the next ready thread.
     ///
     /// **NOTE:** Cannot terminate the main thread
-    pub fn terminate_running(&mut self) -> Result<ThreadId, ThreadError> {
+    pub fn terminate_running(&mut self) -> Result<ThreadId, SchedError> {
         match self.running {
             Some(running) => {
                 let mut table = PROCESS_TABLE.wait().lock();
@@ -150,7 +148,7 @@ impl Scheduler {
                 thread.state = State::Terminated;
                 Ok(running)
             }
-            None => Err(ThreadError::Other(format!(
+            None => Err(SchedError::Other(format!(
                 "No thread running, failed to terminate"
             ))),
         }
@@ -159,10 +157,10 @@ impl Scheduler {
     // pub fn sleep(&mut self, ms: u64) {} TODO
 
     /// Gets the pid of the current running thread. This is different from [`CURRENT_PROCESS`].
-    pub fn current_pid(&self) -> Result<u32, ThreadError> {
+    pub fn current_pid(&self) -> Result<u32, SchedError> {
         Ok(self
             .running
-            .ok_or(ThreadError::Other("No current process".to_owned()))?
+            .ok_or(SchedError::Other("No current process".to_owned()))?
             .pid)
     }
 }

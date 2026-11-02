@@ -9,7 +9,7 @@ use mem::{
 
 use crate::sched::{
     PROCESS_TABLE,
-    error::ThreadError,
+    error::SchedError,
     process::ProcessTable,
     thread::thread::{Thread, ThreadId},
 };

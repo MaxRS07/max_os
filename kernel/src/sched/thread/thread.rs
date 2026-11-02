@@ -19,7 +19,7 @@ use crate::{
     sched::{
         PROCESS_TABLE, SCHEDULER,
         context::{switch_address_space, switch_to},
-        error::ThreadError,
+        error::SchedError,
         process::ProcessTable,
         scheduler::CURRENT_PROCESS,
         thread::{self, kstack::KernelStack, ustack::UserStack},
@@ -151,10 +151,10 @@ impl Thread {
         priority: Priority,
         user_stack: UserStack,
         entry: usize,
-    ) -> Result<Self, ThreadError> {
+    ) -> Result<Self, SchedError> {
         let id = ThreadId { pid, tid };
         let name = Self::name_from_str(name);
-        let kernel_stack = KernelStack::alloc().ok_or(ThreadError::Other(
+        let kernel_stack = KernelStack::alloc().ok_or(SchedError::Other(
             "Failed to allocate Kernel Stack".to_owned(),
         ))?;
         let context = Context::new(entry, kernel_stack.top(), kernel_stack.tls().addr());

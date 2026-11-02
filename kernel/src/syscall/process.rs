@@ -59,10 +59,9 @@ impl SysOp for ProcessOp {
             Self::Fork => {
                 let (name_ptr, name_len, entry, ..) = args;
                 let name = unsafe { str_from_args(name_ptr, name_len)? };
-                let entry_ptr = entry as *mut u32;
                 let pid = ktx
                     .process()?
-                    .fork(&name, entry_ptr)
+                    .fork(&name, entry)
                     .map_err(|error| SyscallError::Failed(error.to_string()))?;
                 write_return!(ktx, pid);
                 Ok(())

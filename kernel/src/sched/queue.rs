@@ -2,7 +2,7 @@ use core::fmt::Debug;
 
 use alloc::{borrow::ToOwned, collections::VecDeque};
 
-use crate::sched::{error::ThreadError, thread::thread::ThreadId};
+use crate::sched::{error::SchedError, thread::thread::ThreadId};
 
 pub static THREAD_INTERVAL: usize = 10_000;
 
@@ -18,9 +18,9 @@ impl RunQueue {
         }
     }
 
-    pub fn enque(&mut self, thread: ThreadId) -> Result<(), ThreadError> {
+    pub fn enque(&mut self, thread: ThreadId) -> Result<(), SchedError> {
         if self.threads.contains(&thread) {
-            return Err(ThreadError::Other(
+            return Err(SchedError::Other(
                 "Thread is already in the run queue".to_owned(),
             ));
         }
@@ -37,16 +37,16 @@ impl RunQueue {
         self.dequeue()
     }
 
-    pub fn remove(&mut self, thread: ThreadId) -> Result<(), ThreadError> {
+    pub fn remove(&mut self, thread: ThreadId) -> Result<(), SchedError> {
         let index = self
             .threads
             .iter()
             .position(|queued| *queued == thread)
-            .ok_or_else(|| ThreadError::Other("Thread is not in the run queue".to_owned()))?;
+            .ok_or_else(|| SchedError::Other("Thread is not in the run queue".to_owned()))?;
 
         self.threads
             .remove(index)
-            .ok_or_else(|| ThreadError::Other("Failed to remove thread".to_owned()))?;
+            .ok_or_else(|| SchedError::Other("Failed to remove thread".to_owned()))?;
         Ok(())
     }
 

@@ -35,9 +35,10 @@ use crate::{
     mm::heap::PAGE_ALLOCATOR,
     sched::{
         ASID_ALLOCATOR, KERNEL_ROOT, PROCESS_TABLE, SCHEDULER,
-        error::{ProcessError, ThreadError},
+        error::SchedError,
         kernel_root,
         scheduler::CURRENT_PROCESS,
+        spawn_thread,
         thread::{
             thread::{Priority, Thread, ThreadId},
             ustack::{PROCESS_STACK_TOP, UserStack},
@@ -58,30 +59,30 @@ impl ProcessTable {
             table: BTreeMap::new(),
         }
     }
-    pub fn thread_mut(&mut self, id: ThreadId) -> Result<&mut Thread, ThreadError> {
+    pub fn thread_mut(&mut self, id: ThreadId) -> Result<&mut Thread, SchedError> {
         self.process_mut(id.pid)?.thread_mut(id.tid)
     }
     /// removes the process with pid `pid` from the table and deallocates all fields
-    pub fn remove_process(&mut self, pid: u32) -> Result<(), ThreadError> {
+    pub fn remove_process(&mut self, pid: u32) -> Result<(), SchedError> {
         self.table
             .remove(&pid)
             .map(|mut process| process.destroy())
-            .ok_or(ThreadError::BadPid(pid))
+            .ok_or(SchedError::BadPid(pid))
     }
     /// drops and cleans up the thread with id: `thread_id`, removing it from it's parent process. Returns [`None`] if the thread was not found.
-    pub fn drop_thread(&mut self, id: ThreadId) -> Result<(), ThreadError> {
+    pub fn drop_thread(&mut self, id: ThreadId) -> Result<(), SchedError> {
         self.process_mut(id.pid)?
             .remove_thread(id.tid)
-            .ok_or(ThreadError::BadTid(id))
+            .ok_or(SchedError::BadTid(id))
     }
     pub fn insert(&mut self, process: Process) -> Option<Process> {
         self.table.insert(process.pid, process)
     }
-    pub fn process_mut(&mut self, pid: u32) -> Result<&mut Process, ThreadError> {
-        self.table.get_mut(&pid).ok_or(ThreadError::BadPid(pid))
+    pub fn process_mut(&mut self, pid: u32) -> Result<&mut Process, SchedError> {
+        self.table.get_mut(&pid).ok_or(SchedError::BadPid(pid))
     }
-    pub fn process(&mut self, pid: u32) -> Result<&Process, ThreadError> {
-        self.table.get(&pid).ok_or(ThreadError::BadPid(pid))
+    pub fn process(&mut self, pid: u32) -> Result<&Process, SchedError> {
+        self.table.get(&pid).ok_or(SchedError::BadPid(pid))
     }
 }
 
@@ -111,45 +112,45 @@ impl Process {
     }
     /// returns the next
     /// Creates the kernel process and adds it to the
-    pub fn kernel(main_thread: Thread, address_space: AddressSpace) -> Result<u32, ThreadError> {
+    pub fn kernel(main_thread: Thread, address_space: AddressSpace) -> Result<u32, SchedError> {
         let threads = alloc::vec![main_thread];
         let process = Self::new("Kernel", 0, address_space);
         PROCESS_TABLE.wait().lock().insert(process);
         Ok(0)
     }
     /// Forks this process with a new name and entry, copying the address space
-    pub fn fork(&self, name: &str, entry: *mut u32) -> Result<u32, ProcessError> {
-        let pid = alloc_pid();
+    pub fn fork(&self, name: &str, entry: usize) -> Result<u32, SchedError> {
         // Clone the address space
         let fork_asid = ASID_ALLOCATOR
             .wait()
             .lock()
             .alloc_id()
-            .ok_or(ProcessError::OutOfResources(format!("ASIDs exhausted")))?;
+            .ok_or(SchedError::OutOfResources(format!("ASIDs exhausted")))?;
         let address_space = self
             .address_space
             .fork(kernel_root(), fork_asid)
-            .map_err(|err| ProcessError::OutOfResources(err.to_string()))?;
+            .map_err(|err| SchedError::OutOfResources(err.to_string()))?;
         let pid = alloc_pid();
         let process = Self::new(name, pid, address_space);
+        spawn_thread(pid, name, entry)?;
         PROCESS_TABLE.wait().lock().insert(process);
         Ok(pid)
     }
     /// creates a new process
-    pub fn spawn(name: &str, entry: usize) -> Result<u32, ThreadError> {
+    pub fn spawn(name: &str, entry: usize) -> Result<u32, SchedError> {
         let asid = ASID_ALLOCATOR
             .wait()
             .lock()
             .alloc_id()
-            .ok_or(ThreadError::Other(format!("No free ASIDs")))?; // TODO Make this not unwrap
+            .ok_or(SchedError::Other(format!("No free ASIDs")))?; // TODO Make this not unwrap
         let addr_space = AddressSpace::new(PAGE_ALLOCATOR.wait(), kernel_root(), asid, Vec::new())
-            .map_err(|memerr| ThreadError::Other(format!("{memerr}")))?;
+            .map_err(|memerr| SchedError::Other(format!("{memerr}")))?;
 
         let pid = alloc_pid();
         let mut process = Self::new(name, pid, addr_space);
         let id = process
             .spawn_thread(name, entry)
-            .ok_or(ThreadError::Other(format!(
+            .ok_or(SchedError::Other(format!(
                 "Failed to create entry thread for process"
             )))?;
 
@@ -157,7 +158,7 @@ impl Process {
             .wait()
             .lock()
             .insert(process)
-            .ok_or(ThreadError::Other(format!(
+            .ok_or(SchedError::Other(format!(
                 "Failed to insert process with id {pid} into table, already exists"
             )))?;
         SCHEDULER.wait().lock().schedule(id)?;
@@ -216,21 +217,21 @@ impl Process {
         Some((*thread) = None)
     }
 
-    pub fn thread_mut(&mut self, tid: u32) -> Result<&mut Thread, ThreadError> {
+    pub fn thread_mut(&mut self, tid: u32) -> Result<&mut Thread, SchedError> {
         let id = ThreadId::new(self.pid, tid);
         self.threads
             .get_mut(tid as usize)
-            .ok_or(ThreadError::BadTid(id))?
+            .ok_or(SchedError::BadTid(id))?
             .as_mut()
-            .ok_or(ThreadError::BadTid(id))
+            .ok_or(SchedError::BadTid(id))
     }
-    pub fn thread(&mut self, tid: u32) -> Result<&Thread, ThreadError> {
+    pub fn thread(&mut self, tid: u32) -> Result<&Thread, SchedError> {
         let id = ThreadId::new(self.pid, tid);
         self.threads
             .get(tid as usize)
-            .ok_or(ThreadError::BadTid(id))?
+            .ok_or(SchedError::BadTid(id))?
             .as_ref()
-            .ok_or(ThreadError::BadTid(id))
+            .ok_or(SchedError::BadTid(id))
     }
 
     pub fn destroy(&mut self) {
@@ -272,28 +273,28 @@ impl Process {
 
     /* File Descriptor Helpers */
 
-    pub fn alloc_fd(&mut self, file: FileObject) -> Result<u32, ProcessError> {
+    pub fn alloc_fd(&mut self, file: FileObject) -> Result<u32, SchedError> {
         let Some(fd) = self.fds.iter().position(|fo| fo.is_none()) else {
-            return Err(ProcessError::FileDescriptorsFull(format!(
+            return Err(SchedError::FileDescriptorsFull(format!(
                 "Failed to allocate file descriptor, free slots exhausted"
             )));
         };
         self.fds[fd] = Some(file);
         Ok(fd as u32)
     }
-    pub fn file_mut(&mut self, fd: u32) -> Result<&mut FileObject, ProcessError> {
+    pub fn file_mut(&mut self, fd: u32) -> Result<&mut FileObject, SchedError> {
         if fd > MAX_FDS {
-            return Err(ProcessError::InvalidFileDescriptor);
+            return Err(SchedError::InvalidFileDescriptor);
         }
         match self.fds.get_mut(fd as usize) {
             Some(fo) => Ok(fo.as_mut().unwrap()),
-            None => Err(ProcessError::BadFileDescriptor(fd)),
+            None => Err(SchedError::BadFileDescriptor(fd)),
         }
     }
     /// Returns the closed file object
-    pub fn close_fd(&mut self, fd: u32) -> Result<(), ProcessError> {
+    pub fn close_fd(&mut self, fd: u32) -> Result<(), SchedError> {
         if fd > MAX_FDS {
-            return Err(ProcessError::BadFileDescriptor(fd));
+            return Err(SchedError::BadFileDescriptor(fd));
         }
         let fo = self.file_mut(fd)?;
         self.fds[fd as usize] = None;

@@ -21,7 +21,7 @@ use sync::{mutex::Mutex, oncelock::OnceLock};
 use crate::{
     mm::{boot::map_boot_pages, heap::PAGE_ALLOCATOR},
     sched::{
-        error::ThreadError,
+        error::SchedError,
         process::{Process, ProcessTable},
         scheduler::Scheduler,
         thread::thread::{Thread, ThreadId},
@@ -49,7 +49,7 @@ pub fn kernel_root() -> &'static Table {
 }
 
 /// intialize threading globals, setup main thread.
-pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(), ThreadError> {
+pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(), SchedError> {
     ASID_ALLOCATOR.set(Mutex::new(ASIDBitmapSV32::new([0; 8], MAX_ASID as usize)));
     SCHEDULER.set(Mutex::new(Scheduler::new()));
     PROCESS_TABLE.set(Mutex::new(ProcessTable::new()));
@@ -58,7 +58,7 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
 
     let allocator = PAGE_ALLOCATOR.wait();
     let table =
-        Table::alloc_empty(allocator).map_err(|error| ThreadError::Other(format!("{error}")))?;
+        Table::alloc_empty(allocator).map_err(|error| SchedError::Other(format!("{error}")))?;
     if let Err(msg) = map_boot_pages(table) {
         error!("{msg}")
     }
@@ -70,6 +70,21 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
 
     info!("Created main thread");
     Ok(())
+}
+
+pub fn spawn_thread(pid: u32, name: &str, entry: usize) -> Result<ThreadId, SchedError> {
+    let mut table = PROCESS_TABLE.wait().lock();
+    let process = table.process_mut(pid)?;
+    let id = process
+        .spawn_thread(name, entry)
+        .ok_or(SchedError::Other(format!(
+            "Failed to spawn thread:{name}@{entry:x} on process {pid}"
+        )))?;
+    if SCHEDULER.wait().lock().schedule(id).is_err() {
+        // cleanup on fail
+        process.remove_thread(id.tid);
+    }
+    Ok(id)
 }
 /// Manually terminates the current thread
 ///

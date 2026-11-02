@@ -1,17 +1,24 @@
 use core::fmt::Display;
 
-use alloc::{format, string::String};
+use alloc::{
+    format,
+    string::{String, ToString},
+};
 
 use crate::sched::thread::thread::ThreadId;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub enum ThreadError {
+pub enum SchedError {
     BadPid(u32),
     BadTid(ThreadId),
     Other(String),
+    InvalidFileDescriptor,
+    FileDescriptorsFull(String),
+    BadFileDescriptor(u32),
+    OutOfResources(String),
 }
 
-impl Display for ThreadError {
+impl Display for SchedError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             Self::Other(msg) => f.write_str(msg),
@@ -19,20 +26,6 @@ impl Display for ThreadError {
             Self::BadTid(thread_id) => f.write_fmt(format_args!(
                 "Invalid thread id: {thread_id:?}, thread not found"
             )),
-        }
-    }
-}
-
-pub enum ProcessError {
-    InvalidFileDescriptor,
-    FileDescriptorsFull(String),
-    BadFileDescriptor(u32),
-    OutOfResources(String),
-}
-
-impl Display for ProcessError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
             Self::FileDescriptorsFull(msg) => f.write_str(msg),
             Self::InvalidFileDescriptor => f.write_str("Invalid file descriptor"),
             Self::OutOfResources(msg) => f.write_str(msg),
