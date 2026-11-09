@@ -252,6 +252,9 @@ impl AddressSpace {
     /// Merges contiguous regions with identical configurations
     fn merge_regions(&mut self) {
         // lookahead + merge
+        if self.regions.len() < 2 {
+            return;
+        }
         for i in 0..self.regions.len() - 1 {
             let (current, following) = self.regions.split_at_mut(i + 1);
             let region = &mut current[i];
@@ -343,7 +346,7 @@ impl Addresser for AddressSpace {
         let phys_addrs = unsafe { &mut *self.root_table }.map_size(
             self.page_allocator,
             virt_addr,
-            num_pages,
+            num_pages * 0x1000,
             flags,
         )?;
         let mut new_regions = Vec::new();
@@ -351,7 +354,7 @@ impl Addresser for AddressSpace {
         let mut cur_pages = 1;
         let mut cur_virt = virt_addr;
         while let Some(addr) = peekable_addrs.next() {
-            // save space by grouping contiguous virt regions. This will be a massive headache later on partial frees
+            // save space by grouping contiguous virt regions. This will be a massive headache later on partial frees but i have 2gb ram so idc
             if let Some(next) = peekable_addrs.peek()
                 && (addr + 0x1000).eq(*next)
             {

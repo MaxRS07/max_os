@@ -1,10 +1,11 @@
-use alloc::string::ToString;
+use alloc::{format, string::ToString};
 use log::error;
 use mem::{error::MemoryError, page_table::permissions::PagePermissions};
 
 use crate::{
     sched::{PROCESS_TABLE, SCHEDULER},
     syscall::{Syscall, context::KernelContext, error::SyscallError, op::SysOp},
+    write_return,
 };
 
 pub enum MemOp {
@@ -38,7 +39,9 @@ impl SysOp for MemOp {
         match self {
             Self::Map => {
                 let (virt_addr, size, flags, perms, ..) = args;
-                mmap(ktx, virt_addr, size, flags, perms)
+                let vaddr = mmap(ktx, virt_addr, size, flags, perms)?;
+                write_return!(ktx, vaddr);
+                Ok(())
             }
             Self::Unmap => {
                 let (virt_addr, size, ..) = args;
@@ -70,7 +73,7 @@ fn mmap(
     size: usize,
     flags: usize,
     perms: usize,
-) -> Result<(), SyscallError> {
+) -> Result<usize, SyscallError> {
     let mut process = ktx.process()?;
     let perms = PagePermissions::from(perms as u8);
     process
@@ -80,7 +83,9 @@ fn mmap(
 
 fn munmap(ktx: &mut KernelContext, virt_addr: usize, size: usize) -> Result<(), SyscallError> {
     let mut process = ktx.process()?;
-    Ok(process.unmap_size(virt_addr, size))
+    process
+        .unmap_size(virt_addr, size)
+        .map_err(|memerr| SyscallError::Failed(format!("Memory error: {memerr}")))
 }
 
 /// Locks pages

@@ -25,7 +25,7 @@ impl<T> Mutex<T> {
     }
     #[allow(clippy::mut_from_ref)]
     /// attempts to acquire a lock, returning [`Some`] containing a mutable ref to the inner value if successful. returns [`None`] otherwise.
-    pub fn try_lock(&self) -> Option<MutexGuard<T>> {
+    pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
         self.locked
             .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
             .ok()

@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use alloc::{borrow::ToOwned, string::ToString};
+use alloc::{borrow::ToOwned, format, string::ToString};
 use log::{error, warn};
 
 use crate::{
@@ -45,14 +45,15 @@ impl SysOp for ThreadOp {
             Self::Spawn => {
                 let (pid, name, name_len, entry, ..) = args;
                 let name_str = unsafe { str_from_args(name, name_len)? };
-                let process = ktx.get_process(pid as u32)?;
-                match spawn_thread(process.pid(), name_str.as_str(), entry) {
+                match spawn_thread(pid as u32, name_str.as_str(), entry) {
                     Ok(id) => {
                         let tid = id.tid;
                         write_return!(ktx, pid as isize, tid as isize);
                         Ok(())
                     }
-                    Err(err) => Err(SyscallError::Failed("Failed to queue thread".to_owned())),
+                    Err(err) => Err(SyscallError::Failed(format!(
+                        "Failed to queue thread: {err}"
+                    ))),
                 }
             }
             Self::Cancel => {
@@ -61,11 +62,11 @@ impl SysOp for ThreadOp {
                 SCHEDULER
                     .wait()
                     .lock()
-                    .canel_thread(thread_id)
-                    .map_err(|err| {
-                        error!("{err}");
-                        SyscallError::Failed(err.to_string())
-                    })
+                    .remove_thread(thread_id)
+                    .ok_or(SyscallError::Failed(format!(
+                        "Failed to remove thread with {thread_id:?}, does not exist"
+                    )));
+                Ok(())
             }
             Self::Yield => Ok(yield_thread()),
         }
