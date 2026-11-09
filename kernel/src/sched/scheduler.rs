@@ -106,8 +106,6 @@ impl Scheduler {
                 if let Err(err) = table.drop_thread(dead_thread) {
                     warn!("Failed to free zombie thread {dead_thread:?}: {err}")
                 }
-            } else {
-                self.queue.enque(running_id)?;
             }
         } else {
             table.thread_mut(running_id)?.state = State::Ready;
@@ -138,15 +136,19 @@ impl Scheduler {
     pub fn schedule(&mut self, id: ThreadId) -> Result<(), SchedError> {
         self.queue.enque(id)
     }
-    /// Removes and deallocates the thread with id `thread_id`. Cancelling the running thread is effectively identical to [`Self::run_next`] but discards [`Self::running`] instead of requeuing it
-    pub fn canel_thread(&mut self, id: ThreadId) -> Result<(), SchedError> {
-        let mut process_table = PROCESS_TABLE.wait().lock();
+    /// Removes the thread with id `id` from the queue. This does not deallocate the thread or mutate the parent process. If `id` is running, the thread will stop execution.
+    pub fn remove_thread(&mut self, id: ThreadId) -> Option<()> {
         if self.running.is_some_and(|t| t.tid == id.tid) {
             self.running = None;
         }
-        self.queue.remove(id);
-        process_table.process_mut(id.pid)?.remove_thread(id.tid);
-        Ok(())
+        self.queue.remove(id)
+    }
+    /// Removes all threads owned by the process with pid `pid`, including the current thread. This will stop execeution. Returns [`Ok`] containing the number of threads removed on success.
+    pub fn remove_process_threads(&mut self, pid: u32) -> usize {
+        if self.running.is_some_and(|id| id.pid == pid) {
+            self.running = None;
+        }
+        self.queue.remove_where(|id| id.pid == pid)
     }
     /// Terminates the current thread, runs the next ready thread.
     ///

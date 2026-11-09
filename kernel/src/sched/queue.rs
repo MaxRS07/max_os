@@ -48,17 +48,12 @@ impl RunQueue {
         })
     }
 
-    pub fn remove(&mut self, thread: ThreadId) -> Result<(), SchedError> {
-        let index = self
-            .threads
+    pub fn remove(&mut self, thread: ThreadId) -> Option<()> {
+        self.threads
             .iter()
             .position(|queued| *queued == thread)
-            .ok_or_else(|| SchedError::Other("Thread is not in the run queue".to_owned()))?;
-
-        self.threads
-            .remove(index)
-            .ok_or_else(|| SchedError::Other("Failed to remove thread".to_owned()))?;
-        Ok(())
+            .and_then(|idx| self.threads.remove(idx))?;
+        Some(())
     }
 
     pub fn remove_first<F>(&mut self, mut predicate: F) -> Option<ThreadId>

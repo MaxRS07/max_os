@@ -65,7 +65,7 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
     let kspace =
         AddressSpace::from_root(allocator, (*KERNEL_ROOT.wait()) as *mut Table, ASID::KERNEL);
     Process::kernel(main_thread, kspace)?;
-    let _ = SCHEDULER.wait().lock().set_running(ThreadId::main());
+    SCHEDULER.wait().lock().set_running(ThreadId::main())?;
 
     info!("Created main thread");
     Ok(())

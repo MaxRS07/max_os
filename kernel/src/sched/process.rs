@@ -243,14 +243,14 @@ impl Process {
 
     /* Address Space Helpers */
 
-    /// Maps `size` bytes to this process's address space. If `phys_addr` is greater than 0, the kernel will attempt to map `virt_addr` to it.
+    /// Maps `size` bytes to this process's address space. If `phys_addr` is greater than 0, the kernel will attempt to map `virt_addr` to it. Returs [`Ok`] containing the start virtual address of the allocated memory block
     pub fn map_size(
         &mut self,
         virt_addr: usize,
         size: usize,
         flags: usize,
         perms: PagePermissions,
-    ) -> Result<(), mem::error::MemoryError> {
+    ) -> Result<usize, mem::error::MemoryError> {
         let pages = size.div_ceil(0x1000);
         let mut virt_addr = virt_addr;
         if virt_addr == 0 {
@@ -261,13 +261,16 @@ impl Process {
                     "Failed to map pages to process, address space full",
                 ))?;
         }
-        self.address_space.map_pages(virt_addr, pages, flags, perms)
+        self.address_space
+            .map_pages(virt_addr, pages, flags, perms)?;
+        Ok(virt_addr)
     }
     /// Unmaps `size` from this process's address space beggining at `virt_addr`
-    pub fn unmap_size(&mut self, virt_addr: usize, size: usize) {
+    pub fn unmap_size(&mut self, virt_addr: usize, size: usize) -> Result<(), MemoryError> {
         // convert bytes to pages here to reduce sysop overhead
         let pages = size.div_ceil(0x1000);
-        let _ = self.address_space.unmap_pages(virt_addr, pages);
+        self.address_space.unmap_pages(virt_addr, pages)?;
+        Ok(())
     }
 
     /* File Descriptor Helpers */

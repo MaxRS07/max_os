@@ -13,7 +13,7 @@ use crate::{
     drivers::time::GLOBAL_TIME,
     fs::GLOBAL_FS,
     sched::{
-        PROCESS_TABLE,
+        PROCESS_TABLE, SCHEDULER,
         process::{Process, ProcessTable},
         scheduler::CURRENT_PROCESS,
     },
@@ -54,12 +54,14 @@ impl KernelContext {
             .try_map(|table| table.process_mut(pid))
             .map_err(|te| SyscallError::Failed(format!("{te}")))
     }
-    pub fn remove_process(&self, pid: u32) -> Result<(), SyscallError> {
+    // Removes and destroys process with id `pid` from the process table and removes its thread ids from the scheduler. Returns the number of freed threads on success
+    pub fn remove_process(&self, pid: u32) -> Result<usize, SyscallError> {
         PROCESS_TABLE
             .wait()
             .lock()
             .remove_process(pid)
-            .map_err(|err| SyscallError::Failed(err.to_string()))
+            .map_err(|err| SyscallError::Failed(err.to_string()))?;
+        Ok(SCHEDULER.wait().lock().remove_process_threads(pid))
     }
     pub fn vfs(&self) -> Result<RefMut<'_, Vfs<'static>>, SyscallError> {
         let mut slot = self

@@ -116,6 +116,7 @@ impl Table {
             let paddr = page_allocator.alloc()? as usize;
             phys_addrs.push(paddr);
 
+            unsafe { (paddr as *mut u8).write_bytes(0, LEAF_SIZE) }; // clear page
             self.map(page_allocator, vaddr, paddr, flags)?;
         }
         Ok(phys_addrs)
