@@ -7,6 +7,7 @@ use crate::{
     sched::{
         SCHEDULER,
         scheduler::Scheduler,
+        spawn_thread,
         thread::thread::{Priority, ThreadId},
     },
     syscall::{
@@ -44,14 +45,14 @@ impl SysOp for ThreadOp {
             Self::Spawn => {
                 let (pid, name, name_len, entry, ..) = args;
                 let name_str = unsafe { str_from_args(name, name_len)? };
-                let mut process = ktx.get_process(pid as u32)?;
-                match process.spawn_thread(name_str.as_str(), entry) {
-                    Some(id) => {
+                let process = ktx.get_process(pid as u32)?;
+                match spawn_thread(process.pid(), name_str.as_str(), entry) {
+                    Ok(id) => {
                         let tid = id.tid;
                         write_return!(ktx, pid as isize, tid as isize);
                         Ok(())
                     }
-                    None => Err(SyscallError::Failed("Failed to queue thread".to_owned())),
+                    Err(err) => Err(SyscallError::Failed("Failed to queue thread".to_owned())),
                 }
             }
             Self::Cancel => {

@@ -140,16 +140,15 @@ pub extern "C" fn s_trap_handler(frame: *mut usize) {
                     }
                     InterruptCode::SupervisorSoftware => {
                         SIP.read_clear(1 << 1);
-                        let Some(mut scheduler) = SCHEDULER.wait().try_lock() else {
-                            error!("Something went wrong");
-                            return;
+                        let next = match SCHEDULER.wait().try_lock() {
+                            Some(mut s) => s.handle_interrupt(),
+                            None => return error!("Scheduler busy"),
                         };
-                        let run_next = scheduler.handle_interrupt();
-                        match run_next {
+                        match next {
                             Ok((old_sp, new_sp, satp)) => {
                                 crate::sched::context::switch_to(satp, old_sp, new_sp)
                             }
-                            Err(msg) => error!("Failed to schedule next thread: {msg}"),
+                            Err(msg) => {} // error!("Failed to schedule next thread: {msg}"),
                         }
                     }
                     // match int {

@@ -33,10 +33,10 @@ impl UserStack {
     pub fn alloc(tid: usize, space: &mut AddressSpace) -> Result<Self, MemoryError> {
         let region_size = USER_GUARD_SIZE + USER_STACK_SIZE;
         let top = PROCESS_STACK_TOP - tid * region_size;
-        let base = PROCESS_STACK_TOP - USER_STACK_SIZE;
+        let base = top - USER_STACK_SIZE;
         // guard is unmapped, prevents thread stack from writing to another. TODO: handle allocations with >0x1000 layouts
         let guard = top - region_size;
-        space.map_pages(base, STACK_PAGES, 0x0, PagePermissions::RW)?;
+        space.map_pages(base, STACK_PAGES, 0x0, PagePermissions::RWU)?;
         Ok(Self { base, top, guard })
     }
     pub fn free(&mut self, space: &mut AddressSpace) -> Result<(), MemoryError> {

@@ -2,7 +2,12 @@ use core::fmt::Debug;
 
 use alloc::{borrow::ToOwned, collections::VecDeque};
 
-use crate::sched::{error::SchedError, thread::thread::ThreadId};
+use crate::sched::{
+    PROCESS_TABLE,
+    error::SchedError,
+    process::ProcessTable,
+    thread::thread::{State, ThreadId},
+};
 
 pub static THREAD_INTERVAL: usize = 10_000;
 
@@ -34,7 +39,13 @@ impl RunQueue {
     }
 
     pub fn dequeue_ready(&mut self) -> Option<ThreadId> {
-        self.dequeue()
+        self.remove_first(|id| {
+            PROCESS_TABLE
+                .wait()
+                .lock()
+                .thread_mut(id)
+                .is_ok_and(|thread| thread.state == State::Ready)
+        })
     }
 
     pub fn remove(&mut self, thread: ThreadId) -> Result<(), SchedError> {

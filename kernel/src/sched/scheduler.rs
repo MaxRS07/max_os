@@ -4,13 +4,14 @@ use core::{
 };
 
 use alloc::{borrow::ToOwned, boxed::Box, collections::btree_map::IterMut, format};
+use fs::meta::context;
 use log::{debug, error, info, warn};
 use mem::page_table::address_space::Addresser;
 use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use crate::sched::{
     PROCESS_TABLE,
-    context::{switch_address_space, thread_context_switch},
+    context::{switch_address_space, switch_to, thread_context_switch},
     error::SchedError,
     process::{Process, ProcessTable},
     queue::RunQueue,
@@ -49,9 +50,7 @@ impl Scheduler {
     /// Unrestricted, works on kernel thread and main thread
     pub fn yield_thread(&mut self) {
         if let Ok((old, new, satp)) = self.run_next() {
-            unsafe {
-                // switch_context_impl(old, new, satp);
-            }
+            switch_to(satp, old, new);
         }
     }
     pub fn set_running(&mut self, id: ThreadId) -> Result<(), SchedError> {
@@ -78,50 +77,69 @@ impl Scheduler {
                 "No ready thread, failed to run next".to_owned(),
             ));
         };
-        let mut process_table = PROCESS_TABLE.wait().lock();
 
-        let next_ready = process_table.thread_mut(next_ready_id)?;
+        let Some(running_id) = self.running else {
+            let _ = self.queue.enque(next_ready_id);
+            return Err(SchedError::Other(
+                "No running thread, failed to swap context".to_owned(),
+            ));
+        };
 
-        if let Some(running_id) = self.running
-            && let Ok(running) = PROCESS_TABLE.wait().lock().thread_mut(running_id)
-        {
-            let old_pid = running.pid();
-            // if the thread is not terminated, requeue it. otherwise put it in the dead slot
-            if running.state != State::Terminated {
-                running.state = State::Ready;
-                self.queue.enque(running_id)?
-            } else {
-                if let Some(dead_id) = self.dead {
-                    // kill the zombie!
-                    PROCESS_TABLE.wait().lock().drop_thread(dead_id)?;
-                }
-                self.dead = self.running;
-            }
+        // usages of ts need to be in blocks to guarentee the guards are dropped after use
+        let mut table = PROCESS_TABLE.wait().lock();
 
-            next_ready.state = State::Running;
-
-            let old_sp_ptr = &mut running.context.stack_pointer as *mut *mut usize;
-            self.set_running(next_ready_id);
-
-            let new_satp = if next_ready.pid() != old_pid {
-                Some(
-                    PROCESS_TABLE
-                        .wait()
-                        .lock()
-                        .process(next_ready.pid())?
-                        .address_space()
-                        .satp(),
-                )
+        let check = (|| {
+            let new_satp = if next_ready_id.pid != running_id.pid {
+                Some(table.process(next_ready_id.pid)?.address_space().satp())
             } else {
                 None
             };
+            let done = {
+                let running = table.thread_mut(running_id)?;
+                running.state == State::Terminated
+            };
+            // check that the next thread exists, ref not needed
+            let next = table.thread_mut(next_ready_id)?;
+            debug!("switching from thread {running_id:?} to {next}");
+            Ok((new_satp, done))
+        })();
 
-            // Switch context from old running thread to new
-            let new_sp = (*next_ready).context.stack_pointer;
+        let (new_satp, teminated) = match check {
+            Ok(v) => v,
+            Err(err) => {
+                self.queue.enque(next_ready_id)?;
+                return Err(err);
+            }
+        };
 
-            return Ok((old_sp_ptr, new_sp, new_satp));
+        if teminated {
+            if let Some(dead_thread) = self.dead.replace(running_id) {
+                if let Err(err) = table.drop_thread(dead_thread) {
+                    warn!("Failed to free zombie thread {dead_thread:?}: {err}")
+                }
+            } else {
+                self.queue.enque(running_id)?;
+            }
+        } else {
+            table.thread_mut(running_id)?.state = State::Ready;
+            self.queue.enque(running_id)?;
         }
-        Err(SchedError::Other(format!("What the fuck")))
+
+        let new_sp = {
+            let next_ready = table.thread_mut(next_ready_id)?;
+            next_ready.state = State::Running;
+            next_ready.context.stack_pointer
+        };
+        let old_sp_ptr = {
+            let running = table.thread_mut(running_id)?;
+            &raw mut running.context.stack_pointer
+        };
+
+        // set_running would relock the table, the thread was already checked above
+        CURRENT_PROCESS.store(next_ready_id.pid, Ordering::Release);
+        self.running = Some(next_ready_id);
+
+        Ok((old_sp_ptr, new_sp, new_satp))
     }
     /// Enqueues the thread with id `thread_id`, scheduling it to be run
     pub fn schedule(&mut self, id: ThreadId) -> Result<(), SchedError> {

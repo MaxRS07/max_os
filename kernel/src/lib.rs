@@ -15,11 +15,13 @@ use core::{arch::global_asm, panic};
 
 use log::{debug, error, info, warn};
 use sdt::fdt::GLOBAL_FDT;
+use time::global_time::GlobalTimer;
 
 use crate::{
     arch::riscv::{self, interrupt::handler::schedule_interrupt_timer},
-    drivers::block::BLOCK_DEVICE,
+    drivers::{block::BLOCK_DEVICE, time::GLOBAL_TIME},
     mm::{_boot_stack_bottom, _boot_stack_top},
+    sched::{SCHEDULER, spawn_thread},
 };
 
 global_asm!(include_str!("boot.s"));
@@ -66,9 +68,22 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
         info!("Scheduler initialized");
     }
     // enable hardware timer
+    let _ = spawn_thread(0, "thread_a", thread_a_entry as *const fn() as usize);
+    let _ = spawn_thread(0, "thread_b", thread_b_entry as *const fn() as usize);
     loop {
         unsafe {
             core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
         }
     }
+}
+
+pub fn thread_a_entry() {
+    info!("Thread A entered");
+    yield_thread!();
+    let start = GLOBAL_TIME.wait().now_ms();
+}
+pub fn thread_b_entry() {
+    info!("Thread B entered");
+    yield_thread!();
+    let start = GLOBAL_TIME.wait().now_ms();
 }

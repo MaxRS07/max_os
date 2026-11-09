@@ -11,7 +11,7 @@ use alloc::{
     vec::Vec,
 };
 use fs::meta::context;
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
 use sdt::fdt::FDT;
 
 use crate::{
@@ -149,7 +149,7 @@ impl Thread {
         tid: u32,
         name: &str,
         priority: Priority,
-        user_stack: UserStack,
+        user_stack: Option<UserStack>,
         entry: usize,
     ) -> Result<Self, SchedError> {
         let id = ThreadId { pid, tid };
@@ -162,11 +162,11 @@ impl Thread {
             id,
             context,
             name,
-            state: State::Waiting,
+            state: State::Ready,
             priority,
             lifetime: 0,
             kernel_stack,
-            user_stack: Some(user_stack),
+            user_stack: user_stack,
         })
     }
     /// Creates and enques a thread. Returns the unique ID of the thread or None if queing failed.
@@ -328,8 +328,9 @@ extern "C" fn thread_wrapper(entry: u32) -> ! {
             let _ = sched.terminate_running();
             sched.run_next()
         };
-        if let Ok((old_sp, new_sp, satp)) = next {
-            switch_to(satp, old_sp, new_sp);
+        match next {
+            Ok((old_sp, new_sp, satp)) => switch_to(satp, old_sp, new_sp),
+            Err(err) => error!("Thread exit: {err}"),
         }
         loop {
             core::arch::asm!("wfi");

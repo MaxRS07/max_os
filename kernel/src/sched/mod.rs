@@ -16,7 +16,7 @@ use mem::{
         table_entry::TableEntry,
     },
 };
-use sync::{mutex::Mutex, oncelock::OnceLock};
+use sync::{mutex::Mutex, mutex_guard::MutexGuard, oncelock::OnceLock};
 
 use crate::{
     mm::{boot::map_boot_pages, heap::PAGE_ALLOCATOR},
@@ -66,24 +66,29 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
     let kspace =
         AddressSpace::from_root(allocator, (*KERNEL_ROOT.wait()) as *mut Table, ASID::KERNEL);
     Process::kernel(main_thread, kspace)?;
-    SCHEDULER.wait().lock().set_running(ThreadId::main());
+    let _ = SCHEDULER.wait().lock().set_running(ThreadId::main());
 
     info!("Created main thread");
     Ok(())
 }
 
 pub fn spawn_thread(pid: u32, name: &str, entry: usize) -> Result<ThreadId, SchedError> {
-    let mut table = PROCESS_TABLE.wait().lock();
-    let process = table.process_mut(pid)?;
-    let id = process
+    let id = PROCESS_TABLE
+        .wait()
+        .lock()
+        .process_mut(pid)?
         .spawn_thread(name, entry)
         .ok_or(SchedError::Other(format!(
             "Failed to spawn thread:{name}@{entry:x} on process {pid}"
         )))?;
-    if SCHEDULER.wait().lock().schedule(id).is_err() {
+    let scheduled = SCHEDULER.wait().lock().schedule(id);
+    if let Err(err) = scheduled {
         // cleanup on fail
-        process.remove_thread(id.tid);
+        debug!("Failed to schedule thread, dropping {name}@{entry:x}");
+        let _ = PROCESS_TABLE.wait().lock().drop_thread(id);
+        return Err(err);
     }
+    debug!("Scheduled thread {id:?}:{name}@{entry:x}");
     Ok(id)
 }
 /// Manually terminates the current thread
@@ -100,6 +105,6 @@ macro_rules! terminate {
 #[macro_export]
 macro_rules! yield_thread {
     () => {
-        crate::sched::SCHEDULER.wait().lock().yeild_thread();
+        crate::sched::SCHEDULER.wait().lock().yield_thread();
     };
 }

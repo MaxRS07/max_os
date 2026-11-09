@@ -113,8 +113,8 @@ impl Process {
     /// returns the next
     /// Creates the kernel process and adds it to the
     pub fn kernel(main_thread: Thread, address_space: AddressSpace) -> Result<u32, SchedError> {
-        let threads = alloc::vec![main_thread];
-        let process = Self::new("Kernel", 0, address_space);
+        let mut process = Self::new("Kernel", 0, address_space);
+        process.threads.push(Some(main_thread));
         PROCESS_TABLE.wait().lock().insert(process);
         Ok(0)
     }
@@ -132,8 +132,8 @@ impl Process {
             .map_err(|err| SchedError::OutOfResources(err.to_string()))?;
         let pid = alloc_pid();
         let process = Self::new(name, pid, address_space);
-        spawn_thread(pid, name, entry)?;
         PROCESS_TABLE.wait().lock().insert(process);
+        spawn_thread(pid, name, entry)?;
         Ok(pid)
     }
     /// creates a new process
@@ -147,21 +147,16 @@ impl Process {
             .map_err(|memerr| SchedError::Other(format!("{memerr}")))?;
 
         let pid = alloc_pid();
-        let mut process = Self::new(name, pid, addr_space);
-        let id = process
-            .spawn_thread(name, entry)
-            .ok_or(SchedError::Other(format!(
-                "Failed to create entry thread for process"
-            )))?;
+        let process = Self::new(name, pid, addr_space);
 
-        PROCESS_TABLE
-            .wait()
-            .lock()
-            .insert(process)
-            .ok_or(SchedError::Other(format!(
+        if PROCESS_TABLE.wait().lock().insert(process).is_some() {
+            return Err(SchedError::Other(format!(
                 "Failed to insert process with id {pid} into table, already exists"
-            )))?;
-        SCHEDULER.wait().lock().schedule(id)?;
+            )));
+        }
+
+        // spawn_thread also schedules the thread
+        spawn_thread(pid, name, entry)?;
         Ok(pid)
     }
     pub fn pid(&self) -> u32 {
@@ -188,7 +183,11 @@ impl Process {
                 self.threads.len() - 1
             }
         };
-        let user_stack = UserStack::alloc(tid, &mut self.address_space).ok()?;
+        let user_stack = if self.is_kernel() {
+            None
+        } else {
+            UserStack::alloc(tid, &mut self.address_space).ok()
+        };
         let thread = Thread::new(
             self.pid,
             tid as u32,
@@ -299,6 +298,9 @@ impl Process {
         let fo = self.file_mut(fd)?;
         self.fds[fd as usize] = None;
         Ok(())
+    }
+    pub fn is_kernel(&self) -> bool {
+        self.pid == 0
     }
 }
 
