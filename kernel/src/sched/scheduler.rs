@@ -3,7 +3,7 @@ use core::{
     sync::atomic::{AtomicPtr, AtomicU32, Ordering},
 };
 
-use alloc::{borrow::ToOwned, boxed::Box, collections::btree_map::IterMut, format};
+use alloc::{borrow::ToOwned, format};
 use fs::meta::context;
 use log::{debug, error, info, warn};
 use mem::page_table::address_space::Addresser;
@@ -11,11 +11,10 @@ use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use crate::sched::{
     PROCESS_TABLE,
-    context::{switch_address_space, switch_to, thread_context_switch},
+    context::ThreadContextSwitch,
     error::SchedError,
-    process::{Process, ProcessTable},
     queue::RunQueue,
-    thread::thread::{State, Thread, ThreadId},
+    thread::thread::{State, ThreadId},
 };
 
 pub static CURRENT_PROCESS: AtomicU32 = AtomicU32::new(0);
@@ -39,19 +38,9 @@ impl Scheduler {
     /// called on timer interrupt
     ///
     /// Dont call run next directly in case interrupt logic
-    pub fn handle_interrupt(
-        &mut self,
-    ) -> Result<(*mut *mut usize, *mut usize, Option<usize>), SchedError> {
+    pub fn handle_interrupt(&mut self) -> Result<ThreadContextSwitch, SchedError> {
         // if there is only the running, dont interrupt
         self.run_next()
-    }
-    /// Manually requeues the running thread and starts the next ready thread
-    ///
-    /// Unrestricted, works on kernel thread and main thread
-    pub fn yield_thread(&mut self) {
-        if let Ok((old, new, satp)) = self.run_next() {
-            switch_to(satp, old, new);
-        }
     }
     pub fn set_running(&mut self, id: ThreadId) -> Result<(), SchedError> {
         // make sure thread exists
@@ -70,7 +59,7 @@ impl Scheduler {
     /// Interrupts the running thread and attempts to requeue it with the next available thread.
     ///
     /// If there is no next thread available to run, returns [`Err`] and does not interrupt the current thread. Returns [`Ok`] containing a pointer to the next available thread if the exchange was successful.
-    pub fn run_next(&mut self) -> Result<(*mut *mut usize, *mut usize, Option<usize>), SchedError> {
+    pub fn run_next(&mut self) -> Result<ThreadContextSwitch, SchedError> {
         // check next thread
         let Some(next_ready_id) = self.queue.dequeue_ready() else {
             return Err(SchedError::Other(
@@ -139,7 +128,11 @@ impl Scheduler {
         CURRENT_PROCESS.store(next_ready_id.pid, Ordering::Release);
         self.running = Some(next_ready_id);
 
-        Ok((old_sp_ptr, new_sp, new_satp))
+        Ok(ThreadContextSwitch {
+            new_satp,
+            new_sp,
+            old_sp_ptr,
+        })
     }
     /// Enqueues the thread with id `thread_id`, scheduling it to be run
     pub fn schedule(&mut self, id: ThreadId) -> Result<(), SchedError> {

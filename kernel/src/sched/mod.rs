@@ -53,7 +53,6 @@ pub fn init_scheduler(stack_top: *const u8, stack_bottom: *const u8) -> Result<(
     ASID_ALLOCATOR.set(Mutex::new(ASIDBitmapSV32::new([0; 8], MAX_ASID as usize)));
     SCHEDULER.set(Mutex::new(Scheduler::new()));
     PROCESS_TABLE.set(Mutex::new(ProcessTable::new()));
-
     let main_thread = Thread::main();
 
     let allocator = PAGE_ALLOCATOR.wait();
@@ -100,11 +99,11 @@ macro_rules! terminate {
         crate::sched::SCHEDULER.wait().lock().terminate_running();
     };
 }
-
-/// Manually pauses the
-#[macro_export]
-macro_rules! yield_thread {
-    () => {
-        crate::sched::SCHEDULER.wait().lock().yield_thread();
-    };
+/// Manually pauses the current thread and places it back in the queue as a ready thread
+pub fn yield_thread() {
+    let context = crate::sched::SCHEDULER.wait().lock().run_next();
+    match context {
+        Ok(c) => crate::sched::context::switch_to(c),
+        Err(err) => error!("Failed to yield thread: {err}"),
+    }
 }

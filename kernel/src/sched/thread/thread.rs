@@ -14,26 +14,20 @@ use fs::meta::context;
 use log::{debug, error, info, warn};
 use sdt::fdt::FDT;
 
-use crate::{
-    console::writer::println,
-    sched::{
-        PROCESS_TABLE, SCHEDULER,
-        context::{switch_address_space, switch_to},
-        error::SchedError,
-        process::ProcessTable,
-        scheduler::CURRENT_PROCESS,
-        thread::{self, kstack::KernelStack, ustack::UserStack},
-    },
+use crate::sched::{
+    PROCESS_TABLE, SCHEDULER,
+    context::switch_to,
+    error::SchedError,
+    scheduler::CURRENT_PROCESS,
+    thread::{kstack::KernelStack, ustack::UserStack},
 };
 use core::{
-    alloc::Layout,
     arch::naked_asm,
     cmp::min,
     fmt::Display,
-    iter::Map,
     mem,
-    ptr::{self, null, null_mut},
-    sync::atomic::{AtomicU32, Ordering},
+    ptr::{self, null_mut},
+    sync::atomic::Ordering,
 };
 
 unsafe extern "C" {
@@ -329,7 +323,7 @@ extern "C" fn thread_wrapper(entry: u32) -> ! {
             sched.run_next()
         };
         match next {
-            Ok((old_sp, new_sp, satp)) => switch_to(satp, old_sp, new_sp),
+            Ok(context) => switch_to(context),
             Err(err) => error!("Thread exit: {err}"),
         }
         loop {

@@ -7,18 +7,14 @@ use sdt::fdt::{self, FDT, GLOBAL_FDT};
 
 use crate::{
     arch::riscv::{
-        csr::Csr::{MIE, MSTATUS, MTVEC, SEPC, SIE, SIP, SSTATUS, STVAL, STVEC},
+        csr::Csr::{SEPC, SIE, SIP, SSTATUS, STVAL, STVEC},
         interrupt::{
             notifier::{INTERRUPT_NOTIFIER, InterruptNotifier},
-            route::{ExceptionCode, InterruptCode, Trap, parse_cause, parse_scause},
+            route::{ExceptionCode, InterruptCode, Trap, parse_scause},
         },
     },
     drivers::time::GLOBAL_TIME,
-    sched::{
-        SCHEDULER,
-        context::{switch_address_space, thread_context_switch},
-        scheduler::CURRENT_PROCESS,
-    },
+    sched::SCHEDULER,
     syscall::handle_ecall,
 };
 
@@ -145,9 +141,7 @@ pub extern "C" fn s_trap_handler(frame: *mut usize) {
                             None => return error!("Scheduler busy"),
                         };
                         match next {
-                            Ok((old_sp, new_sp, satp)) => {
-                                crate::sched::context::switch_to(satp, old_sp, new_sp)
-                            }
+                            Ok(context) => crate::sched::context::switch_to(context),
                             Err(msg) => {} // error!("Failed to schedule next thread: {msg}"),
                         }
                     }

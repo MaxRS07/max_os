@@ -14,7 +14,7 @@ use crate::{
         error::SyscallError,
         op::{SysOp, exit, str_from_args},
     },
-    write_return,
+    write_return, yield_thread,
 };
 
 /// Threading and process control system call operations
@@ -67,7 +67,7 @@ impl SysOp for ThreadOp {
                         SyscallError::Failed(err.to_string())
                     })
             }
-            Self::Yield => Ok(SCHEDULER.wait().lock().yield_thread()),
+            Self::Yield => Ok(yield_thread()),
         }
     }
 }

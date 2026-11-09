@@ -11,7 +11,7 @@ pub mod mm;
 pub mod sched;
 pub mod syscall;
 
-use core::{arch::global_asm, panic};
+use core::{arch::global_asm, panic, time::Duration};
 
 use log::{debug, error, info, warn};
 use sdt::fdt::GLOBAL_FDT;
@@ -21,7 +21,7 @@ use crate::{
     arch::riscv::{self, interrupt::handler::schedule_interrupt_timer},
     drivers::{block::BLOCK_DEVICE, time::GLOBAL_TIME},
     mm::{_boot_stack_bottom, _boot_stack_top},
-    sched::{SCHEDULER, spawn_thread},
+    sched::{SCHEDULER, spawn_thread, yield_thread},
 };
 
 global_asm!(include_str!("boot.s"));
@@ -78,12 +78,15 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
 }
 
 pub fn thread_a_entry() {
-    info!("Thread A entered");
-    yield_thread!();
     let start = GLOBAL_TIME.wait().now_ms();
+    info!("Thread A entered");
+    while !GLOBAL_TIME.wait().elapsed_ms(start, 5_000) {
+        let now = GLOBAL_TIME.wait().now_ms();
+        let time = now - start;
+        info!("yielding, {time} ms elapsed");
+        yield_thread();
+    }
 }
 pub fn thread_b_entry() {
-    info!("Thread B entered");
-    yield_thread!();
-    let start = GLOBAL_TIME.wait().now_ms();
+    info!("Thread B entered")
 }
