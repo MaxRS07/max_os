@@ -58,47 +58,33 @@ impl Table {
             let shift = 12 + i * 9;
             let vpn = (virt_addr >> shift) & mask;
 
-            let entry = table.pages[vpn];
+            let entry = &mut table.pages[vpn];
 
+            if entry.is_leaf() {
+                if !entry.is_valid() {
+                    entry.set_addr(phys_addr);
+                    entry.init(flags);
+                    return Ok(());
+                } else {
+                    return Err(MemoryError::InvalidAddress(
+                        "Cannot overwrite existing mapping",
+                    ));
+                }
+            }
+            // entry is table, check validity
             if !entry.is_valid() {
-                let table = Self::alloc_empty(page_allocator)?;
-                entry.set_addr(table as usize);
+                let entry_table = Self::alloc_empty(page_allocator)?;
+                entry.set_addr(entry_table as usize);
                 entry.set_valid(true);
-                table = &mut unsafe { *table };
+                table = unsafe { &mut *entry_table };
                 continue;
             }
-            let ptr = entry.addr() as *mut Table;
-            unsafe {
-                let table = &mut *ptr;
-                let leaf = table.entry_mut(vpn);
-            }
-        }
-        // create 4KiB megatable if both phys and vpn0 are aligned
-        let root_entry = &mut self.pages[vpn_root as usize];
 
-        if !root_entry.is_table() {
-            return Err(MemoryError::AccessViolation(
-                "Cannot access leaf node as table",
-            ));
+            unsafe { table = &mut *(entry.addr() as *mut Table) };
         }
-
-        if !root_entry.is_valid() {
-            let table = Self::alloc_empty(page_allocator)?;
-            root_entry.set_addr(table as usize);
-            root_entry.set_valid(true);
-        }
-        let ptr = root_entry.addr() as *mut Table;
-        unsafe {
-            let table = &mut *ptr;
-            let leaf = table.entry_mut(vpn_leaf);
-            if !leaf.is_valid() {
-                leaf.set_addr(phys_addr);
-                leaf.init(flags);
-            } else {
-                return Err(MemoryError::PageFault("Attempted to overwrite mapped leaf"));
-            }
-            Ok(())
-        }
+        return Err(MemoryError::InvalidAddress(
+            "Leaf not found for the specified address",
+        ));
     }
     /// Maps virtual addresses `virt_addr` and consecutive addresses in page increments totaling `size` bytes to physical addresses, returning the physical address list in order.
     pub fn map_size(
