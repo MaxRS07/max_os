@@ -255,7 +255,7 @@ unsafe impl Sync for Thread {}
 impl Display for Thread {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_fmt(format_args!(
-            "{}@{:x}",
+            "{}@0x{:x}",
             self.get_name_str(),
             self.kernel_stack.top(),
         ))
