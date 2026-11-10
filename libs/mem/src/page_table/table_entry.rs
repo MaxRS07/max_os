@@ -17,17 +17,23 @@ impl TableEntry {
     pub const ACCESSED: usize = 1 << 6;
     pub const DIRTY: usize = 1 << 7;
 
-    /// Reserved bits (63-54) 10
+    /// Reserved bits (63-54) 10 bits
     const RESERVED: usize = 0xFFC0_0000_0000_0000;
-    /// Flag mask (bits 0-9 reserved) 10
-    const FLAG_MASK: usize = 0x3FF;
 
-    /// PPN 2 mask (53-28) 26
+    /// PPN 2 mask (bits 53-28) 26 bits
     const PPN2_MASK: usize = 0x003F_FFFF_F000_0000;
-    /// PNN 1 mask (20-31) 9
-    const PPN1_MASK: usize = 0x0000_0003_FF00_0000;
-    /// PNN 0 mask (10-19) 9
-    const PPN0_MASK: usize = 0x0000_0000_00FF_C000;
+
+    /// PPN 1 mask (bits 27-19) 9 bits
+    const PPN1_MASK: usize = 0x0000_0000_0FF8_0000;
+
+    /// PPN 0 mask (bits 18-10) 9 bits
+    const PPN0_MASK: usize = 0x0000_0000_0007_FC00;
+
+    /// RSW reserved for software (bits 9-8) 2 bits
+    const RSW_MASK: usize = 0x0000_0000_0000_0300;
+
+    /// Flag mask (bits 7-0) 8 bits
+    const FLAG_MASK: usize = 0x0000_0000_0000_00FF;
 
     pub const fn empty() -> Self {
         Self(0)
@@ -62,37 +68,38 @@ impl TableEntry {
 
     pub fn set_addr(&mut self, phys_addr: usize) {
         let ppn = phys_addr >> 12;
-        self.set_ppn0(ppn & 0x3FF); // low 10 bits
-        self.set_ppn1((ppn >> 10) & 0xFFF); // high 12 bits
+        self.set_ppn0(ppn & 0x1FF); // 9 bits
+        self.set_ppn1((ppn >> 9) & 0x1FF); // 9 bits
+        self.set_ppn2((ppn >> 18) & 0x03FF_FFFF);
     }
 
     pub fn addr(&self) -> usize {
-        let ppn = self.ppn0() | (self.ppn1() << 10);
-        ppn << 12
+        self.ppn2() << 30 | self.ppn1() << 21 | self.ppn0() << 12
     }
 
     pub fn set_ppn0(&mut self, ppn0: usize) {
         self.0 &= !Self::PPN0_MASK;
         self.0 |= (ppn0 << 10) & Self::PPN0_MASK;
     }
+
     pub fn ppn0(&self) -> usize {
         (self.0 & Self::PPN0_MASK) >> 10
     }
 
     pub fn set_ppn1(&mut self, ppn1: usize) {
         self.0 &= !Self::PPN1_MASK;
-        self.0 |= (ppn1 << 20) & Self::PPN1_MASK;
+        self.0 |= (ppn1 << 19) & Self::PPN1_MASK;
     }
     pub fn ppn1(&self) -> usize {
-        (self.0 & Self::PPN1_MASK) >> 20
+        (self.0 & Self::PPN1_MASK) >> 19
     }
 
     pub fn set_ppn2(&mut self, ppn2: usize) {
         self.0 &= !Self::PPN2_MASK;
-        self.0 |= (ppn2 << 53) & Self::PPN2_MASK;
+        self.0 |= (ppn2 << 28) & Self::PPN2_MASK;
     }
     pub fn ppn2(&self) -> usize {
-        (self.0 & Self::PPN2_MASK) >> 52
+        (self.0 & Self::PPN2_MASK) >> 28
     }
 
     // Dirty

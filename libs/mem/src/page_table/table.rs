@@ -12,9 +12,8 @@ use crate::{
     },
 };
 
-const TABLE_LEN: usize = 1024;
+const TABLE_LEN: usize = 512;
 const LEAF_SIZE: usize = 0x1000;
-const MEGATABLE_SIZE: usize = 0x400000;
 
 /* User region of the table (256-512) */
 /// 256
@@ -33,7 +32,6 @@ impl Table {
             pages: [TableEntry::empty(); TABLE_LEN],
         }
     }
-    pub const MEGAPAGE: usize = 1 << 8;
 
     /// Copies kernel mappings onto this table
     pub fn fork_kernel(&mut self, kernel: &Self) {
@@ -50,11 +48,31 @@ impl Table {
         phys_addr: usize,
         flags: usize,
     ) -> Result<(), MemoryError> {
-        let align = MEGATABLE_SIZE; // 4MiB
         let virt_addr = aligned_down(virt_addr, LEAF_SIZE);
-        let vpn_root = (virt_addr >> 22) & 0x3FF;
-        let vpn_leaf = (virt_addr >> 12) & 0x3FF;
 
+        let mask = 0x3FF; // 10 bit mask
+
+        let mut table = self;
+        // walk down levels
+        for i in 0..2 {
+            let shift = 12 + i * 9;
+            let vpn = (virt_addr >> shift) & mask;
+
+            let entry = table.pages[vpn];
+
+            if !entry.is_valid() {
+                let table = Self::alloc_empty(page_allocator)?;
+                entry.set_addr(table as usize);
+                entry.set_valid(true);
+                table = &mut unsafe { *table };
+                continue;
+            }
+            let ptr = entry.addr() as *mut Table;
+            unsafe {
+                let table = &mut *ptr;
+                let leaf = table.entry_mut(vpn);
+            }
+        }
         // create 4KiB megatable if both phys and vpn0 are aligned
         let root_entry = &mut self.pages[vpn_root as usize];
 
@@ -62,17 +80,6 @@ impl Table {
             return Err(MemoryError::AccessViolation(
                 "Cannot access leaf node as table",
             ));
-        }
-        if (flags & Self::MEGAPAGE) != 0 {
-            if vpn_leaf == 0 && phys_addr.is_multiple_of(align) {
-                root_entry.set_addr(phys_addr);
-                root_entry.init(flags);
-                return Ok(());
-            } else {
-                return Err(MemoryError::PageFault(
-                    "Specified megatable, but address not aligned",
-                ));
-            }
         }
 
         if !root_entry.is_valid() {
@@ -101,15 +108,10 @@ impl Table {
         size: usize,
         flags: usize,
     ) -> Result<Vec<usize>, MemoryError> {
-        let offset_size = if flags & Table::MEGAPAGE != 0 {
-            MEGATABLE_SIZE
-        } else {
-            LEAF_SIZE
-        };
-        let page_count = size.div_ceil(offset_size as usize);
+        let page_count = size.div_ceil(LEAF_SIZE as usize);
         let mut phys_addrs = Vec::new();
         for i in 0..page_count {
-            let offset = i * offset_size as usize;
+            let offset = i * LEAF_SIZE as usize;
             let vaddr = virt_addr + offset as usize;
 
             // grab a fresh page and give its address to the return
@@ -128,7 +130,6 @@ impl Table {
         &mut self,
         page_allocator: &dyn Pager,
         virt_addr: usize,
-        is_megatable: bool,
     ) -> Result<usize, MemoryError> {
         let virt_addr = aligned_down(virt_addr, LEAF_SIZE);
 
@@ -142,16 +143,6 @@ impl Table {
             return Err(MemoryError::HeapCorruption(
                 "Requested virtual address is unmapped",
             ));
-        }
-
-        if is_megatable {
-            if vpn_leaf == 0 && virt_addr.is_multiple_of(MEGATABLE_SIZE) {
-                return Ok(child_entry.clear());
-            } else {
-                return Err(MemoryError::PageFault(
-                    "Specified megatable, but address not aligned",
-                ));
-            }
         }
 
         let ptr = child_entry.addr() as *mut Table;
@@ -193,7 +184,7 @@ impl Table {
             let offset = i * offset_size;
             let vaddr = virt_addr + offset as usize;
 
-            self.unmap(page_allocator, vaddr, false)?;
+            self.unmap(page_allocator, vaddr)?;
         }
 
         Ok(())
