@@ -7,7 +7,7 @@ use crate::error::MemoryError;
 pub struct TableEntry(usize);
 
 impl TableEntry {
-    // Sv32 Page Table Entry Flag Bits (Bits 0-7)
+    // Sv39 Page Table Entry Flag Bits (Bits 0-7)
     pub const VALID: usize = 1 << 0;
     pub const READ: usize = 1 << 1;
     pub const WRITE: usize = 1 << 2;
@@ -17,12 +17,17 @@ impl TableEntry {
     pub const ACCESSED: usize = 1 << 6;
     pub const DIRTY: usize = 1 << 7;
 
-    /// Flag mask (bits 0-9 reserved)
+    /// Reserved bits (63-54) 10
+    const RESERVED: usize = 0xFFC0_0000_0000_0000;
+    /// Flag mask (bits 0-9 reserved) 10
     const FLAG_MASK: usize = 0x3FF;
-    /// PNN 1 mask (20-31)
-    const PNN1_MASK: usize = 0xFFF0_0000;
-    /// PNN 0 mask (10-19)
-    const PNN0_MASK: usize = 0x000F_FC00;
+
+    /// PPN 2 mask (53-28) 26
+    const PPN2_MASK: usize = 0x003F_FFFF_F000_0000;
+    /// PNN 1 mask (20-31) 9
+    const PPN1_MASK: usize = 0x0000_0003_FF00_0000;
+    /// PNN 0 mask (10-19) 9
+    const PPN0_MASK: usize = 0x0000_0000_00FF_C000;
 
     pub const fn empty() -> Self {
         Self(0)
@@ -67,19 +72,27 @@ impl TableEntry {
     }
 
     pub fn set_ppn0(&mut self, ppn0: usize) {
-        self.0 &= !Self::PNN0_MASK;
-        self.0 |= (ppn0 << 10) & Self::PNN0_MASK;
+        self.0 &= !Self::PPN0_MASK;
+        self.0 |= (ppn0 << 10) & Self::PPN0_MASK;
     }
     pub fn ppn0(&self) -> usize {
-        (self.0 & Self::PNN0_MASK) >> 10
+        (self.0 & Self::PPN0_MASK) >> 10
     }
 
     pub fn set_ppn1(&mut self, ppn1: usize) {
-        self.0 &= !Self::PNN1_MASK;
-        self.0 |= (ppn1 << 20) & Self::PNN1_MASK;
+        self.0 &= !Self::PPN1_MASK;
+        self.0 |= (ppn1 << 20) & Self::PPN1_MASK;
     }
     pub fn ppn1(&self) -> usize {
-        (self.0 & Self::PNN1_MASK) >> 20
+        (self.0 & Self::PPN1_MASK) >> 20
+    }
+
+    pub fn set_ppn2(&mut self, ppn2: usize) {
+        self.0 &= !Self::PPN2_MASK;
+        self.0 |= (ppn2 << 53) & Self::PPN2_MASK;
+    }
+    pub fn ppn2(&self) -> usize {
+        (self.0 & Self::PPN2_MASK) >> 52
     }
 
     // Dirty
