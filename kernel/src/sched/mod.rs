@@ -28,11 +28,11 @@ use crate::{
     },
 };
 
-pub mod context;
 pub mod error;
 pub mod process;
 pub mod queue;
 pub mod scheduler;
+pub mod swap;
 pub mod thread;
 
 /// Global ASID allocator
@@ -103,7 +103,7 @@ macro_rules! terminate {
 pub fn yield_thread() {
     let context = crate::sched::SCHEDULER.wait().lock().run_next();
     match context {
-        Ok(c) => crate::sched::context::switch_to(c),
+        Ok(c) => crate::sched::swap::switch_to(c),
         Err(err) => error!("Failed to yield thread: {err}"),
     }
 }

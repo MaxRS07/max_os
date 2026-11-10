@@ -24,10 +24,10 @@ pub const STACK_PAGES: usize = USER_STACK_SIZE / 0x1000; // 3 + 1
 #[derive(Debug)]
 pub struct UserStack {
     /// The virtual address of the bottom of the stack
-    base: usize,
+    pub base: usize,
     /// The virtual address of the top of the stack
-    top: usize,
-    guard: usize,
+    pub top: usize,
+    pub guard: usize,
 }
 impl UserStack {
     pub fn alloc(tid: usize, space: &mut AddressSpace) -> Result<Self, MemoryError> {

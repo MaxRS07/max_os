@@ -16,10 +16,14 @@ use sdt::fdt::FDT;
 
 use crate::sched::{
     PROCESS_TABLE, SCHEDULER,
-    context::switch_to,
     error::SchedError,
     scheduler::CURRENT_PROCESS,
-    thread::{kstack::KernelStack, ustack::UserStack},
+    swap::switch_to,
+    thread::{
+        context::{Context, Entry},
+        kstack::KernelStack,
+        ustack::UserStack,
+    },
 };
 use core::{
     arch::naked_asm,
@@ -151,6 +155,13 @@ impl Thread {
         let kernel_stack = KernelStack::alloc().ok_or(SchedError::Other(
             "Failed to allocate Kernel Stack".to_owned(),
         ))?;
+        let entry = match &user_stack {
+            Some(stack) => Entry::User {
+                entry,
+                user_sp: stack.top,
+            },
+            None => Entry::Kernel { entry },
+        };
         let context = Context::new(entry, kernel_stack.top(), kernel_stack.tls().addr());
         Ok(Self {
             id,
@@ -248,86 +259,5 @@ impl Display for Thread {
             self.get_name_str(),
             self.kernel_stack.top(),
         ))
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-/// Thread context, contains information about the execution state of the thread
-pub struct Context {
-    /// saved pointer in the current stack, sp will be set here when this thread's context is loaded
-    pub stack_pointer: *mut usize,
-    /// pointer to the thread local storage block, tp is set to this when context is loaded
-    pub thread_pointer: *mut usize,
-}
-impl Context {
-    /// Prepares the stack for initial load. Returns the new Context
-    /// # Safety
-    pub fn new(entry: usize, stack_bottom: usize, tls_start: usize) -> Self {
-        let frame_ptr = (stack_bottom - 56) as *mut u32;
-        unsafe {
-            // zero out all registers
-            for i in 0..12 {
-                frame_ptr.add(i).write(0);
-            }
-            // write the entry as an argument to the thread (a0)
-            frame_ptr.write(entry as u32);
-            // set tp register to our tls address
-            frame_ptr.add(12).write(tls_start as u32);
-            // set return to the function entry point
-            frame_ptr
-                .add(13)
-                .write(thread_prolouge as extern "C" fn() as u32);
-        }
-        Context {
-            thread_pointer: tls_start as *mut usize,
-            stack_pointer: frame_ptr as *mut usize,
-        }
-    }
-    /// creates a new `Context` with null pointers
-    pub fn empty() -> Self {
-        Self {
-            thread_pointer: null_mut(),
-            stack_pointer: null_mut(),
-        }
-    }
-}
-
-impl Default for Context {
-    /// Defaults to empty thread. See `Context::empty()`.
-    fn default() -> Self {
-        Self::empty()
-    }
-}
-/// Loads the entry function into the first arg of the thread wrapper
-#[unsafe(naked)]
-extern "C" fn thread_prolouge() {
-    naked_asm!("csrsi sstatus, 2", "mv a0, s0", "tail thread_wrapper")
-}
-/// Wraps the thread entry in a terminating function, disposing the thread after execution.
-///
-/// Never returns: `ra` still points at [`thread_prolouge`], so returning would re-run the entry.
-#[unsafe(no_mangle)]
-extern "C" fn thread_wrapper(entry: u32) -> ! {
-    unsafe {
-        let func_ptr = entry as *const ();
-        let func: fn() -> () = core::mem::transmute(func_ptr);
-        func();
-
-        // stop the timer from switching between terminating and switching
-        core::arch::asm!("csrci sstatus, 2");
-        // release the scheduler lock before switching, this stack is never resumed
-        let next = {
-            let mut sched = SCHEDULER.wait().lock();
-            let _ = sched.terminate_running();
-            sched.run_next()
-        };
-        match next {
-            Ok(context) => switch_to(context),
-            Err(err) => error!("Thread exit: {err}"),
-        }
-        loop {
-            core::arch::asm!("wfi");
-        }
     }
 }

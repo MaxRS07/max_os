@@ -141,7 +141,7 @@ pub extern "C" fn s_trap_handler(frame: *mut usize) {
                             None => return error!("Scheduler busy"),
                         };
                         match next {
-                            Ok(context) => crate::sched::context::switch_to(context),
+                            Ok(context) => crate::sched::swap::switch_to(context),
                             Err(msg) => {} // error!("Failed to schedule next thread: {msg}"),
                         }
                     }

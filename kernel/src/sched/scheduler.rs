@@ -11,9 +11,9 @@ use sync::{mutex::Mutex, oncelock::OnceLock};
 
 use crate::sched::{
     PROCESS_TABLE,
-    context::ThreadContextSwitch,
     error::SchedError,
     queue::RunQueue,
+    swap::ThreadContextSwitch,
     thread::thread::{State, ThreadId},
 };
 

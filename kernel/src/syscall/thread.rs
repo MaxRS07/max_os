@@ -65,7 +65,7 @@ impl SysOp for ThreadOp {
                     .remove_thread(thread_id)
                     .ok_or(SyscallError::Failed(format!(
                         "Failed to remove thread with {thread_id:?}, does not exist"
-                    )));
+                    )))?;
                 Ok(())
             }
             Self::Yield => Ok(yield_thread()),

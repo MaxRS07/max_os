@@ -7,7 +7,9 @@ pub(crate) trait SysOp: Sized + TryFrom<usize, Error = SyscallError> {
 }
 
 /* Arg Helpers */
+// TODO: Move to the syscall library
 
+/// TODO: check for user page permissions. IMPORTANT
 pub unsafe fn str_from_args(address: usize, len: usize) -> Result<String, SyscallError> {
     unsafe {
         let str_ptr = address as *const u8;
