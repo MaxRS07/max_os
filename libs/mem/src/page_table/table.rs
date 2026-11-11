@@ -1,6 +1,10 @@
-use core::fmt::Display;
+use core::{
+    arch::asm,
+    fmt::Display,
+    ptr::{addr_of, null_mut},
+};
 
-use alloc::vec::Vec;
+use alloc::{collections::btree_map::Entry, vec::Vec};
 use sync::mutex::Mutex;
 
 use crate::{
@@ -15,11 +19,12 @@ use crate::{
 const TABLE_LEN: usize = 512;
 const LEAF_SIZE: usize = 0x1000;
 
-/* User region of the table (256-512) */
-/// 256
-pub const USER_ROOT_START: usize = 0x4000_0000 >> 22;
-/// 512
-pub const USER_ROOT_END: usize = 0x8000_0000 >> 22;
+/* User region of the table (4-255) */
+pub const USER_VA_START: usize = 0x1_0000_0000;
+pub const USER_VA_END: usize = 0x40_0000_0000;
+
+pub const USER_ROOT_START: usize = USER_VA_START >> 30;
+pub const USER_ROOT_END: usize = USER_VA_END >> 30;
 
 #[repr(align(4096))]
 pub struct Table {
@@ -48,19 +53,25 @@ impl Table {
         phys_addr: usize,
         flags: usize,
     ) -> Result<(), MemoryError> {
+        Self::check_range(virt_addr)?;
+        TableEntry::check_user_flags(flags)?;
         let virt_addr = aligned_down(virt_addr, LEAF_SIZE);
 
-        let mask = 0x3FF; // 10 bit mask
+        let mask = 0x1FF; // 9 bit mask
 
         let mut table = self;
         // walk down levels
-        for i in 0..2 {
-            let shift = 12 + i * 9;
+        for level in (0..=2).rev() {
+            let shift = 12 + level * 9;
             let vpn = (virt_addr >> shift) & mask;
 
             let entry = &mut table.pages[vpn];
 
-            if entry.is_leaf() {
+            // TODO
+            // if level == 1 && BIG_PAGE {
+            //     map the superpage directly
+            // }
+            if level == 0 {
                 if !entry.is_valid() {
                     entry.set_addr(phys_addr);
                     entry.init(flags);
@@ -70,6 +81,10 @@ impl Table {
                         "Cannot overwrite existing mapping",
                     ));
                 }
+            } else if entry.is_leaf() {
+                return Err(MemoryError::InvalidAddress(
+                    "Cannot overwrite existing mapping",
+                ));
             }
             // entry is table, check validity
             if !entry.is_valid() {
@@ -117,46 +132,69 @@ impl Table {
         page_allocator: &dyn Pager,
         virt_addr: usize,
     ) -> Result<usize, MemoryError> {
+        Self::check_range(virt_addr)?;
         let virt_addr = aligned_down(virt_addr, LEAF_SIZE);
 
-        let vpn_root = (virt_addr >> 22) & 0x3FF;
-        let vpn_leaf = (virt_addr >> 12) & 0x3FF;
+        let mask = 0x1FF; // 9 bit mask
 
-        // create 4KiB megatable if both phys and vpn0 are aligned
-        let child_entry = &mut self.pages[vpn_root as usize];
+        let mut table: *mut Self = self;
+        let mut levels = [(null_mut(), 0); 3];
+        for i in (0..=2).rev() {
+            let shift = 12 + i * 9;
+            let vpn = (virt_addr >> shift) & mask;
 
-        if !child_entry.is_valid() {
-            return Err(MemoryError::HeapCorruption(
-                "Requested virtual address is unmapped",
-            ));
-        }
+            levels[i] = (table, vpn);
 
-        let ptr = child_entry.addr() as *mut Table;
-        unsafe {
-            let child_table = &mut *ptr;
-            let (leaf_was_valid, physical_address, has_valid_entries) = {
-                let leaf = child_table.entry_mut(vpn_leaf);
-                let leaf_was_valid = leaf.is_valid();
-                let physical_address = if leaf_was_valid { leaf.clear() } else { 0 };
-                (
-                    leaf_was_valid,
-                    physical_address,
-                    child_table.has_valid_entries(),
-                )
-            };
+            let entry = unsafe { (*table).entry_mut(vpn) };
 
-            // Invalidate an empty entry table so it can be reused later.
-            if !has_valid_entries {
-                page_allocator.free(ptr as *mut u8)?;
+            if !entry.is_valid() {
+                return Err(MemoryError::InvalidAddress(
+                    "Virtual address is already unmapped",
+                ));
             }
-            if leaf_was_valid {
+
+            if entry.is_leaf() {
+                let physical_address = entry.clear();
+
+                let mut j = i;
+                while j < 2 {
+                    let (table, _) = levels[j];
+                    let (parent, p_vpn) = levels[j + 1];
+
+                    unsafe {
+                        if !(*table).has_valid_entries() {
+                            let addr = (*parent).entry_mut(p_vpn).clear();
+                            page_allocator.free(addr as *mut u8)?;
+                        } else {
+                            break;
+                        }
+                    }
+                    j += 1;
+                }
+                unsafe {
+                    asm!("sfence.vma"); // reset table cache to clear unmapped memory
+                }
                 return Ok(physical_address);
             }
+            table = unsafe { &mut *(entry.addr() as *mut Table) };
+        }
+
+        Err(MemoryError::InvalidAddress(
+            "Requested virtual address is unmapped",
+        ))
+    }
+
+    /// faults if the provided virtual address is outside the user range
+    pub fn check_range(address: usize) -> Result<(), MemoryError> {
+        if !(USER_VA_START..=USER_VA_END).contains(&address) {
             Err(MemoryError::AccessViolation(
-                "Attemped to unmap already unmapped address",
+                "Specified address is outside of user range",
             ))
+        } else {
+            Ok(())
         }
     }
+
     /// unmaps `size` consecutive virtual regions
     pub fn unmap_size(
         &mut self,
@@ -177,30 +215,32 @@ impl Table {
     }
     /// Returns the physical address asscosiated with `virt_addr`, or 0 if `virt_addr` is invalid
     pub fn translate(&self, virt_addr: usize) -> usize {
-        let vpn_root = (virt_addr >> 22) & 0x3FF;
-        let vpn_leaf = (virt_addr >> 12) & 0x3FF;
+        let mut table = self;
+        let mask = 0x1FF;
 
-        let root = self.pages[vpn_root as usize];
+        for level in (0..=2).rev() {
+            let size = 0x1000 << (level * 9);
+            let shift = 12 + level * 9;
+            let vpn = (virt_addr >> shift) & mask;
 
-        if !root.is_valid() {
-            return 0;
-        }
-        if root.is_executable() || root.is_writable() || root.is_readable() {
-            // root is a leaf, return its address
-            return root.addr();
-        }
+            let entry = table.pages[vpn];
 
-        let leaf_table_ptr = root.addr() as *mut Table;
-        unsafe {
-            let leaf_table = &mut *leaf_table_ptr;
-            let leaf_entry = leaf_table.entry_mut(vpn_leaf);
-            if leaf_entry.is_valid() {
-                return leaf_entry.addr();
+            if !entry.is_valid() {
+                return 0;
+            }
+
+            if entry.is_leaf() {
+                return entry.addr() + (virt_addr & (size - 1));
+            }
+
+            if entry.is_table() {
+                let table_ptr = entry.addr() as *const Table;
+                table = unsafe { &*table_ptr }
             }
         }
         0
     }
-    /// Gets a mutable ref of a table entry at index `idx`. Panics if `idx` is larger than 1023.
+    /// Gets a mutable ref of a table entry at index `idx`. Panics if `idx >= TABLE_LEN`.
     pub fn entry_mut(&mut self, idx: usize) -> &mut TableEntry {
         &mut self.pages[idx as usize]
     }
@@ -217,6 +257,9 @@ impl Table {
         self.pages[USER_ROOT_START..USER_ROOT_END]
             .iter()
             .for_each(|entry| {
+                if !entry.is_leaf() {
+                    return;
+                }
                 let phys_ptr = entry.addr() as *mut u8;
                 let _ = page_allocator.free(phys_ptr);
             });

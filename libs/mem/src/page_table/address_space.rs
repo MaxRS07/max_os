@@ -324,7 +324,7 @@ impl Addresser for AddressSpace {
                 let phys_addr = region.translate(virt)?;
                 let phys_ptr = phys_addr as *mut u8;
 
-                unsafe { (*self.root_table).unmap(self.page_allocator, virt, false)? };
+                unsafe { (*self.root_table).unmap(self.page_allocator, virt)? };
                 self.page_allocator.free(phys_ptr)?;
             }
 

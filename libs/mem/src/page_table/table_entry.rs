@@ -43,10 +43,20 @@ impl TableEntry {
         self.0 & Self::FLAG_MASK
     }
     /// Errs if conflicting flags are detected, returns masked flags if ok
-    pub fn check_flags(flags: usize) -> Result<usize, MemoryError> {
-        if flags & Self::USER != 0 && flags & Self::WRITE != 0 && flags & Self::EXECUTE != 0 {
+    pub fn check_user_flags(flags: usize) -> Result<usize, MemoryError> {
+        if flags & Self::USER == 0 {
             return Err(MemoryError::AccessViolation(
-                "User facing entries must enforce W^X access",
+                "User mapping flags must set the U flag",
+            ));
+        }
+        if flags & Self::EXECUTE & Self::READ & Self::WRITE == 0 {
+            return Err(MemoryError::AccessViolation(
+                "Flags must contain at least one of: R | W | X",
+            ));
+        }
+        if flags & Self::WRITE == 1 && flags & Self::EXECUTE == 1 {
+            return Err(MemoryError::AccessViolation(
+                "User facing entries must enforce W ^ X access",
             ));
         }
         Ok(flags & Self::FLAG_MASK)
