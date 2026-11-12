@@ -44,12 +44,12 @@ impl TableEntry {
     }
     /// Errs if conflicting flags are detected, returns masked flags if ok
     pub fn check_user_flags(flags: usize) -> Result<usize, MemoryError> {
-        if flags & Self::USER == 0 {
-            return Err(MemoryError::AccessViolation(
-                "User mapping flags must set the U flag",
-            ));
-        }
-        if flags & Self::EXECUTE & Self::READ & Self::WRITE == 0 {
+        // if flags & Self::USER == 0 {
+        //     return Err(MemoryError::AccessViolation(
+        //         "User mapping flags must set the U flag",
+        //     ));
+        // }
+        if flags & (Self::EXECUTE | Self::READ | Self::WRITE) == 0 {
             return Err(MemoryError::AccessViolation(
                 "Flags must contain at least one of: R | W | X",
             ));

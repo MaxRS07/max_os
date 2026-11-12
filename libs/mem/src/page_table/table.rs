@@ -74,9 +74,11 @@ impl Table {
         flags: usize,
         page_size: PageSize,
     ) -> Result<(), MemoryError> {
-        Self::check_range(virt_addr)?;
         Self::check_align(virt_addr, page_size)?;
         TableEntry::check_user_flags(flags)?;
+        if flags & TableEntry::USER == 1 {
+            Self::check_range(virt_addr)?;
+        }
         let virt_addr = aligned_down(virt_addr, LEAF_SIZE);
 
         let mask = 0x1FF; // 9 bit mask
