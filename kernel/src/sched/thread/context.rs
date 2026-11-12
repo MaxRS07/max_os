@@ -27,7 +27,7 @@ impl Context {
     /// # Safety
     pub fn new(entry: Entry, kstaktop: usize, tls_start: usize) -> Self {
         unsafe {
-            let frame_ptr = (kstaktop - 52) as *mut usize;
+            let frame_ptr = (kstaktop as *mut usize).sub(13);
             let mut tp = *frame_ptr;
             let mut ra = *frame_ptr.add(4);
             let mut frame = (frame_ptr.add(8) as *mut [usize; 12]).read();
