@@ -46,7 +46,7 @@ use crate::{
     },
 };
 
-pub static PROCESS_MAP_BASE: usize = 0x4000_0000;
+pub static PROCESS_MAP_BASE: usize = 0x1_0000_0000;
 pub static PID_ALLOCATOR: AtomicU32 = AtomicU32::new(0);
 /// Process table for pid -> process lookup.
 pub struct ProcessTable {

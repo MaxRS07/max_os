@@ -4,7 +4,10 @@ use log::debug;
 
 use mem::{
     error::MemoryError,
-    page_table::{page_alloc::Pager, table::Table},
+    page_table::{
+        page_alloc::Pager,
+        table::{PageSize, Table},
+    },
 };
 use sdt::{fdt::GLOBAL_FDT, region::FDTRegion};
 
@@ -29,29 +32,66 @@ pub fn map_boot_pages(root_ptr: *mut Table) -> Result<(), MemoryError> {
             mut_root,
             PAGE_ALLOCATOR.wait(),
             &fdt.memory,
-            RWX | Table::MEGAPAGE,
+            PageSize::Gigapage,
+            RWX,
         )?;
         debug!("Mapped RAM");
         // CLINT
-        map_region_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.clint, RW)?;
+        map_region_identity(
+            mut_root,
+            PAGE_ALLOCATOR.wait(),
+            &fdt.clint,
+            PageSize::Single,
+            RW,
+        )?;
         debug!("Mapped CLINT");
         // PLIC
-        map_region_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.plic, RW)?;
+        map_region_identity(
+            mut_root,
+            PAGE_ALLOCATOR.wait(),
+            &fdt.plic,
+            PageSize::Single,
+            RW,
+        )?;
         debug!("Mapped PLIC");
         // MMIO
         map_mmio_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.virtio_mmio, RW)?;
         debug!("Mapped MMIO");
         // Test
-        map_region_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.test, RW)?;
+        map_region_identity(
+            mut_root,
+            PAGE_ALLOCATOR.wait(),
+            &fdt.test,
+            PageSize::Single,
+            RW,
+        )?;
         debug!("Mapped Test");
         // RTC
-        map_region_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.rtc, RW)?;
+        map_region_identity(
+            mut_root,
+            PAGE_ALLOCATOR.wait(),
+            &fdt.rtc,
+            PageSize::Single,
+            RW,
+        )?;
         debug!("Mapped RTC");
         // serial (uart)
-        map_region_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.serial, RW)?;
+        map_region_identity(
+            mut_root,
+            PAGE_ALLOCATOR.wait(),
+            &fdt.serial,
+            PageSize::Single,
+            RW,
+        )?;
         debug!("Mapped Serial");
         // fw-cfg
-        map_region_identity(mut_root, PAGE_ALLOCATOR.wait(), &fdt.fw_cfg, RW)?;
+        map_region_identity(
+            mut_root,
+            PAGE_ALLOCATOR.wait(),
+            &fdt.fw_cfg,
+            PageSize::Single,
+            RW,
+        )?;
         debug!("Mapped FW-CFG");
     }
     Ok(())
@@ -63,21 +103,18 @@ pub fn map_region_identity(
     table: &mut Table,
     page_allocator: &dyn Pager,
     region: &FDTRegion,
+    page_size: PageSize,
     flags: usize,
 ) -> Result<(), MemoryError> {
     let virt_addr = region.base_address;
-    let offset_size = if flags & Table::MEGAPAGE != 0 {
-        0x400_000 // MEGATABLE_SIZE
-    } else {
-        0x1000 // LEAF_SIZE
-    };
+    let offset_size = page_size as usize;
     let page_count = region.size.div_ceil(offset_size);
     for i in 0..page_count {
         let offset = i * offset_size;
         let vaddr = virt_addr + offset as usize;
-        let paddr = (region.base_address + offset) as usize;
+        let paddr = vaddr; // readability
 
-        table.map(page_allocator, vaddr, paddr, flags)?;
+        table.map(page_allocator, vaddr, paddr, flags, page_size)?;
     }
 
     Ok(())
@@ -90,26 +127,7 @@ pub fn map_mmio_identity(
     flags: usize,
 ) -> Result<(), MemoryError> {
     for slot in mmio_slots {
-        map_region_identity(table, page_allocator, slot, flags)?;
+        map_region_identity(table, page_allocator, slot, PageSize::Single, flags)?;
     }
     Ok(())
-}
-
-unsafe fn pack_satp(root_addr: usize) {
-    let addr_mask = 0x3FFFFFu32;
-    let mut satp_value = 0;
-    satp_value |= 1 << 31; // select sv32 mode
-
-    let addr = (root_addr >> 12) as u32;
-    satp_value |= addr_mask & addr;
-
-    unsafe {
-        SATP.write(satp_value as usize);
-        asm!(
-            "sfence.vma zero, zero",
-            "fence rw, rw",
-            "fence.i",
-            options(nostack)
-        );
-    }
 }

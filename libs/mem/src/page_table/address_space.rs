@@ -13,7 +13,7 @@ use crate::{
         asid::ASID,
         page_alloc::Pager,
         permissions::PagePermissions,
-        table::{Table, USER_ROOT_END},
+        table::{PageSize, Table, USER_ROOT_END},
     },
 };
 
@@ -347,6 +347,7 @@ impl Addresser for AddressSpace {
             self.page_allocator,
             virt_addr,
             num_pages * 0x1000,
+            PageSize::Single,
             flags,
         )?;
         let mut new_regions = Vec::new();
@@ -382,11 +383,15 @@ impl Addresser for AddressSpace {
         self.asid
     }
     fn satp(&self) -> usize {
-        const MODE_SV32: usize = 1 << 31; // select first bit
-        let ppn = (self.root_table as usize) >> 12;
-        let asid = self.asid.value() as usize;
+        let mode_mask = 0xF000_0000_0000_0000;
+        let asid_mask = 0x0FFF_F000_0000_0000;
+        let addr_mask = 0x0000_0FFF_FFFF_FFFF;
 
-        MODE_SV32 | asid << 22 | ppn & 0x3FFFFF
+        const MODE_SV39: usize = 8 << 60; // 4 bit mdoe 
+        let ppn = (self.root_table as usize) >> 12;
+        let asid = (self.asid.value() as usize) << 44;
+
+        (MODE_SV39 & mode_mask) | (asid & asid_mask) | (ppn & addr_mask)
     }
 
     fn translate(&self, virt_addr: usize) -> Result<usize, MemoryError> {

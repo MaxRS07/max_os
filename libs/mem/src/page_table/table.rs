@@ -26,6 +26,26 @@ pub const USER_VA_END: usize = 0x40_0000_0000;
 pub const USER_ROOT_START: usize = USER_VA_START >> 30;
 pub const USER_ROOT_END: usize = USER_VA_END >> 30;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum PageSize {
+    /// 4 KiB page located at level 0 table
+    Single = 0x1000,
+    /// 2 MiB megapage located at level 1 table
+    Megapage = 0x20_0000,
+    /// 1 GiB gigapage on the root table
+    Gigapage = 0x4000_0000,
+}
+
+impl PageSize {
+    pub fn level(&self) -> usize {
+        match self {
+            Self::Gigapage => 2,
+            Self::Megapage => 1,
+            Self::Single => 0,
+        }
+    }
+}
+
 #[repr(align(4096))]
 pub struct Table {
     pub pages: [TableEntry; TABLE_LEN],
@@ -52,8 +72,10 @@ impl Table {
         virt_addr: usize,
         phys_addr: usize,
         flags: usize,
+        page_size: PageSize,
     ) -> Result<(), MemoryError> {
         Self::check_range(virt_addr)?;
+        Self::check_align(virt_addr, page_size)?;
         TableEntry::check_user_flags(flags)?;
         let virt_addr = aligned_down(virt_addr, LEAF_SIZE);
 
@@ -67,11 +89,7 @@ impl Table {
 
             let entry = &mut table.pages[vpn];
 
-            // TODO
-            // if level == 1 && BIG_PAGE {
-            //     map the superpage directly
-            // }
-            if level == 0 {
+            if level == page_size.level() {
                 if !entry.is_valid() {
                     entry.set_addr(phys_addr);
                     entry.init(flags);
@@ -107,12 +125,14 @@ impl Table {
         page_allocator: &dyn Pager,
         virt_addr: usize,
         size: usize,
+        page_size: PageSize,
         flags: usize,
     ) -> Result<Vec<usize>, MemoryError> {
-        let page_count = size.div_ceil(LEAF_SIZE as usize);
+        Self::check_align(virt_addr, page_size)?;
+        let page_count = size.div_ceil(page_size as usize);
         let mut phys_addrs = Vec::new();
         for i in 0..page_count {
-            let offset = i * LEAF_SIZE as usize;
+            let offset = i * page_size as usize;
             let vaddr = virt_addr + offset as usize;
 
             // grab a fresh page and give its address to the return
@@ -120,7 +140,7 @@ impl Table {
             phys_addrs.push(paddr);
 
             unsafe { (paddr as *mut u8).write_bytes(0, LEAF_SIZE) }; // clear page
-            self.map(page_allocator, vaddr, paddr, flags)?;
+            self.map(page_allocator, vaddr, paddr, flags, PageSize::Single)?;
         }
         Ok(phys_addrs)
     }
@@ -192,6 +212,17 @@ impl Table {
             ))
         } else {
             Ok(())
+        }
+    }
+    /// faults if an address space is not aligned to the specified page size
+    pub fn check_align(address: usize, size: PageSize) -> Result<(), MemoryError> {
+        let virt_addr = aligned_down(address, 0x1000);
+        if virt_addr & (size as usize - 1) == 0 {
+            Ok(())
+        } else {
+            Err(MemoryError::AlignmentError(
+                "Virtual address not aligned to specified page size",
+            ))
         }
     }
 
