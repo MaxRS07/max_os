@@ -34,7 +34,7 @@ impl Context {
 
             match entry {
                 Entry::Kernel { entry } => {
-                    ra = thread_prolouge as usize;
+                    ra = thread_prolouge as *const fn() as usize;
                     frame[0] = entry
                 }
                 Entry::User { entry, user_sp } => {
