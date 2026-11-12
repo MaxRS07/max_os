@@ -22,7 +22,9 @@ pub const QTICK: u64 = 100_000;
 
 pub fn init_s_trap_handler() {
     let sstatus_sie = 1 << 1;
+    // Supervisor Software Interrupt Enable
     let sie_ssie = 1 << 1;
+    // Supervisor External Interrupt Enable
     let sie_meie = 1 << 9;
     let sie_mask = sie_meie | sie_ssie;
 
