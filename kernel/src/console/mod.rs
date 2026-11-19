@@ -34,8 +34,8 @@ pub fn init(debug: bool) {
 pub fn write_hhmmss(w: &mut dyn Write) -> fmt::Result {
     let time = GLOBAL_TIME.wait().now_ms();
     let seconds = time / 1000 % 60;
-    let mins = seconds / 60 % 60;
-    let hours = mins / 60;
+    let mins = time / 60_000 % 60;
+    let hours = time / 3_600_000;
     write!(
         w,
         "{:02}:{:02}:{:02}.{:?>03}",
