@@ -50,16 +50,15 @@ impl PageAllocator {
             free_pages: 0,
         };
         unsafe {
-            let align = PAGE_SIZE - 1;
-            let start_addr = aligned_up(kram_start.addr(), align);
-            let end_addr = aligned_down(kram_end.addr() - PAGE_SIZE, align);
+            let start_addr = aligned_up(kram_start.addr(), PAGE_SIZE);
+            let end_addr = aligned_down(kram_end.addr() - PAGE_SIZE, PAGE_SIZE);
 
             let mut cur_ptr = end_addr as *mut u8;
             let start_ptr = start_addr as *mut u8;
 
             while start_ptr < cur_ptr {
                 // clears all tables
-                new.free(cur_ptr);
+                let _ = new.free(cur_ptr);
                 cur_ptr = cur_ptr.sub(PAGE_SIZE);
             }
         }

@@ -27,27 +27,24 @@ impl Context {
     /// # Safety
     pub fn new(entry: Entry, kstaktop: usize, tls_start: usize) -> Self {
         unsafe {
-            let frame_ptr = (kstaktop as *mut usize).sub(13);
-            let mut tp = *frame_ptr;
-            let mut ra = *frame_ptr.add(4);
-            let mut frame = (frame_ptr.add(8) as *mut [usize; 12]).read();
+            let frame_ptr = (kstaktop as *mut usize).sub(14);
+            let frame = &mut *(frame_ptr as *mut [usize; 14]);
+
+            // zero out registers
+            frame.copy_from_slice(&[0; 14]);
 
             match entry {
                 Entry::Kernel { entry } => {
-                    ra = thread_prolouge as *const fn() as usize;
+                    frame[13] = thread_prolouge as *const fn() as usize;
                     frame[0] = entry
                 }
                 Entry::User { entry, user_sp } => {
-                    // ra = user_thread_prolouge as usize;
                     frame[0] = entry;
                     frame[1] = user_sp;
                     frame[2] = kstaktop;
+                    // frame[13] = user_thread_prolouge as usize;
                 }
             }
-
-            (frame_ptr.add(8) as *mut &[usize]).write(&frame);
-            frame_ptr.add(4).write(ra);
-            frame_ptr.write(tp);
 
             Context {
                 thread_pointer: tls_start as *mut usize,
@@ -79,7 +76,7 @@ extern "C" fn thread_prolouge() {
 ///
 /// Never returns: `ra` still points at [`thread_prolouge`], so returning would re-run the entry.
 #[unsafe(no_mangle)]
-extern "C" fn thread_wrapper(entry: u32) -> ! {
+extern "C" fn thread_wrapper(entry: usize) -> ! {
     unsafe {
         let func_ptr = entry as *const ();
         let func: fn() -> () = core::mem::transmute(func_ptr);
