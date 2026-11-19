@@ -87,7 +87,7 @@ pub fn spawn_thread(pid: u32, name: &str, entry: usize) -> Result<ThreadId, Sche
         let _ = PROCESS_TABLE.wait().lock().drop_thread(id);
         return Err(err);
     }
-    debug!("Scheduled thread {id:?}:{name}@{entry:x}");
+    debug!("Scheduled thread {id:?}: {name}@0x{entry:x}");
     Ok(id)
 }
 /// Manually terminates the current thread
