@@ -38,8 +38,8 @@ impl SysOp for MemOp {
     ) -> Result<(), SyscallError> {
         match self {
             Self::Map => {
-                let (virt_addr, size, flags, perms, ..) = args;
-                let vaddr = mmap(ktx, virt_addr, size, flags, perms)?;
+                let (virt_addr, size, perms, ..) = args;
+                let vaddr = mmap(ktx, virt_addr, size, perms)?;
                 write_return!(ktx, vaddr);
                 Ok(())
             }
@@ -71,13 +71,12 @@ fn mmap(
     ktx: &mut KernelContext,
     virt_addr: usize,
     size: usize,
-    flags: usize,
     perms: usize,
 ) -> Result<usize, SyscallError> {
     let mut process = ktx.process()?;
     let perms = PagePermissions::from(perms as u8);
     process
-        .map_size(virt_addr, size, flags, perms)
+        .map_size(virt_addr, size, perms)
         .map_err(|err| SyscallError::Failed(err.to_string()))
 }
 

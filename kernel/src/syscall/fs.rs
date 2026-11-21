@@ -5,6 +5,7 @@ use alloc::{
     fmt::format,
     format,
     string::{String, ToString},
+    vec,
 };
 use fs::{
     collections::error::FSError,
@@ -19,7 +20,7 @@ use crate::{
         SyscallArgs,
         context::KernelContext,
         error::SyscallError,
-        op::{SysOp, exit, str_from_args},
+        op::{SysOp, copy_from_user, copy_to_user, exit, str_from_args},
     },
     write_return,
 };
@@ -59,15 +60,15 @@ impl SysOp for FsOp {
                 let volume = vfs
                     .get_volume(fo.volume_id())
                     .ok_or(SyscallError::Failed(format!("Invalid volume id")))?;
-                let buf_ptr = buf_addr as *mut u8;
-                let buf = core::slice::from_raw_parts_mut(buf_ptr, buf_len);
+                let mut buffer = vec![0; buf_len];
                 let rlen = volume
-                    .read(fo, buf)
+                    .read(fo, &mut buffer)
                     .map_err(|err| SyscallError::Failed(err.to_string()))?;
+                copy_to_user(&buffer, buf_addr)?;
                 write_return!(ktx, rlen);
                 return Ok(());
             },
-            Self::Write => unsafe {
+            Self::Write => {
                 let (fd, buf_addr, buf_len, ..) = args;
                 let mut process = ktx.process()?;
                 let fo = process
@@ -77,13 +78,13 @@ impl SysOp for FsOp {
                 let volume = vfs
                     .get_volume(fo.volume_id())
                     .ok_or(SyscallError::Failed(format!("Invalid volume id")))?;
-                let buf_ptr = buf_addr as *const u8;
-                let buf = core::slice::from_raw_parts(buf_ptr, buf_len);
+                let mut buffer = vec![0; buf_len];
+                copy_from_user(&mut buffer, buf_addr)?;
                 volume
-                    .write(fo, buf)
+                    .write(fo, &buffer)
                     .map_err(|err| SyscallError::Failed(format!("{err}")))?;
                 return Ok(());
-            },
+            }
             // close the file descriptor for this process
             Self::Close => {
                 let (fd, ..) = args;

@@ -5,7 +5,7 @@ use log::{error, warn};
 
 use crate::{
     sched::{
-        SCHEDULER,
+        self, SCHEDULER,
         scheduler::Scheduler,
         spawn_thread,
         thread::thread::{Priority, ThreadId},
@@ -27,6 +27,8 @@ pub enum ThreadOp {
     /// `priority`: runqueue priority of the thread \
     /// `entry`: address of entry function for this thread
     Spawn,
+    /// calls exit_current_thread!
+    Exit,
     // /// Causes the
     // Sleep,
     /// Forces the current thread to pause execution and requeue, giving CPU time to the next ready thread
@@ -56,6 +58,7 @@ impl SysOp for ThreadOp {
                     ))),
                 }
             }
+            Self::Exit => sched::exit_current_thread(),
             Self::Cancel => {
                 let (pid, tid, ..) = args;
                 let thread_id = ThreadId::new(pid as u32, tid as u32);

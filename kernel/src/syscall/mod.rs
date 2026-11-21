@@ -72,8 +72,8 @@ impl SysOp for Syscall {
             Self::Communication(op) => op.call(ktx, args),
         } {
             // Propagate a0 write to here, write Syscall err pointer to following args
-            let msg_ptr = err.to_string().as_ptr() as usize;
-            write_return!(ktx, msg_ptr);
+            log::error!("{err}");
+            // leave syscall exit code in a0 for the user
             return Err(err);
         }
         Ok(())
@@ -112,6 +112,11 @@ pub fn handle_ecall(frame: *mut usize) {
             return;
         }
     };
+    // Adcance Supervisor Exception Program Counter (sepc) by 4 bytes, a full instruction.
+    // otherwise sret will return to the ecall instruction and loop, pc is saved here on syscall
+    let reg = unsafe { &mut *(frame as *mut [usize; 32]) };
+    reg[29] += 4;
+
     match Syscall::try_from(id) {
         Ok(op) => {
             let _ = op.call(ktx, args);
@@ -127,6 +132,6 @@ pub fn load_args(id: &mut usize, ktx: &mut KernelContext) -> Result<SyscallArgs,
             "Failed to load syscall arguments".to_string(),
         ));
     };
-    *id = frame[12];
+    *id = a6;
     Ok((a0, a1, a2, a3, a4, a5))
 }
