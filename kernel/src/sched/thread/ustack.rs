@@ -4,6 +4,7 @@ use mem::{
     page_table::{
         address_space::{AddressSpace, Addresser},
         permissions::PagePermissions,
+        table::USER_VA_END,
     },
 };
 
@@ -14,7 +15,7 @@ use crate::sched::{
     thread::thread::{Thread, ThreadId},
 };
 
-pub const PROCESS_STACK_TOP: usize = 0x8000_0000;
+pub const PROCESS_STACK_TOP: usize = USER_VA_END;
 /// The user stack should be 12kib + 4kib guard page
 pub const USER_STACK_SIZE: usize = 0x3000;
 pub const USER_GUARD_SIZE: usize = 0x1000;
@@ -36,7 +37,7 @@ impl UserStack {
         let base = top - USER_STACK_SIZE;
         // guard is unmapped, prevents thread stack from writing to another. TODO: handle allocations with >0x1000 layouts
         let guard = top - region_size;
-        space.map_pages(base, STACK_PAGES, 0x0, PagePermissions::RWU)?;
+        space.map_pages(base, STACK_PAGES, PagePermissions::RWU)?;
         Ok(Self { base, top, guard })
     }
     pub fn free(&mut self, space: &mut AddressSpace) -> Result<(), MemoryError> {
