@@ -38,7 +38,6 @@ pub trait Addresser {
         &mut self,
         virt_addr: usize,
         num_pages: usize,
-        flags: usize,
         perms: PagePermissions,
     ) -> Result<(), MemoryError>;
     /// Translates a virtual address within this space to its corresponding physical address
@@ -202,7 +201,7 @@ impl AddressSpace {
         Ok(())
     }
     fn map_region(&mut self, region: &VirtualRegion) -> Result<(), MemoryError> {
-        self.map_pages(region.virt_addr, region.pages, 0, region.perms)
+        self.map_pages(region.virt_addr, region.pages, region.perms)
     }
     fn insert_region(&mut self, region: VirtualRegion) -> Result<(), MemoryError> {
         self.check_overlap(region.virt_addr, region.pages)?;
@@ -264,6 +263,9 @@ impl AddressSpace {
                 self.regions.remove(i + 1);
             }
         }
+    }
+    fn flags_from_perms(perms: PagePermissions) -> usize {
+        (perms.raw_flags() as usize) << 1
     }
 }
 
@@ -339,10 +341,10 @@ impl Addresser for AddressSpace {
         &mut self,
         virt_addr: usize,
         num_pages: usize,
-        flags: usize,
         perms: PagePermissions,
     ) -> Result<(), MemoryError> {
         self.check_overlap(virt_addr, num_pages)?;
+        let flags = Self::flags_from_perms(perms);
         let phys_addrs = unsafe { &mut *self.root_table }.map_size(
             self.page_allocator,
             virt_addr,

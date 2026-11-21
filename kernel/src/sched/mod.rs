@@ -76,10 +76,7 @@ pub fn spawn_thread(pid: u32, name: &str, entry: usize) -> Result<ThreadId, Sche
         .wait()
         .lock()
         .process_mut(pid)?
-        .spawn_thread(name, entry)
-        .ok_or(SchedError::Other(format!(
-            "Failed to spawn thread:{name}@{entry:x} on process {pid}"
-        )))?;
+        .spawn_thread(name, entry)?;
     let scheduled = SCHEDULER.wait().lock().schedule(id);
     if let Err(err) = scheduled {
         // cleanup on fail
@@ -105,5 +102,14 @@ pub fn yield_thread() {
     match context {
         Ok(c) => crate::sched::swap::switch_to(c),
         Err(err) => error!("Failed to yield thread: {err}"),
+    }
+}
+pub fn exit_current_thread() -> ! {
+    let mut sched = crate::sched::SCHEDULER.wait().lock();
+    sched.terminate_running();
+    unsafe {
+        loop {
+            core::arch::asm!("wfi");
+        }
     }
 }

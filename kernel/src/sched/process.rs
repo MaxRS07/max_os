@@ -1,7 +1,10 @@
 // Manages a process
 
 use core::{
+    arch::global_asm,
+    intrinsics::copy_nonoverlapping,
     ops::Div,
+    panicking::panic,
     ptr::{null, null_mut},
     sync::atomic::{AtomicU32, Ordering},
 };
@@ -24,7 +27,7 @@ use mem::{
         address_space::{AddressSpace, Addresser},
         asid::{ASID, ASIDAllocator},
         permissions::PagePermissions,
-        table::Table,
+        table::{Table, USER_VA_START},
     },
 };
 use sync::mutex::Mutex;
@@ -45,6 +48,13 @@ use crate::{
         },
     },
 };
+
+global_asm!(include_str!("user_test_start.s"));
+
+unsafe extern "C" {
+    unsafe fn user_test_start();
+    unsafe fn user_test_end();
+}
 
 pub static PROCESS_MAP_BASE: usize = 0x1_0000_0000;
 pub static PID_ALLOCATOR: AtomicU32 = AtomicU32::new(0);
@@ -137,15 +147,30 @@ impl Process {
         Ok(pid)
     }
     /// creates a new process
-    pub fn spawn(name: &str, entry: usize) -> Result<u32, SchedError> {
+    pub fn spawn(name: &str) -> Result<u32, SchedError> {
         let asid = ASID_ALLOCATOR
             .wait()
             .lock()
             .alloc_id()
             .ok_or(SchedError::Other(format!("No free ASIDs")))?; // TODO Make this not unwrap
-        let addr_space = AddressSpace::new(PAGE_ALLOCATOR.wait(), kernel_root(), asid, Vec::new())
-            .map_err(|memerr| SchedError::Other(format!("{memerr}")))?;
+        let mut addr_space =
+            AddressSpace::new(PAGE_ALLOCATOR.wait(), kernel_root(), asid, Vec::new())
+                .map_err(|memerr| SchedError::Other(format!("{memerr}")))?;
 
+        addr_space
+            .map_pages(USER_VA_START, 1, PagePermissions::RX)
+            .map_err(|err| SchedError::Other(err.to_string()))?;
+        let phys = addr_space
+            .translate(USER_VA_START)
+            .map_err(|err| SchedError::Other(err.to_string()))?;
+        unsafe {
+            let start = user_test_start as *const u8;
+            let end = user_test_end as *const u8;
+            let len = end as usize - start as usize;
+            debug_assert!(len < 0x1000, "Length of user code exceeds one page");
+            core::ptr::copy_nonoverlapping(start, phys as *mut u8, len);
+            core::arch::asm!("fence.i")
+        }
         let pid = alloc_pid();
         let process = Self::new(name, pid, addr_space);
 
@@ -156,7 +181,7 @@ impl Process {
         }
 
         // spawn_thread also schedules the thread
-        spawn_thread(pid, name, entry)?;
+        spawn_thread(pid, name, USER_VA_START)?;
         Ok(pid)
     }
     pub fn pid(&self) -> u32 {
@@ -175,7 +200,7 @@ impl Process {
         })
     }
     /// adds a new thread id to this thread's owned TIDs. If the thread ID is already present, returns [`Some`], returns [`None`] if the assignment was successful
-    pub fn spawn_thread(&mut self, name: &str, entry: usize) -> Option<ThreadId> {
+    pub fn spawn_thread(&mut self, name: &str, entry: usize) -> Result<ThreadId, SchedError> {
         let tid = match self.next_tid() {
             Some(id) => id,
             None => {
@@ -186,7 +211,10 @@ impl Process {
         let user_stack = if self.is_kernel() {
             None
         } else {
-            UserStack::alloc(tid, &mut self.address_space).ok()
+            Some(
+                UserStack::alloc(tid, &mut self.address_space)
+                    .map_err(|err| SchedError::OutOfResources(err.to_string()))?,
+            )
         };
         let thread = Thread::new(
             self.pid,
@@ -195,11 +223,10 @@ impl Process {
             Priority::Normal,
             user_stack,
             entry,
-        )
-        .ok()?;
+        )?;
         let id: ThreadId = thread.id;
         self.threads[tid] = Some(thread);
-        Some(id)
+        Ok(id)
     }
     pub fn next_tid(&self) -> Option<usize> {
         self.threads.iter().position(|t| t.is_none())
@@ -248,7 +275,6 @@ impl Process {
         &mut self,
         virt_addr: usize,
         size: usize,
-        flags: usize,
         perms: PagePermissions,
     ) -> Result<usize, mem::error::MemoryError> {
         let pages = size.div_ceil(0x1000);
@@ -261,8 +287,7 @@ impl Process {
                     "Failed to map pages to process, address space full",
                 ))?;
         }
-        self.address_space
-            .map_pages(virt_addr, pages, flags, perms)?;
+        self.address_space.map_pages(virt_addr, pages, perms)?;
         Ok(virt_addr)
     }
     /// Unmaps `size` from this process's address space beggining at `virt_addr`

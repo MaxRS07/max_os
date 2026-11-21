@@ -204,10 +204,10 @@ impl Thread {
         None
     }
     /// Tries to spawn a new thread under the current running process. Returns [`None`] if the current process is *null*
-    pub fn spawn_local(name: &str, entry: usize) -> Option<ThreadId> {
+    pub fn spawn_local(name: &str, entry: usize) -> Result<ThreadId, SchedError> {
         let pid = CURRENT_PROCESS.load(Ordering::Acquire);
         let mut process_table = PROCESS_TABLE.wait().lock();
-        let pmut = process_table.process_mut(pid).ok()?;
+        let pmut = process_table.process_mut(pid)?;
         pmut.spawn_thread(name, entry)
     }
     fn name_from_str(chars: &str) -> [u8; 16] {

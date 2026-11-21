@@ -37,9 +37,6 @@ unsafe extern "C" fn thread_context_switch(old_sp: *mut *mut usize, new_sp: *mut
         "sd sp, 0(a0)",
         // sditch stack pointer to new thread (a1)
         "mv sp, a1",
-        // set satp and flush tlb to use new mappign :)
-        "csrw satp, a2",
-        "sfence.vma x0, x0",
         // load the new threads registers back
         "ld s0,  0(sp)",
         "ld s1,  8(sp)",

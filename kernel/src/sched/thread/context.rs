@@ -35,14 +35,14 @@ impl Context {
 
             match entry {
                 Entry::Kernel { entry } => {
-                    frame[13] = thread_prolouge as *const fn() as usize;
+                    frame[13] = kernel_thread_prologue as *const fn() as usize;
                     frame[0] = entry
                 }
                 Entry::User { entry, user_sp } => {
                     frame[0] = entry;
                     frame[1] = user_sp;
                     frame[2] = kstaktop;
-                    // frame[13] = user_thread_prolouge as usize;
+                    frame[13] = user_thread_prologue as *const () as usize;
                 }
             }
 
@@ -69,14 +69,18 @@ impl Default for Context {
 }
 /// Loads the entry function into the first arg of the thread wrapper
 #[unsafe(naked)]
-extern "C" fn thread_prolouge() {
-    naked_asm!("csrsi sstatus, 2", "mv a0, s0", "tail thread_wrapper")
+extern "C" fn kernel_thread_prologue() {
+    naked_asm!(
+        "csrsi sstatus, 2",
+        "mv a0, s0",
+        "tail kernel_thread_wrapper"
+    )
 }
 /// Wraps the thread entry in a terminating function, disposing the thread after execution.
 ///
-/// Never returns: `ra` still points at [`thread_prolouge`], so returning would re-run the entry.
+/// Never returns: `ra` still points at [`kernel_thread_prologue`], so returning would re-run the entry.
 #[unsafe(no_mangle)]
-extern "C" fn thread_wrapper(entry: usize) -> ! {
+extern "C" fn kernel_thread_wrapper(entry: usize) -> ! {
     unsafe {
         let func_ptr = entry as *const ();
         let func: fn() -> () = core::mem::transmute(func_ptr);
@@ -98,4 +102,51 @@ extern "C" fn thread_wrapper(entry: usize) -> ! {
             core::arch::asm!("wfi");
         }
     }
+}
+
+#[unsafe(naked)]
+extern "C" fn user_thread_prologue() {
+    naked_asm!(
+        "csrci sstatus, 2",
+        "csrw sepc, s0",
+        // user bits
+        "li t0, (1 << 8)",
+        "csrc sstatus, t0",
+        "li t0, (1 << 5)",
+        "csrs sstatus, t0",
+        // write sscratch
+        "csrw sscratch, s2",
+        "mv sp, s1",
+        // zero frame to prevent kernel registers leaking
+        "mv a0, x0",
+        "mv a1, x0",
+        "mv a2, x0",
+        "mv a3, x0",
+        "mv a4, x0",
+        "mv a5, x0",
+        "mv a6, x0",
+        "mv a7, x0",
+        "mv t0, x0",
+        "mv t1, x0",
+        "mv t2, x0",
+        "mv t3, x0",
+        "mv t4, x0",
+        "mv t5, x0",
+        "mv t6, x0",
+        "mv s0, x0",
+        "mv s1, x0",
+        "mv s2, x0",
+        "mv s3, x0",
+        "mv s4, x0",
+        "mv s5, x0",
+        "mv s6, x0",
+        "mv s7, x0",
+        "mv s8, x0",
+        "mv s9, x0",
+        "mv s10, x0",
+        "mv s11, x0",
+        // s2 contains the top of the kernel stack
+        "mv tp, zero",
+        "sret",
+    )
 }
