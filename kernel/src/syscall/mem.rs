@@ -74,7 +74,7 @@ fn mmap(
     perms: usize,
 ) -> Result<usize, SyscallError> {
     let mut process = ktx.process()?;
-    let perms = PagePermissions::from(perms as u8);
+    let perms = PagePermissions::from(perms as u8 & 0b111);
     process
         .map_size(virt_addr, size, perms)
         .map_err(|err| SyscallError::Failed(err.to_string()))

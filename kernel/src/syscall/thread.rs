@@ -45,8 +45,9 @@ impl SysOp for ThreadOp {
     ) -> Result<(), SyscallError> {
         match self {
             Self::Spawn => {
-                let (pid, name, name_len, entry, ..) = args;
+                let (name, name_len, entry, ..) = args;
                 let name_str = unsafe { str_from_args(name, name_len)? };
+                let pid = ktx.process()?.pid();
                 match spawn_thread(pid as u32, name_str.as_str(), entry) {
                     Ok(id) => {
                         let tid = id.tid;

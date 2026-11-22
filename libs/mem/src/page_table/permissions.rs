@@ -12,7 +12,7 @@ impl PagePermissions {
     pub const USER: PagePermissions = PagePermissions(8);
 
     pub const RW: PagePermissions = PagePermissions(3);
-    pub const RX: PagePermissions = PagePermissions(6);
+    pub const RX: PagePermissions = PagePermissions(5);
     pub const RWU: PagePermissions = PagePermissions(11);
     pub const RWX: PagePermissions = PagePermissions(7);
     pub const RWXU: PagePermissions = PagePermissions(15);
@@ -42,7 +42,7 @@ impl BitAnd for PagePermissions {
 impl BitOr for PagePermissions {
     type Output = u8;
     fn bitor(self, rhs: Self) -> Self::Output {
-        self.0 & rhs.0
+        self.0 | rhs.0
     }
 }
 impl From<u8> for PagePermissions {

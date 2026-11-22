@@ -1,4 +1,4 @@
-.section .text
+.section .text.user_test, "ax"
 .align 2
 .global s_trap_entry
 s_trap_entry:
@@ -6,6 +6,7 @@ csrrw sp, sscratch, sp  # Swap stack pointer with sscratch
 bnez sp, 1f
 csrrw sp, sscratch, sp
 csrw sscratch, sp
+sd sscratch, 248(sp)  # Save sscratch to stack
 1:  addi sp, sp, -256
     sd ra,   0(sp)
     sd tp,   8(sp)
@@ -88,6 +89,6 @@ csrw sscratch, sp
     ld s10, 216(sp)
     ld s11, 224(sp)
     # Reset stack pointer back
-    addi sp, sp, 256
+    ld sp, 248(sp)
     # Jump to next instruction
     sret

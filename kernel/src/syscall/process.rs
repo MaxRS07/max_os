@@ -1,4 +1,4 @@
-use alloc::string::ToString;
+use alloc::{format, string::ToString};
 use log::error;
 use sync::mutex;
 
@@ -45,14 +45,14 @@ impl SysOp for ProcessOp {
                 Ok(())
             }
             Self::Spawn => {
-                let (name_ptr, len, entry, ..) = args;
+                let (name_ptr, len, ..) = args;
                 let name = unsafe { str_from_args(name_ptr, len) }?;
-                match Process::spawn(name.as_str(), entry) {
-                    Ok(pid) => unsafe {
+                match Process::spawn(name.as_str()) {
+                    Ok(pid) => {
                         // exit 0 with value write
                         write_return!(ktx, pid);
                         Ok(())
-                    },
+                    }
                     Err(msg) => Err(SyscallError::Failed(msg.to_string())),
                 }
             }
@@ -68,7 +68,12 @@ impl SysOp for ProcessOp {
             }
             Self::Kill => {
                 let (pid, ..) = args;
-                let process = ktx.remove_process(pid as u32)?;
+                if pid == 0 {
+                    return Err(SyscallError::InvalidArg(format!(
+                        "Cannot kill kernel process"
+                    )));
+                }
+                ktx.remove_process(pid as u32)?;
                 Ok(())
             }
             Self::Wait => todo!(),

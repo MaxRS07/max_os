@@ -7,11 +7,18 @@ pub(crate) trait SysOp: Sized + TryFrom<usize, Error = SyscallError> {
     fn call(&self, ktx: &mut KernelContext, args: SyscallArgs) -> Result<(), SyscallError>;
 }
 
+const ARG_MAX_LENGTH: usize = 0xFF;
+
 /* Arg Helpers */
 // TODO: Move to the syscall library
 
 /// TODO: check for user page permissions. IMPORTANT
 pub unsafe fn str_from_args(address: usize, len: usize) -> Result<String, SyscallError> {
+    if len > ARG_MAX_LENGTH {
+        return Err(SyscallError::InvalidArg(format!(
+            "Arg string exceeds max length: {len} > 255"
+        )));
+    }
     let mut buffer = vec![0u8; len];
     copy_from_user(&mut buffer, address)?;
     let byte_str = str::from_utf8(&buffer).map_err(|err| {
@@ -52,7 +59,7 @@ fn check_user_range(src: usize, len: usize) -> Result<(), SyscallError> {
         .ok_or(SyscallError::InvalidArg(format!(
             "Read len 0x{len:x}, too large for src: 0x{src:x}. Overflows"
         )))?;
-    if src >= USER_VA_START && range_end < USER_VA_END {
+    if src >= USER_VA_START && range_end <= USER_VA_END {
         Ok(())
     } else {
         Err(SyscallError::Failed(format!(

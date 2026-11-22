@@ -76,7 +76,7 @@ impl Table {
     ) -> Result<(), MemoryError> {
         Self::check_align(virt_addr, page_size)?;
         TableEntry::check_user_flags(flags)?;
-        if flags & TableEntry::USER == 1 {
+        if flags & TableEntry::USER != 0 {
             Self::check_range(virt_addr)?;
         }
         let virt_addr = aligned_down(virt_addr, LEAF_SIZE);
@@ -287,15 +287,28 @@ impl Table {
     }
     /// deallocates the user L0 tables, freeing the physical pages
     pub fn free_user_pages(&mut self, page_allocator: &dyn Pager) {
-        self.pages[USER_ROOT_START..USER_ROOT_END]
-            .iter()
-            .for_each(|entry| {
-                if !entry.is_leaf() {
-                    return;
-                }
-                let phys_ptr = entry.addr() as *mut u8;
-                let _ = page_allocator.free(phys_ptr);
-            });
+        for page in self.pages[USER_ROOT_START..USER_ROOT_END].iter_mut() {
+            Self::free_entry(page, 2, page_allocator);
+        }
+        unsafe {
+            core::arch::asm!("sfence.vma");
+        }
+    }
+    /// Recurively frees entries
+    fn free_entry(entry: &mut TableEntry, level: usize, page_allocator: &dyn Pager) {
+        if !entry.is_valid() {
+            return;
+        }
+        if entry.is_leaf() {
+            let _ = page_allocator.free(entry.addr() as *mut u8);
+        } else if level > 0 {
+            let child = unsafe { &mut *(entry.addr() as *mut Self) };
+            for e in child.pages.iter_mut() {
+                Self::free_entry(e, level - 1, page_allocator);
+            }
+            let _ = page_allocator.free(child as *mut Table as *mut u8);
+        }
+        entry.clear();
     }
     /// Checks if any entries in the table are valid
     ///

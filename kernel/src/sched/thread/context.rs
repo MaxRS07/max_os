@@ -118,6 +118,8 @@ extern "C" fn user_thread_prologue() {
         "csrw sscratch, s2",
         "mv sp, s1",
         // zero frame to prevent kernel registers leaking
+        "mv ra, x0",
+        "mv gp, x0",
         "mv a0, x0",
         "mv a1, x0",
         "mv a2, x0",
