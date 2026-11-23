@@ -14,5 +14,5 @@ members = [
     "libs/sdt",
     "libs/sync",
     "libs/time",
-    "libs/virtio",
+    "libs/virtio", "user", "userspace",
 ]
