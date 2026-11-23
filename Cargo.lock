@@ -3,6 +3,10 @@
 version = 4
 
 [[package]]
+name = "abi"
+version = "0.1.0"
+
+[[package]]
 name = "block"
 version = "0.1.0"
 
@@ -37,6 +41,7 @@ version = "0.1.0"
 name = "max_os"
 version = "0.1.0"
 dependencies = [
+ "abi",
  "block",
  "collections",
  "fs",
@@ -88,6 +93,10 @@ version = "0.1.0"
 dependencies = [
  "time",
 ]
+
+[[package]]
+name = "syscall"
+version = "0.1.0"
 
 [[package]]
 name = "time"

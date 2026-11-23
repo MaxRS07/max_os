@@ -1,5 +1,9 @@
 use core::{arch::asm, ops::DerefMut};
 
+use abi::{
+    error::SyscallError,
+    op::{ComOp, DevOp, FsOp, MemOp, ProcessOp, ThreadOp},
+};
 use alloc::string::ToString;
 use log::{debug, error, warn};
 
@@ -7,15 +11,8 @@ use crate::{
     drivers::time::GLOBAL_TIME,
     fs::{GLOBAL_FS, call},
     syscall::{
-        com::ComOp,
         context::{KernelContext, TrapFrame},
-        device::DevOp,
-        error::SyscallError,
-        fs::FsOp,
-        mem::MemOp,
         op::SysOp,
-        process::ProcessOp,
-        thread::ThreadOp,
     },
     write_return,
 };

@@ -1,12 +1,6 @@
-use crate::syscall::{SyscallArgs, error::SyscallError, op::SysOp};
+use abi::op::ComOp;
 
-pub enum ComOp {
-    Pipe,
-    Socket,
-    Shmget,
-    Semget,
-    Msgget,
-}
+use crate::syscall::{SyscallArgs, error::SyscallError, op::SysOp};
 
 impl SysOp for ComOp {
     fn call(
@@ -15,20 +9,6 @@ impl SysOp for ComOp {
         args: SyscallArgs,
     ) -> Result<(), SyscallError> {
         Ok(())
-    }
-}
-
-impl TryFrom<usize> for ComOp {
-    type Error = SyscallError;
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        Ok(match value {
-            0 => Self::Pipe,
-            1 => Self::Socket,
-            2 => Self::Msgget,
-            4 => Self::Semget,
-            5 => Self::Msgget,
-            _ => return Err(SyscallError::InvalidOperation("ComOp", value)),
-        })
     }
 }
 

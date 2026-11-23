@@ -1,3 +1,5 @@
+use abi::op::DevOp;
+
 use crate::{
     drivers::power::sys_poweroff,
     syscall::{
@@ -6,12 +8,6 @@ use crate::{
         op::SysOp,
     },
 };
-
-/// Device operation syscalls
-pub enum DevOp {
-    Poweroff,
-    Test,
-}
 
 impl SysOp for DevOp {
     fn call(
@@ -30,16 +26,5 @@ impl SysOp for DevOp {
                 Ok(())
             }
         }
-    }
-}
-
-impl TryFrom<usize> for DevOp {
-    type Error = SyscallError;
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        Ok(match value {
-            0 => Poweroff,
-            1 => Test,
-            _ => return Err(SyscallError::InvalidOperation("DevOp", value)),
-        })
     }
 }

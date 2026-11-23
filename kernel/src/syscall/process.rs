@@ -1,3 +1,4 @@
+use abi::op::ProcessOp;
 use alloc::{format, string::ToString};
 use log::error;
 use sync::mutex;
@@ -10,27 +11,6 @@ use crate::{
     },
     write_return,
 };
-
-/// Operations for creating, querying, and managing processes
-pub enum ProcessOp {
-    /// Returns the current PID
-    CurrentPid = 0,
-    /// Creates and registers a new blank process
-    /// ## Args:
-    /// 0. `name`: The pointer to the name str \
-    /// 1. `name_len`: The length of the name in chars
-    /// 2. ``
-    Spawn = 1,
-    /// Clones the current process into the process table, returning the clone's PID
-    Fork = 2,
-    /// Blocks this process until a child exits
-    /// `pid>0`: waits for child with `pid` to exit
-    /// `pid=0`: waits for any process to exit
-    /// `pid=-1`:
-    Wait = 3,
-    /// Kills a process and terminates child threads
-    Kill = 4,
-}
 
 impl SysOp for ProcessOp {
     fn call(
@@ -78,19 +58,5 @@ impl SysOp for ProcessOp {
             }
             Self::Wait => todo!(),
         }
-    }
-}
-
-impl TryFrom<usize> for ProcessOp {
-    type Error = SyscallError;
-    fn try_from(value: usize) -> Result<Self, SyscallError> {
-        Ok(match value {
-            0 => Self::CurrentPid,
-            1 => Self::Spawn,
-            2 => Self::Fork,
-            3 => Self::Wait,
-            4 => Self::Kill,
-            _ => return Err(SyscallError::InvalidOperation("ProcessOp", value)),
-        })
     }
 }

@@ -1,5 +1,6 @@
 use core::arch::asm;
 
+use abi::op::ThreadOp;
 use alloc::{borrow::ToOwned, format, string::ToString};
 use log::{error, warn};
 
@@ -16,26 +17,6 @@ use crate::{
     },
     write_return, yield_thread,
 };
-
-/// Threading and process control system call operations
-pub enum ThreadOp {
-    /// Spawns a thread
-    /// ## args:
-    /// `pid`: Parent process id, \
-    /// `name`: address of string pointer \
-    /// `name_len`: length of name string \
-    /// `priority`: runqueue priority of the thread \
-    /// `entry`: address of entry function for this thread
-    Spawn,
-    /// calls exit_current_thread!
-    Exit,
-    // /// Causes the
-    // Sleep,
-    /// Forces the current thread to pause execution and requeue, giving CPU time to the next ready thread
-    Yield,
-    /// Cancels a thread, deallocating the used resources and space. If the specified thread is currently running the next ready thread will replace it
-    Cancel,
-}
 
 impl SysOp for ThreadOp {
     fn call(
@@ -74,18 +55,5 @@ impl SysOp for ThreadOp {
             }
             Self::Yield => Ok(yield_thread()),
         }
-    }
-}
-
-impl TryFrom<usize> for ThreadOp {
-    type Error = SyscallError;
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        Ok(match value {
-            0 => Self::Spawn,
-            1 => Self::Yield,
-            2 => Self::Cancel,
-            _ => return Err(SyscallError::InvalidOperation("ThreadOp", value)),
-        })
     }
 }

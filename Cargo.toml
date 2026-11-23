@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "kernel",
+    "kernel", "libs/abi",
     "libs/block",
     "libs/collections",
     "libs/fs",
@@ -12,7 +12,7 @@ members = [
     "libs/mmio",
     "libs/net",
     "libs/sdt",
-    "libs/sync",
+    "libs/sync", "libs/syscall",
     "libs/time",
     "libs/virtio", 
     "user",

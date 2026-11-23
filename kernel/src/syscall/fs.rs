@@ -1,5 +1,6 @@
 use core::str::{self, FromStr};
 
+use abi::op::FsOp;
 use alloc::{
     borrow::ToOwned,
     fmt::format,
@@ -24,15 +25,6 @@ use crate::{
     },
     write_return,
 };
-
-/// File system operations
-pub enum FsOp {
-    Open,
-    Read,
-    Write,
-    Close,
-    Seek,
-}
 
 impl SysOp for FsOp {
     fn call(&self, ktx: &mut KernelContext, args: SyscallArgs) -> Result<(), SyscallError> {
@@ -119,19 +111,6 @@ impl SysOp for FsOp {
                 }
             }
         }
-    }
-}
-impl TryFrom<usize> for FsOp {
-    type Error = SyscallError;
-    fn try_from(value: usize) -> Result<Self, super::error::SyscallError> {
-        Ok(match value {
-            0 => Self::Open,
-            1 => Self::Read,
-            2 => Self::Write,
-            3 => Self::Close,
-            4 => Self::Seek,
-            _ => return Err(SyscallError::InvalidOperation("FsOp", value)),
-        })
     }
 }
 

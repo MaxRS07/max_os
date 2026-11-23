@@ -1,3 +1,4 @@
+use abi::op::MemOp;
 use alloc::{format, string::ToString};
 use log::error;
 use mem::{error::MemoryError, page_table::permissions::PagePermissions};
@@ -7,28 +8,6 @@ use crate::{
     syscall::{Syscall, context::KernelContext, error::SyscallError, op::SysOp},
     write_return,
 };
-
-pub enum MemOp {
-    /// Maps a physical memory region into the virtual address space of the current process.
-    ///
-    /// ## Args
-    ///
-    /// * `virt_addr` - Target virtual memory address to map.
-    /// * `size` - Size of the mapping in bytes.
-    /// * `phys_addr` - Source physical address to map, or `0` to let the kernel allocate physical pages.
-    /// * `flags` - Page flags
-    /// * `perms` - Page permissions; `0`: Read, `1`: Write, `2`: Execute, 3: `User`
-    Map,
-    /// Unmaps a virtual memory region from this process, freeing the physical addresses
-    ///
-    /// ## Args
-    ///
-    /// * `virt_addr` - Target virtual memory address to unmap.
-    /// * `size` - The number of bytes to unmap
-    Unmap,
-    Lock,
-    Unlock,
-}
 
 impl SysOp for MemOp {
     fn call(
@@ -49,20 +28,6 @@ impl SysOp for MemOp {
             }
             Self::Lock | Self::Unlock => Err(SyscallError::InvalidOperation("MemOp", 0)),
         }
-    }
-}
-
-impl TryFrom<usize> for MemOp {
-    type Error = SyscallError;
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        Ok(match value {
-            0 => Self::Map,
-            1 => Self::Unmap,
-            2 => Self::Lock,
-            3 => Self::Unlock,
-            _ => return Err(SyscallError::InvalidOperation("MemOp", value)),
-        })
     }
 }
 
