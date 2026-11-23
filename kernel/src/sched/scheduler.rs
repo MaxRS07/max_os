@@ -19,6 +19,8 @@ use crate::sched::{
 
 pub static CURRENT_PROCESS: AtomicU32 = AtomicU32::new(0);
 
+static mut DEAD_SP: *mut usize = core::ptr::null_mut();
+
 /// Ochestrates multiple thread queues, schedules CPU time per process
 pub struct Scheduler {
     running: Option<ThreadId>,
@@ -68,10 +70,27 @@ impl Scheduler {
         };
 
         let Some(running_id) = self.running else {
-            let _ = self.queue.enque(next_ready_id);
-            return Err(SchedError::Other(
-                "No running thread, failed to swap context".to_owned(),
-            ));
+            let mut table = PROCESS_TABLE.wait().lock();
+            let switch = (|| {
+                let new_satp = Some(table.process(next_ready_id.pid)?.address_space().satp());
+                let next = table.thread_mut(next_ready_id)?;
+                next.state = State::Running;
+                Ok((new_satp, next.context.stack_pointer))
+            })();
+            let (new_satp, new_sp) = match switch {
+                Ok(v) => v,
+                Err(e) => {
+                    self.queue.enque(next_ready_id)?;
+                    return Err(e);
+                }
+            };
+            CURRENT_PROCESS.store(next_ready_id.pid, Ordering::Release);
+            self.running = Some(next_ready_id);
+            return Ok(ThreadContextSwitch {
+                new_satp,
+                new_sp,
+                old_sp_ptr: &raw mut DEAD_SP,
+            });
         };
 
         // usages of ts need to be in blocks to guarentee the guards are dropped after use

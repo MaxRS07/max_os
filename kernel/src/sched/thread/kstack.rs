@@ -66,12 +66,7 @@ impl KernelStack {
     // }
 
     pub fn free(&self) {
-        for offset in 0..self.layout.size().div_ceil(0x1000) {
-            let ptr = unsafe { self.tls().add(0x1000 * offset) };
-            unsafe {
-                alloc::alloc::dealloc(ptr, self.layout);
-            }
-        }
+        unsafe { alloc::alloc::dealloc(self.base.as_ptr(), self.layout) };
         // alloc::alloc::dealloc(ptr, layout); TODO: FREE GUARD
     }
 }

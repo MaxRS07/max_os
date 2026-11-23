@@ -15,8 +15,8 @@ where
 
     /// Sets the bit at position `bit` to `value` (1 or 0)
     pub fn set_value(&mut self, bit: usize, value: bool) {
-        let bits = 64;
-        let index = bits / bit;
+        let bits: usize = 64;
+        let index = bits.checked_div(bit).unwrap_or(0);
         let bit_index = bit % bits;
         if value {
             self.store.as_mut()[index] |= (1 << bit_index)
@@ -34,8 +34,8 @@ where
     }
     /// Returns true if the bit at position `bit` is equal to `1`
     pub fn is_used(&self, bit: usize) -> bool {
-        let bits = 64;
-        let index = bits / bit;
+        let bits: usize = 64;
+        let index = bits.checked_div(bit).unwrap_or(0);
         let bit_index = bit % bits;
         self.store.as_ref()[index] & (1 << bit_index) != 0
     }

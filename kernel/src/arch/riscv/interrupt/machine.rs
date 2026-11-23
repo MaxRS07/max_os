@@ -4,7 +4,7 @@ use log::warn;
 
 use crate::{
     arch::riscv::{
-        csr::Csr::{MEPC, MIE, MIP, MSTATUS, MTVAL, MTVEC},
+        csr::Csr::{MEPC, MIE, MIP, MSCRATCH, MTVAL, MTVEC},
         interrupt::{
             handler::{QTICK, schedule_interrupt_timer},
             route::{ExceptionCode, InterruptCode, Trap, parse_mcause},
@@ -14,7 +14,15 @@ use crate::{
     syscall::handle_ecall,
 };
 
+#[repr(align(16))]
+struct MStack([u8; 0x1000]);
+static mut M_STACK: MStack = MStack([0; 0x1000]);
+
 pub fn init_m_trap_handler() {
+    let top = unsafe { (&raw mut M_STACK).add(1) } as usize; // end of the array
+    unsafe {
+        MSCRATCH.write(top);
+    }
     let mie_stie = 1 << 7;
     let mie_mask = mie_stie;
 
@@ -37,6 +45,7 @@ unsafe extern "C" fn m_trap_entry() {
     // save registers
     naked_asm!(
         // Create 128 byte region for register saving
+        "csrrw sp, mscratch, sp",
         "addi sp, sp, -256",
         "sd ra,  0(sp)",
         "sd tp,  8(sp)",
@@ -102,7 +111,8 @@ unsafe extern "C" fn m_trap_entry() {
         // reset stack pointer back, can overwrite these registers
         "addi sp, sp, 256",
         // jump to next intruction
-        "mret"
+        "csrrw sp, mscratch, sp",
+        "mret",
     );
 }
 

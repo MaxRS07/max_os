@@ -13,7 +13,7 @@ use crate::{
     drivers::time::GLOBAL_TIME,
     fs::GLOBAL_FS,
     sched::{
-        PROCESS_TABLE, SCHEDULER,
+        PROCESS_TABLE, SCHEDULER, ZOMBIE_PROCESSES,
         process::{Process, ProcessTable},
         scheduler::CURRENT_PROCESS,
     },
@@ -60,8 +60,7 @@ impl KernelContext {
             .wait()
             .lock()
             .remove_process(pid)
-            .map_err(|err| SyscallError::Failed(err.to_string()))?;
-        Ok(SCHEDULER.wait().lock().remove_process_threads(pid))
+            .map_err(|err| SyscallError::Failed(err.to_string()))
     }
     pub fn vfs(&self) -> Result<RefMut<'_, Vfs<'static>>, SyscallError> {
         let mut slot = self

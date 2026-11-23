@@ -14,6 +14,7 @@ use crate::{
         page_alloc::Pager,
         permissions::PagePermissions,
         table::{PageSize, Table, USER_ROOT_END},
+        table_entry::TableEntry,
     },
 };
 
@@ -177,7 +178,6 @@ impl AddressSpace {
             // copy 1-1 physical mapping if the pages are readonly
             // something something partial faliure
             if let Err(err) = fork_space.clone_region(region) {
-                let _ = fork_space.destroy();
                 return Err(err);
             }
         }
@@ -265,7 +265,7 @@ impl AddressSpace {
         }
     }
     fn flags_from_perms(perms: PagePermissions) -> usize {
-        (perms.raw_flags() as usize) << 1
+        (perms.raw_flags() as usize) << 1 | TableEntry::USER
     }
 }
 

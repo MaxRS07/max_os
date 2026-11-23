@@ -4,7 +4,6 @@ use core::{
     arch::global_asm,
     intrinsics::copy_nonoverlapping,
     ops::Div,
-    panicking::panic,
     ptr::{null, null_mut},
     sync::atomic::{AtomicU32, Ordering},
 };
@@ -37,10 +36,10 @@ use crate::{
     kernel_main,
     mm::heap::PAGE_ALLOCATOR,
     sched::{
-        ASID_ALLOCATOR, KERNEL_ROOT, PROCESS_TABLE, SCHEDULER,
+        self, ASID_ALLOCATOR, KERNEL_ROOT, PROCESS_TABLE, SCHEDULER, ZOMBIE_PROCESSES,
         error::SchedError,
         kernel_root,
-        scheduler::CURRENT_PROCESS,
+        scheduler::{CURRENT_PROCESS, Scheduler},
         spawn_thread,
         thread::{
             thread::{Priority, Thread, ThreadId},
@@ -57,7 +56,7 @@ unsafe extern "C" {
 }
 
 pub static PROCESS_MAP_BASE: usize = 0x1_0000_0000;
-pub static PID_ALLOCATOR: AtomicU32 = AtomicU32::new(0);
+pub static PID_ALLOCATOR: AtomicU32 = AtomicU32::new(1);
 /// Process table for pid -> process lookup.
 pub struct ProcessTable {
     table: BTreeMap<u32, Process>,
@@ -73,11 +72,11 @@ impl ProcessTable {
         self.process_mut(id.pid)?.thread_mut(id.tid)
     }
     /// removes the process with pid `pid` from the table and deallocates all fields
-    pub fn remove_process(&mut self, pid: u32) -> Result<(), SchedError> {
-        self.table
-            .remove(&pid)
-            .map(|mut process| process.destroy())
-            .ok_or(SchedError::BadPid(pid))
+    pub fn remove_process(&mut self, pid: u32) -> Result<usize, SchedError> {
+        let process = self.table.remove(&pid).ok_or(SchedError::BadPid(pid))?;
+        ZOMBIE_PROCESSES.lock().push(process);
+        let removed = SCHEDULER.wait().lock().remove_process_threads(pid);
+        Ok(removed)
     }
     /// drops and cleans up the thread with id: `thread_id`, removing it from it's parent process. Returns [`None`] if the thread was not found.
     pub fn drop_thread(&mut self, id: ThreadId) -> Result<(), SchedError> {
@@ -329,6 +328,15 @@ impl Process {
     }
     pub fn is_kernel(&self) -> bool {
         self.pid == 0
+    }
+}
+
+impl Drop for Process {
+    fn drop(&mut self) {
+        ASID_ALLOCATOR
+            .wait()
+            .lock()
+            .set_free(self.address_space.asid().value() as usize);
     }
 }
 

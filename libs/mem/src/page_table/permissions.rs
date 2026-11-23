@@ -14,6 +14,7 @@ impl PagePermissions {
     pub const RW: PagePermissions = PagePermissions(3);
     pub const RX: PagePermissions = PagePermissions(5);
     pub const RWU: PagePermissions = PagePermissions(11);
+    pub const RXU: PagePermissions = PagePermissions(13);
     pub const RWX: PagePermissions = PagePermissions(7);
     pub const RWXU: PagePermissions = PagePermissions(15);
 

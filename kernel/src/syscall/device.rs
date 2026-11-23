@@ -20,7 +20,10 @@ impl SysOp for DevOp {
         args: super::SyscallArgs,
     ) -> Result<(), SyscallError> {
         match self {
-            Poweroff => Ok(sys_poweroff()),
+            Poweroff => Ok({
+                log::info!("Shutting down...");
+                sys_poweroff()
+            }),
             Test => {
                 let process = ktx.process()?.pid();
                 log::info!("Test called by process with id: {process}");

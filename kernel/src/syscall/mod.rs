@@ -1,7 +1,7 @@
 use core::{arch::asm, ops::DerefMut};
 
 use alloc::string::ToString;
-use log::{error, warn};
+use log::{debug, error, warn};
 
 use crate::{
     drivers::time::GLOBAL_TIME,

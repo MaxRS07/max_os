@@ -6,11 +6,13 @@ csrrw sp, sscratch, sp  # Swap stack pointer with sscratch
 bnez sp, 1f
 csrrw sp, sscratch, sp
 csrw sscratch, sp
-sd sscratch, 248(sp)  # Save sscratch to stack
+
 1:  addi sp, sp, -256
     sd ra,   0(sp)
     sd tp,   8(sp)
     sd t0,  16(sp)
+    csrr t0, sscratch  # Save sscratch to stack
+    sd t0, 248(sp)
     sd t1,  24(sp)
     sd t2,  32(sp)
     sd a0,  40(sp)

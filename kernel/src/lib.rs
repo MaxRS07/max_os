@@ -21,7 +21,7 @@ use crate::{
     arch::riscv::{self, interrupt::handler::schedule_interrupt_timer},
     drivers::{block::BLOCK_DEVICE, time::GLOBAL_TIME},
     mm::{_boot_stack_bottom, _boot_stack_top},
-    sched::{SCHEDULER, spawn_thread, yield_thread},
+    sched::{SCHEDULER, ZOMBIE_PROCESSES, process::Process, spawn_thread, yield_thread},
 };
 
 global_asm!(include_str!("boot.s"));
@@ -67,11 +67,15 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
         }
         info!("Scheduler initialized");
     }
-    // enable hardware timer
+    match Process::spawn("user_test") {
+        Ok(pid) => info!("Spawned user process with pid: {pid}"),
+        Err(err) => error!("Failed to spawn user process: {err}"),
+    }
     let _ = spawn_thread(0, "thread_a", thread_a_entry as *const fn() as usize);
     let _ = spawn_thread(0, "thread_b", thread_b_entry as *const fn() as usize);
     loop {
         unsafe {
+            ZOMBIE_PROCESSES.lock().clear();
             core::arch::asm!("wfi", options(nomem, nostack, preserves_flags));
         }
     }
@@ -80,7 +84,7 @@ pub extern "C" fn kernel_main(hart_id: usize, fdt_ptr: *const u8) -> ! {
 pub fn thread_a_entry() {
     let start = GLOBAL_TIME.wait().now_ms();
     info!("Thread A entered");
-    while !GLOBAL_TIME.wait().elapsed_ms(start, 5_000) {
+    while !GLOBAL_TIME.wait().elapsed_ms(start, 500) {
         let now = GLOBAL_TIME.wait().now_ms();
         let time = now - start;
         info!("yielding, {time} ms elapsed");

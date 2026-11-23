@@ -5,7 +5,12 @@ use core::{
     sync::atomic::{AtomicPtr, Ordering, fence},
 };
 
-use alloc::{boxed::Box, fmt::format, format, vec::Vec};
+use alloc::{
+    boxed::Box,
+    fmt::format,
+    format,
+    vec::{self, Vec},
+};
 use log::{debug, error, info, warn};
 use mem::{
     error::MemoryError,
@@ -41,6 +46,8 @@ pub static ASID_ALLOCATOR: OnceLock<Mutex<ASIDBitmapSV32>> = OnceLock::new();
 pub static SCHEDULER: OnceLock<Mutex<Scheduler>> = OnceLock::new();
 /// Global process table
 pub static PROCESS_TABLE: OnceLock<Mutex<ProcessTable>> = OnceLock::new();
+/// Zombie processes, holding before deallocation
+pub static ZOMBIE_PROCESSES: Mutex<Vec<Process>> = Mutex::new(Vec::new());
 /// The root kernel table, the base mapping will be copied onto all threads
 pub static KERNEL_ROOT: OnceLock<usize> = OnceLock::new();
 

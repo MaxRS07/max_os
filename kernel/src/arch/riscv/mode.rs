@@ -31,7 +31,7 @@ pub fn enable_user_mode(hart_id: usize, fdt_ptr: *const u8) {
         let mideleg = 0x222;
         MIDELEG.write(mideleg);
 
-        let medeleg = 0xB000;
+        let medeleg = 0xB1ff;
         MEDELEG.write(medeleg);
 
         fence(Ordering::SeqCst);
