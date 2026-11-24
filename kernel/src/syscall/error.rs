@@ -38,11 +38,3 @@ impl Display for SyscallError {
         }
     }
 }
-
-impl From<Errno> for SyscallError {
-    fn from(value: Errno) -> Self {
-        match value {
-            Errno::Busy => Self::Busy(),
-        }
-    }
-}

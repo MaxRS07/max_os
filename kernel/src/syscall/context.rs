@@ -17,10 +17,8 @@ use crate::{
         process::{Process, ProcessTable},
         scheduler::CURRENT_PROCESS,
     },
-    syscall::error::SyscallError,
+    syscall::{error::SyscallError, trap_frame::TrapFrame},
 };
-
-pub type TrapFrame = [usize; 32];
 
 // Context for the syscall operations
 /// Kernel context struct

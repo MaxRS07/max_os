@@ -1,9 +1,10 @@
+use abi::error::Errno;
 use alloc::{format, string::String, vec};
 use mem::page_table::table::{USER_VA_END, USER_VA_START};
 
 use crate::syscall::{self, SyscallArgs, context::KernelContext, error::SyscallError};
 
-pub(crate) trait SysOp: Sized + TryFrom<usize, Error = SyscallError> {
+pub(crate) trait SysOp: Sized + TryFrom<usize, Error = Errno> {
     fn call(&self, ktx: &mut KernelContext, args: SyscallArgs) -> Result<(), SyscallError>;
 }
 
@@ -32,25 +33,13 @@ pub fn exit(ktx: &mut KernelContext, code: isize) {
     // write first return to a0
     // bytewise convert to usize, a0 is always the exit code
     // and will be interpereted as isize in userspace
-    frame[5] = usize_bytes(code);
-}
-/// performs a bitwise conversion from isize to usize
-fn usize_bytes(value: isize) -> usize {
-    usize::from_ne_bytes(value.to_ne_bytes())
+    frame.a[0] = usize_bytes(code);
 }
 
-#[macro_export]
 macro_rules! write_return {
-    ( $ktx:expr, $( $val:expr ),+ $(,)? ) => {{
-        let ktx: &$crate::syscall::context::KernelContext = $ktx;
-        let frame = ktx.trap_frame();
-        let mut reg = 6; // a1
-        $(
-            core::debug_assert!(reg <= 12, "write_return! takes at most 7 values (a1-a7)");
-            frame[reg] = ($val) as usize;
-            reg += 1;
-        )+
-    }};
+    ($ktx:expr, $($val:expr),+ $(,)?) => {
+        $ktx.trap_frame().set_returns([$(($val) as usize),+])
+    };
 }
 
 fn check_user_range(src: usize, len: usize) -> Result<(), SyscallError> {

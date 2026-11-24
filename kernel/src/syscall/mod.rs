@@ -1,20 +1,17 @@
 use core::{arch::asm, ops::DerefMut};
 
 use abi::{
-    error::SyscallError,
+    call::Syscall,
+    error::Errno,
     op::{ComOp, DevOp, FsOp, MemOp, ProcessOp, ThreadOp},
 };
 use alloc::string::ToString;
 use log::{debug, error, warn};
 
 use crate::{
-    drivers::time::GLOBAL_TIME,
-    fs::{GLOBAL_FS, call},
-    syscall::{
-        context::{KernelContext, TrapFrame},
-        op::SysOp,
-    },
-    write_return,
+    drivers::time::GLOBAL_TIME, fs::{GLOBAL_FS, call}, syscall::{
+        context::{KernelContext, TrapFrame}, error::SyscallError, op::SysOp, trap_frame::TrapFrame,
+    }, write_return,
 };
 
 mod com;
@@ -26,37 +23,10 @@ mod mem;
 mod op;
 mod process;
 mod thread;
-
-/// top 8 bits for identifing the call type
-const SYSCALL_MASK: usize = 0xFF << (usize::BITS - 8);
-/// lower 24 for function routing
-const FN_MASK: usize = !SYSCALL_MASK;
+mod trap_frame;
 
 /// arguments 1-6. these come from the a0-5 registers.
 type SyscallArgs = (usize, usize, usize, usize, usize, usize);
-
-/// Kernel operations that can be called with userspace interrupts.
-///
-/// # Types
-/// ## 0 - Device
-/// 0. Poweroff: Saves registers and performs poweroff sequence
-/// ## 1 - Communication
-/// ## 2 -
-#[repr(usize)]
-enum Syscall {
-    /// physical device control
-    Device(DevOp) = 0,
-    /// allocation, mapping and physical memory locking
-    Memory(MemOp) = 1,
-    /// File IO & disk access
-    FileSystem(FsOp) = 2,
-    /// Threading operations
-    Thread(ThreadOp) = 3,
-    /// Process configuration and control
-    Process(ProcessOp) = 4,
-    /// network
-    Communication(ComOp) = 5,
-}
 
 impl SysOp for Syscall {
     fn call(&self, ktx: &mut KernelContext, args: SyscallArgs) -> Result<(), SyscallError> {
@@ -76,28 +46,6 @@ impl SysOp for Syscall {
         Ok(())
     }
 }
-impl TryFrom<usize> for Syscall {
-    type Error = SyscallError;
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        let call_type = (value & SYSCALL_MASK) >> (usize::BITS - 8);
-        let fn_type = value & FN_MASK;
-
-        Syscall::from_call_fn(call_type, fn_type)
-    }
-}
-impl Syscall {
-    pub fn from_call_fn(call_type: usize, fn_type: usize) -> Result<Self, SyscallError> {
-        Ok(match call_type {
-            0 => Syscall::Device(DevOp::try_from(fn_type)?),
-            1 => Syscall::Memory(MemOp::try_from(fn_type)?),
-            2 => Syscall::FileSystem(FsOp::try_from(fn_type)?),
-            3 => Syscall::Thread(ThreadOp::try_from(fn_type)?),
-            4 => Syscall::Process(ProcessOp::try_from(fn_type)?),
-            5 => Syscall::Communication(ComOp::try_from(fn_type)?),
-            _ => return Err(SyscallError::InvalidCall(call_type)),
-        })
-    }
-}
 
 pub fn handle_ecall(frame: *mut usize) {
     let ktx = &mut KernelContext::new(frame);
@@ -111,24 +59,30 @@ pub fn handle_ecall(frame: *mut usize) {
     };
     // Adcance Supervisor Exception Program Counter (sepc) by 4 bytes, a full instruction.
     // otherwise sret will return to the ecall instruction and loop, pc is saved here on syscall
-    let reg = unsafe { &mut *(frame as *mut [usize; 32]) };
-    reg[29] += 4;
+    let reg = unsafe { &mut *(frame as *mut TrapFrame) };
+    reg.s[11] += 4;
 
     match Syscall::try_from(id) {
         Ok(op) => {
-            let _ = op.call(ktx, args);
+            match op.call(ktx, args) {
+                Ok() => 
+            }
         }
-        Err(msg) => warn!("{msg}"),
+        Err(no) => {
+            let code = no as isize;
+            warn!("Call on {id} exited with code: {code}");
+        }
     }
 }
 /// Loads the syscall registers from frame and returns them
 pub fn load_args(id: &mut usize, ktx: &mut KernelContext) -> Result<SyscallArgs, SyscallError> {
     let frame = ktx.trap_frame();
-    let [a0, a1, a2, a3, a4, a5, a6, ..] = frame[5..12] else {
+    let [a0, a1, a2, a3, a4, a5, a6, a7, ..] = frame[5..13] else {
         return Err(SyscallError::InvalidArg(
             "Failed to load syscall arguments".to_string(),
         ));
     };
-    *id = a6;
+    *id = a7;
+    // a6 unused to match riscv convention
     Ok((a0, a1, a2, a3, a4, a5))
 }
