@@ -11,3 +11,15 @@ pub enum Errno {
     Busy = -4,
     Failed = -5,
 }
+
+impl Errno {
+    pub fn from_raw(value: isize) -> Self {
+        match value {
+            -1 => Self::InvalidCall,
+            -2 => Self::InvalidOp,
+            -3 => Self::InvalidArg,
+            -4 => Self::Busy,
+            -5 | _ => Self::Failed, // todo: phase out this error
+        }
+    }
+}
