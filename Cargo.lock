@@ -97,6 +97,9 @@ dependencies = [
 [[package]]
 name = "syscall"
 version = "0.1.0"
+dependencies = [
+ "abi",
+]
 
 [[package]]
 name = "time"
