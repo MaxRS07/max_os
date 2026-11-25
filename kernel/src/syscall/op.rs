@@ -1,4 +1,4 @@
-use abi::error::Errno;
+use abi::{error::Errno, helper::as_usize_bytes};
 use alloc::{format, string::String, vec};
 use mem::page_table::table::{USER_VA_END, USER_VA_START};
 
@@ -33,9 +33,10 @@ pub fn exit(ktx: &mut KernelContext, code: isize) {
     // write first return to a0
     // bytewise convert to usize, a0 is always the exit code
     // and will be interpereted as isize in userspace
-    frame.a[0] = usize_bytes(code);
+    frame.a[0] = as_usize_bytes(code);
 }
 
+#[macro_export]
 macro_rules! write_return {
     ($ktx:expr, $($val:expr),+ $(,)?) => {
         $ktx.trap_frame().set_returns([$(($val) as usize),+])

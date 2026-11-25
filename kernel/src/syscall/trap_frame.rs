@@ -4,18 +4,18 @@ use core::ops::{Index, IndexMut};
 pub struct TrapFrame {
     pub ra: usize, // 0
     pub tp: usize, // 8
-    pub t0: usize, // 16
+    pub t0: usize,
     pub t1: usize,
     pub t2: usize,
-    pub a: [usize; 8], // 40..104   a0?a7, so args are a[0..6], id is a[6]
-    pub t3: usize,     // 104
+    pub a: [usize; 8], // args are a[0..5], a6 reserved, id is a[7]
+    pub t3: usize,
     pub t4: usize,
     pub t5: usize,
     pub t6: usize,
-    pub s: [usize; 12], // 136..232  s0?s11
-    pub sepc: usize,    // 232
-    pub sstatus: usize, // 240
-    pub sp: usize,      // 248       interrupted sp (user or kernel)
+    pub s: [usize; 12],
+    pub sepc: usize,
+    pub sstatus: usize,
+    pub sp: usize,
 }
 impl TrapFrame {
     pub fn syscall_id(&self) -> usize {

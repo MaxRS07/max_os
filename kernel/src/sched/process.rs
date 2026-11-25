@@ -128,8 +128,9 @@ impl Process {
         Ok(0)
     }
     /// Forks this process with a new name and entry, copying the address space
-    pub fn fork(&self, name: &str, entry: usize) -> Result<u32, SchedError> {
+    pub fn fork(&self, name: &str) -> Result<u32, SchedError> {
         // Clone the address space
+        let name_str = if name.len() > 0 { name } else { &self.name };
         let fork_asid = ASID_ALLOCATOR
             .wait()
             .lock()
@@ -140,9 +141,8 @@ impl Process {
             .fork(kernel_root(), fork_asid)
             .map_err(|err| SchedError::OutOfResources(err.to_string()))?;
         let pid = alloc_pid();
-        let process = Self::new(name, pid, address_space);
+        let process = Self::new(name_str, pid, address_space);
         PROCESS_TABLE.wait().lock().insert(process);
-        spawn_thread(pid, name, entry)?;
         Ok(pid)
     }
     /// creates a new process

@@ -1,7 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "kernel", "libs/abi",
+    "kernel", 
+    "libs/abi",
     "libs/block",
     "libs/collections",
     "libs/fs",

@@ -5,17 +5,12 @@ use alloc::{borrow::ToOwned, format, string::ToString};
 use log::{error, warn};
 
 use crate::{
-    sched::{
-        self, SCHEDULER,
-        scheduler::Scheduler,
-        spawn_thread,
-        thread::thread::{Priority, ThreadId},
-    },
+    sched::{self, SCHEDULER, spawn_thread, thread::thread::ThreadId},
     syscall::{
         error::SyscallError,
-        op::{SysOp, exit, str_from_args},
+        op::{SysOp, str_from_args},
     },
-    write_return, yield_thread,
+    yield_thread,
 };
 
 impl SysOp for ThreadOp {

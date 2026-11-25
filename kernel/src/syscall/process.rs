@@ -1,5 +1,8 @@
 use abi::op::ProcessOp;
-use alloc::{format, string::ToString};
+use alloc::{
+    format,
+    string::{String, ToString},
+};
 use log::error;
 use sync::mutex;
 
@@ -7,7 +10,7 @@ use crate::{
     sched::process::Process,
     syscall::{
         error::SyscallError,
-        op::{SysOp, exit, str_from_args},
+        op::{SysOp, str_from_args},
     },
     write_return,
 };
@@ -37,11 +40,15 @@ impl SysOp for ProcessOp {
                 }
             }
             Self::Fork => {
-                let (name_ptr, name_len, entry, ..) = args;
-                let name = unsafe { str_from_args(name_ptr, name_len)? };
+                let (name_ptr, name_len, ..) = args;
+                let name = if name_len > 0 && name_ptr != 0 {
+                    unsafe { str_from_args(name_ptr, name_len)? }
+                } else {
+                    String::new()
+                };
                 let pid = ktx
                     .process()?
-                    .fork(&name, entry)
+                    .fork(&name)
                     .map_err(|error| SyscallError::Failed(error.to_string()))?;
                 write_return!(ktx, pid);
                 Ok(())

@@ -96,6 +96,7 @@ impl TryFrom<usize> for ThreadOp {
             0 => Self::Spawn,
             1 => Self::Yield,
             2 => Self::Cancel,
+            3 => Self::Exit,
             _ => return Err(Errno::InvalidOp),
         })
     }

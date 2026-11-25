@@ -1,6 +1,11 @@
 use abi::error::Errno;
 
-pub(crate) fn syscall(
+use crate::{CALL_MASK, CALL_SHIFT, OP_MASK};
+
+pub const fn syscall_id(id: usize, op: usize) -> usize {
+    ((id << CALL_SHIFT) & CALL_MASK) | (op & OP_MASK)
+}
+pub unsafe fn raw_syscall(
     arg0: usize,
     arg1: usize,
     arg2: usize,
@@ -14,13 +19,14 @@ pub(crate) fn syscall(
     unsafe {
         core::arch::asm!(
             "ecall",
-            inlateout("a0") args[0] as isize => code,
-            inlateout("a1") args[1] => out,
-            in("a2") args[2],
-            in("a3") args[3],
-            in("a4") args[4],
-            in("a5") args[5],
-            in("a7") id,
+            inlateout("a0") arg0 as isize => code,
+            inlateout("a1") arg1 => out,
+            inlateout("a2") arg2 => _,
+            inlateout("a3") arg3 => _,
+            inlateout("a4") arg4 => _,
+            inlateout("a5") arg5 => _,
+            lateout("a6") _,
+            inlateout("a7") id => _,
             options(nostack),
         );
     }
